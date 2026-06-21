@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "modbus-connection"
+version = "0.1.0"
+description = "A small, backend-neutral Modbus connection abstraction (pymodbus / tmodbus)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "home-assistant-libs" }]
+keywords = ["modbus", "pymodbus", "tmodbus", "home-assistant"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: System :: Hardware",
+]
+dependencies = []
+
+[project.optional-dependencies]
+pymodbus = ["pymodbus[serial]>=3.11,<3.12"]
+tmodbus = ["tmodbus>=0.3", "serialx>=0.1"]
+
+[project.urls]
+Homepage = "https://github.com/home-assistant-libs/modbus-connection"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pymodbus[serial]>=3.11,<3.12",
+    "tmodbus>=0.3",
+    "serialx>=0.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modbus_connection"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["src"]

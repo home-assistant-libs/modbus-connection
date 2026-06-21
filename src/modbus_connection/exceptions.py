@@ -1,0 +1,33 @@
+"""Exceptions raised by modbus_connection backends.
+
+These are backend-neutral: both the pymodbus and tmodbus implementations map
+their library-specific errors onto this small hierarchy, so consumers catch the
+same types regardless of which backend is in use.
+"""
+
+
+class ModbusError(Exception):
+    """Base class for every error raised by a modbus_connection backend."""
+
+
+class ModbusConnectionError(ModbusError):
+    """The link is down: not connected, connection lost, or transport failure."""
+
+
+class ModbusTimeoutError(ModbusError):
+    """The request was sent but no (valid) response arrived in time."""
+
+
+class ModbusExceptionError(ModbusError):
+    """The device answered with a Modbus exception response (a valid error PDU).
+
+    ``exception_code`` is the raw Modbus exception code (1 = illegal function,
+    2 = illegal data address, 3 = illegal data value, ...). It is ``None`` only
+    when the backend could not decode a specific code.
+    """
+
+    def __init__(self, exception_code: int | None, message: str | None = None) -> None:
+        self.exception_code = exception_code
+        super().__init__(
+            message or f"Device returned Modbus exception code {exception_code}"
+        )
