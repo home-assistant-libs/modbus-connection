@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import struct
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest

@@ -41,7 +41,9 @@ COILS: dict[int, bool] = {0: True, 1: False, 2: True, 56: True}
 DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
 
 
-def _block_from(mapping: dict[int, int | bool], size: int = 2200) -> ModbusSequentialDataBlock:
+def _block_from(
+    mapping: dict[int, int | bool], size: int = 2200
+) -> ModbusSequentialDataBlock:
     # pymodbus' datastore is 1-based: a protocol read of address N hits block
     # index N+1. Shift values right by one so protocol address N returns the
     # value we mapped to N.

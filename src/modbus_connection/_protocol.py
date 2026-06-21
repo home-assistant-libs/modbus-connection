@@ -78,9 +78,7 @@ class ModbusUnit(Protocol):
     async def get_comm_event_counter(self) -> tuple[int, int]: ...  # 0x0B
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
 
 
@@ -99,9 +97,7 @@ class ModbusConnection(Protocol):
 
     def for_unit(self, unit_id: int) -> ModbusUnit: ...
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Owner-level drop callback; returns an unsubscribe."""
 
     # Teardown — OWNER ONLY. There is no connect(): the instance is already live

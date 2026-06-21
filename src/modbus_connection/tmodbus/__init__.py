@@ -49,7 +49,9 @@ __all__ = [
 ]
 
 
-def _registers_to_value(registers: list[int], fmt: str, word_order: WordOrder) -> object:
+def _registers_to_value(
+    registers: list[int], fmt: str, word_order: WordOrder
+) -> object:
     ordered = list(reversed(registers)) if word_order == "little" else registers
     raw = b"".join(int(reg).to_bytes(2, "big") for reg in ordered)
     return struct.unpack(">" + fmt, raw)[0]
@@ -76,9 +78,7 @@ class TmodbusConnection:
     def for_unit(self, unit_id: int) -> TmodbusUnit:
         return TmodbusUnit(self, self._client.for_unit_id(unit_id))
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._lost_callbacks.append(callback)
 
         def unsubscribe() -> None:
@@ -103,7 +103,7 @@ class TmodbusConnection:
             except TModbusConnectionError as err:
                 self._notify_lost()
                 raise ModbusConnectionError(str(err)) from err
-            except (RequestRetryFailedError, asyncio.TimeoutError) as err:
+            except (TimeoutError, RequestRetryFailedError) as err:
                 raise ModbusTimeoutError(str(err)) from err
             except ModbusResponseError as err:
                 raise ModbusExceptionError(int(err.error_code)) from err
@@ -114,7 +114,9 @@ class TmodbusConnection:
 class TmodbusUnit:
     """A stateless per-unit handle over a unit-bound tmodbus client."""
 
-    def __init__(self, connection: TmodbusConnection, client: AsyncModbusClient) -> None:
+    def __init__(
+        self, connection: TmodbusConnection, client: AsyncModbusClient
+    ) -> None:
         self._conn = connection
         self._client = client
 
@@ -268,9 +270,7 @@ class TmodbusUnit:
             "tmodbus does not implement get-comm-event-log (FC 0x0C)"
         )
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
 
 
@@ -305,7 +305,7 @@ async def connect_tcp(
     )
     try:
         await client.connect()
-    except (TModbusConnectionError, OSError, asyncio.TimeoutError) as err:
+    except (TimeoutError, TModbusConnectionError, OSError) as err:
         raise ModbusConnectionError(f"could not connect to {host}:{port}") from err
     return TmodbusConnection(client)
 
@@ -334,6 +334,6 @@ async def connect_serial(
     )
     try:
         await client.connect()
-    except (TModbusConnectionError, OSError, asyncio.TimeoutError) as err:
+    except (TimeoutError, TModbusConnectionError, OSError) as err:
         raise ModbusConnectionError(f"could not open serial port {port}") from err
     return TmodbusConnection(client)

@@ -79,9 +79,7 @@ class PymodbusConnection:
     def for_unit(self, unit_id: int) -> PymodbusUnit:
         return PymodbusUnit(self, unit_id)
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._lost_callbacks.append(callback)
 
         def unsubscribe() -> None:
@@ -193,9 +191,7 @@ class PymodbusUnit:
         return [bool(bit) for bit in response.bits[:count]]
 
     async def write_coil(self, address: int, value: bool) -> None:
-        await self._conn._request(
-            "write_coil", address, value, device_id=self._unit_id
-        )
+        await self._conn._request("write_coil", address, value, device_id=self._unit_id)
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
         await self._conn._request(
@@ -206,15 +202,11 @@ class PymodbusUnit:
 
     async def read_uint16(self, address: int) -> int:
         registers = await self.read_holding_registers(address, 1)
-        return int(
-            ModbusClientMixin.convert_from_registers(registers, DATATYPE.UINT16)
-        )
+        return int(ModbusClientMixin.convert_from_registers(registers, DATATYPE.UINT16))
 
     async def read_int16(self, address: int) -> int:
         registers = await self.read_holding_registers(address, 1)
-        return int(
-            ModbusClientMixin.convert_from_registers(registers, DATATYPE.INT16)
-        )
+        return int(ModbusClientMixin.convert_from_registers(registers, DATATYPE.INT16))
 
     async def read_uint32(self, address: int, *, word_order: WordOrder = "big") -> int:
         registers = await self.read_holding_registers(address, 2)
@@ -315,9 +307,7 @@ class PymodbusUnit:
             "read_file_record", records=[request_record], device_id=self._unit_id
         )
         data = response.records[0].record_data
-        return [
-            int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)
-        ]
+        return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
     async def write_file_record(
         self, file: int, record: int, values: list[int]
@@ -356,9 +346,7 @@ class PymodbusUnit:
         )
         return b"".join(int(event).to_bytes(1, "big") for event in response.events)
 
-    def on_connection_lost(
-        self, callback: Callable[[], None]
-    ) -> Callable[[], None]:
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
 
 
