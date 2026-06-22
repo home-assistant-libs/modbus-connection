@@ -1,0 +1,57 @@
+"""connect_tcp(framer="rtu") talks RTU-over-TCP (transparent gateways)."""
+
+from __future__ import annotations
+
+import asyncio
+import socket
+from collections.abc import AsyncIterator
+
+import pytest
+from pymodbus import FramerType
+from pymodbus.datastore import (
+    ModbusDeviceContext,
+    ModbusSequentialDataBlock,
+    ModbusServerContext,
+)
+from pymodbus.server import ModbusTcpServer
+
+from modbus_connection.pymodbus import connect_tcp
+
+UNIT_ID = 246
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+async def rtu_server() -> AsyncIterator[tuple[str, int]]:
+    """A server that frames RTU-over-TCP, like a serial-to-Ethernet gateway."""
+    values = [0] * 10
+    values[0 + 1] = 5579  # pymodbus datastore is 1-based; protocol addr 0 -> model
+    device = ModbusDeviceContext(hr=ModbusSequentialDataBlock(0, values))
+    context = ModbusServerContext(devices={UNIT_ID: device}, single=False)
+    host, port = "127.0.0.1", _free_port()
+    server = ModbusTcpServer(context, framer=FramerType.RTU, address=(host, port))
+    task = asyncio.create_task(server.serve_forever())
+    await asyncio.sleep(0.2)
+    try:
+        yield host, port
+    finally:
+        await server.shutdown()
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+async def test_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
+    host, port = rtu_server
+    conn = await connect_tcp(host, port=port, framer="rtu")
+    try:
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await conn.close()

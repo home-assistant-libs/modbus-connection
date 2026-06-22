@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import Literal
 
+from pymodbus import FramerType
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
 from pymodbus.client.base import ModbusBaseClient
 from pymodbus.client.mixin import ModbusClientMixin
@@ -33,6 +35,8 @@ from ..exceptions import (
 )
 
 DATATYPE = ModbusClientMixin.DATATYPE
+
+Framing = Literal["socket", "rtu"]
 
 __all__ = [
     "PymodbusConnection",
@@ -356,8 +360,13 @@ async def connect_tcp(
     port: int = 502,
     timeout: float = 3,
     name: str = "modbus_connection",
+    framer: Framing = "socket",
 ) -> PymodbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection and return a live handle.
+
+    ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
+    (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
+    gateways speak (the bytes on the wire are plain Modbus RTU frames).
 
     Raises ``ModbusConnectionError`` if the connection cannot be established. The
     connection does not self-reconnect (``reconnect_delay=0``): on loss the owner
@@ -370,6 +379,7 @@ async def connect_tcp(
         timeout=timeout,
         name=name,
         reconnect_delay=0,
+        framer=FramerType.RTU if framer == "rtu" else FramerType.SOCKET,
         trace_connect=connection._on_trace_connect,
     )
     PymodbusConnection.__init__(connection, client)
