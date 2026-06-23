@@ -136,14 +136,12 @@ class TmodbusUnit:
     # -- raw register I/O -----------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        return list(
-            await self._conn._call(self._client.read_holding_registers(address, count))
+        return await self._conn._call(
+            self._client.read_holding_registers(address, count)
         )
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        return list(
-            await self._conn._call(self._client.read_input_registers(address, count))
-        )
+        return await self._conn._call(self._client.read_input_registers(address, count))
 
     async def write_register(self, address: int, value: int) -> None:
         await self._conn._call(self._client.write_single_register(address, value))
@@ -154,12 +152,10 @@ class TmodbusUnit:
     # -- raw coil / discrete-input I/O ----------------------------------------
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        return list(await self._conn._call(self._client.read_coils(address, count)))
+        return await self._conn._call(self._client.read_coils(address, count))
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        return list(
-            await self._conn._call(self._client.read_discrete_inputs(address, count))
-        )
+        return await self._conn._call(self._client.read_discrete_inputs(address, count))
 
     async def write_coil(self, address: int, value: bool) -> None:
         await self._conn._call(self._client.write_single_coil(address, value))
@@ -229,21 +225,17 @@ class TmodbusUnit:
         write_address: int,
         write_values: list[int],
     ) -> list[int]:  # 0x17
-        return list(
-            await self._conn._call(
-                self._client.read_write_multiple_registers(
-                    read_address, read_count, write_address, write_values
-                )
+        return await self._conn._call(
+            self._client.read_write_multiple_registers(
+                read_address, read_count, write_address, write_values
             )
         )
 
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
-        return list(await self._conn._call(self._client.read_fifo_queue(address)))
+        return await self._conn._call(self._client.read_fifo_queue(address))
 
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
-        return dict(
-            await self._conn._call(self._client.read_device_identification(1, 0))
-        )
+        return await self._conn._call(self._client.read_device_identification(1, 0))
 
     async def read_file_record(
         self, file: int, record: int, length: int

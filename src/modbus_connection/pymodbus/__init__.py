@@ -154,13 +154,13 @@ class PymodbusUnit:
         response = await self._conn._request(
             "read_holding_registers", address, count=count, device_id=self._unit_id
         )
-        return list(response.registers)
+        return response.registers
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         response = await self._conn._request(
             "read_input_registers", address, count=count, device_id=self._unit_id
         )
-        return list(response.registers)
+        return response.registers
 
     async def write_register(self, address: int, value: int) -> None:
         await self._conn._request(
@@ -178,13 +178,13 @@ class PymodbusUnit:
         response = await self._conn._request(
             "read_coils", address, count=count, device_id=self._unit_id
         )
-        return [bool(bit) for bit in response.bits[:count]]
+        return response.bits[:count]
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
         response = await self._conn._request(
             "read_discrete_inputs", address, count=count, device_id=self._unit_id
         )
-        return [bool(bit) for bit in response.bits[:count]]
+        return response.bits[:count]
 
     async def write_coil(self, address: int, value: bool) -> None:
         await self._conn._request("write_coil", address, value, device_id=self._unit_id)
@@ -279,19 +279,19 @@ class PymodbusUnit:
             values=write_values,
             device_id=self._unit_id,
         )
-        return list(response.registers)
+        return response.registers
 
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
         response = await self._conn._request(
             "read_fifo_queue", address=address, device_id=self._unit_id
         )
-        return list(response.values)
+        return response.values
 
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
         response = await self._conn._request(
             "read_device_information", device_id=self._unit_id
         )
-        return dict(response.information)
+        return response.information
 
     async def read_file_record(
         self, file: int, record: int, length: int
