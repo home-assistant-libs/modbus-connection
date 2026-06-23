@@ -10,7 +10,6 @@ Requires the ``[tmodbus]`` extra.
 
 from __future__ import annotations
 
-import asyncio
 import struct
 from collections.abc import Awaitable, Callable
 from typing import Literal, TypeVar
@@ -71,11 +70,15 @@ def _value_to_registers(value: object, fmt: str, word_order: WordOrder) -> list[
 
 
 class TmodbusConnection:
-    """A live, internally-serialized tmodbus connection."""
+    """A live tmodbus connection.
+
+    Request serialization is tmodbus's job: the smart transport added by its
+    client factories holds a lock around each send/receive, so this wrapper adds
+    none of its own.
+    """
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
-        self._lock = asyncio.Lock()
         self._lost_callbacks: list[Callable[[], None]] = []
 
     @property
@@ -104,18 +107,17 @@ class TmodbusConnection:
             callback()
 
     async def _call(self, awaitable: Awaitable[_T]) -> _T:
-        async with self._lock:
-            try:
-                return await awaitable
-            except TModbusConnectionError as err:
-                self._notify_lost()
-                raise ModbusConnectionError(str(err)) from err
-            except (TimeoutError, RequestRetryFailedError) as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except ModbusResponseError as err:
-                raise ModbusExceptionError(int(err.error_code)) from err
-            except TModbusError as err:
-                raise ModbusError(str(err)) from err
+        try:
+            return await awaitable
+        except TModbusConnectionError as err:
+            self._notify_lost()
+            raise ModbusConnectionError(str(err)) from err
+        except (TimeoutError, RequestRetryFailedError) as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except ModbusResponseError as err:
+            raise ModbusExceptionError(int(err.error_code)) from err
+        except TModbusError as err:
+            raise ModbusError(str(err)) from err
 
 
 class TmodbusUnit:

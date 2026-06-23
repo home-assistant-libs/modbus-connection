@@ -63,15 +63,16 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
 
 
 class PymodbusConnection:
-    """A live, internally-serialized pymodbus connection.
+    """A live pymodbus connection.
 
     Created by ``connect_tcp`` / ``connect_serial``; never instantiated directly
-    by consumers. Owns the single request lock and the ``close()`` lifecycle.
+    by consumers. Owns the ``close()`` lifecycle. Request serialization is
+    pymodbus's job: its transaction manager already holds a per-client lock for
+    the full request/response cycle, so this wrapper adds none of its own.
     """
 
     def __init__(self, client: ModbusBaseClient) -> None:
         self._client = client
-        self._lock = asyncio.Lock()
         self._lost_callbacks: list[Callable[[], None]] = []
 
     # -- spec surface ---------------------------------------------------------
@@ -109,17 +110,16 @@ class PymodbusConnection:
 
     async def _request(self, method: str, *args: object, **kwargs: object) -> ModbusPDU:
         client_method = getattr(self._client, method)
-        async with self._lock:
-            if not self._client.connected:
-                raise ModbusConnectionError("connection is not established")
-            try:
-                response = await client_method(*args, **kwargs)
-            except ConnectionException as err:
-                raise ModbusConnectionError(str(err)) from err
-            except ModbusIOException as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except ModbusException as err:
-                raise ModbusError(str(err)) from err
+        if not self._client.connected:
+            raise ModbusConnectionError("connection is not established")
+        try:
+            response = await client_method(*args, **kwargs)
+        except ConnectionException as err:
+            raise ModbusConnectionError(str(err)) from err
+        except ModbusIOException as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except ModbusException as err:
+            raise ModbusError(str(err)) from err
         if response.isError():
             if isinstance(response, ExceptionResponse):
                 raise ModbusExceptionError(response.exception_code)
@@ -127,17 +127,16 @@ class PymodbusConnection:
         return response
 
     async def _execute(self, request: ModbusPDU) -> ModbusPDU:
-        async with self._lock:
-            if not self._client.connected:
-                raise ModbusConnectionError("connection is not established")
-            try:
-                response = await self._client.execute(False, request)
-            except ConnectionException as err:
-                raise ModbusConnectionError(str(err)) from err
-            except ModbusIOException as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except ModbusException as err:
-                raise ModbusError(str(err)) from err
+        if not self._client.connected:
+            raise ModbusConnectionError("connection is not established")
+        try:
+            response = await self._client.execute(False, request)
+        except ConnectionException as err:
+            raise ModbusConnectionError(str(err)) from err
+        except ModbusIOException as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except ModbusException as err:
+            raise ModbusError(str(err)) from err
         if response.isError():
             if isinstance(response, ExceptionResponse):
                 raise ModbusExceptionError(response.exception_code)

@@ -30,7 +30,10 @@ makes that sharing possible while keeping the backend swappable: the
 - A connection is **transient** and **owner-held**. A backend *connect function*
   returns a live, already-connected instance — there is no `connect()` on the
   object.
-- The connection owns the single `asyncio.Lock` that serializes every request.
+- Requests are serialized per connection — but by the backend library, not by
+  this wrapper: pymodbus's transaction manager and tmodbus's smart transport
+  each hold a lock for the full request/response cycle, so concurrent unit calls
+  on one connection can't interleave.
 - The connection does **not** self-reconnect. On a drop it fires
   `on_connection_lost` (best-effort) and stops; recreating it is the owner's job.
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
