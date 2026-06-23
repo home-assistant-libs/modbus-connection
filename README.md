@@ -85,6 +85,38 @@ Both backends raise the same neutral types:
 - `ModbusExceptionError` — device returned a Modbus exception response
   (`.exception_code` carries the raw code).
 
+## Testing
+
+An in-memory mock backend ships as a `pytest` plugin (auto-registered via an
+entry point — no `conftest` wiring). It implements the same Protocols, so code
+typed against `ModbusUnit` runs against it unchanged.
+
+```python
+async def test_reads_setpoint(mock_modbus_unit):
+    mock_modbus_unit.holding[40] = 1234            # single value
+    mock_modbus_unit.holding[2] = [0x0001, 0x86A0]  # list -> consecutive registers
+    mock_modbus_unit.holding[9] = lambda: 7         # callable -> evaluated per read
+
+    assert await mock_modbus_unit.read_uint16(40) == 1234
+    assert await mock_modbus_unit.read_uint32(2) == 100000
+```
+
+Reads resolve against the per-space stores (`holding`, `input`, `coils`,
+`discrete_inputs`); writes mutate them and fire `on_write` callbacks, so a test
+can react to a write by mocking other registers:
+
+```python
+def test_command_sets_ready(mock_modbus_unit):
+    def respond(event):
+        if event.address == 0:          # a command was written
+            mock_modbus_unit.holding[100] = 1   # device flips its "ready" flag
+    mock_modbus_unit.on_write(respond)
+```
+
+Fixtures: `mock_modbus_connection` (a `MockModbusConnection`) and
+`mock_modbus_unit` (its unit 1). `MockModbusConnection` / `MockModbusUnit` are
+also importable from `modbus_connection.mock` for direct construction.
+
 ## Develop
 
 ```bash

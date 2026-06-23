@@ -22,6 +22,9 @@ dependencies = []
 pymodbus = ["pymodbus[serial]>=3.11,<3.12"]
 tmodbus = ["tmodbus>=0.3", "serialx>=0.1"]
 
+[project.entry-points.pytest11]
+modbus_connection = "modbus_connection.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/home-assistant-libs/modbus-connection"
 
