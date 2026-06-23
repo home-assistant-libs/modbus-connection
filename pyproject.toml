@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "modbus-connection"
-version = "0.1.0"
+version = "1.0.0"
 description = "A small, backend-neutral Modbus connection abstraction (pymodbus / tmodbus)."
 readme = "README.md"
 requires-python = ">=3.12"
