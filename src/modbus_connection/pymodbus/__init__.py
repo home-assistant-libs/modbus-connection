@@ -9,7 +9,6 @@ Requires the ``[pymodbus]`` extra.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import Literal
 
@@ -96,9 +95,7 @@ class PymodbusConnection:
         return unsubscribe
 
     async def close(self) -> None:
-        result = self._client.close()
-        if asyncio.iscoroutine(result):
-            await result
+        self._client.close()
 
     # -- internals ------------------------------------------------------------
 
@@ -110,8 +107,6 @@ class PymodbusConnection:
 
     async def _request(self, method: str, *args: object, **kwargs: object) -> ModbusPDU:
         client_method = getattr(self._client, method)
-        if not self._client.connected:
-            raise ModbusConnectionError("connection is not established")
         try:
             response = await client_method(*args, **kwargs)
         except ConnectionException as err:
@@ -127,8 +122,6 @@ class PymodbusConnection:
         return response
 
     async def _execute(self, request: ModbusPDU) -> ModbusPDU:
-        if not self._client.connected:
-            raise ModbusConnectionError("connection is not established")
         try:
             response = await self._client.execute(False, request)
         except ConnectionException as err:

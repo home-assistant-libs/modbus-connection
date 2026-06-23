@@ -154,18 +154,12 @@ class TmodbusUnit:
     # -- raw coil / discrete-input I/O ----------------------------------------
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        return [
-            bool(bit)
-            for bit in await self._conn._call(self._client.read_coils(address, count))
-        ]
+        return list(await self._conn._call(self._client.read_coils(address, count)))
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        return [
-            bool(bit)
-            for bit in await self._conn._call(
-                self._client.read_discrete_inputs(address, count)
-            )
-        ]
+        return list(
+            await self._conn._call(self._client.read_discrete_inputs(address, count))
+        )
 
     async def write_coil(self, address: int, value: bool) -> None:
         await self._conn._call(self._client.write_single_coil(address, value))
@@ -199,7 +193,7 @@ class TmodbusUnit:
         value = await self._conn._call(
             self._client.read_string(address, number_of_registers=length)
         )
-        return str(value).rstrip("\x00")
+        return value.rstrip("\x00")
 
     async def write_uint16(self, address: int, value: int) -> None:
         await self._conn._call(self._client.write_uint16(address, value))
@@ -255,8 +249,9 @@ class TmodbusUnit:
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
         pdu = ReadFileRecordPDU([FileRecordRequest(file, record, length)])
-        response = await self._conn._call(self._client.execute(pdu))
-        data = _file_record_data(response)
+        # ReadFileRecordPDU decodes to list[bytes], one entry per requested record.
+        records = await self._conn._call(self._client.execute(pdu))
+        data = records[0]
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
     async def write_file_record(
@@ -281,16 +276,6 @@ class TmodbusUnit:
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
-
-
-def _file_record_data(response: object) -> bytes:
-    """Extract the record bytes from a tmodbus read-file-record response."""
-    records = response if isinstance(response, list) else [response]
-    first = records[0]
-    data = getattr(first, "data", None)
-    if data is None:
-        data = getattr(first, "record_data", first)
-    return bytes(data)
 
 
 async def connect_tcp(
