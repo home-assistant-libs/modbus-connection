@@ -15,7 +15,8 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import ModbusTcpServer
 
-from modbus_connection.pymodbus import connect_tcp
+from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
+from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 UNIT_ID = 246
 
@@ -48,9 +49,18 @@ async def rtu_server() -> AsyncIterator[tuple[str, int]]:
             pass
 
 
-async def test_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
+async def test_pymodbus_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
     host, port = rtu_server
-    conn = await connect_tcp(host, port=port, framer="rtu")
+    conn = await pymodbus_connect_tcp(host, port=port, framer="rtu")
+    try:
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await conn.close()
+
+
+async def test_tmodbus_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
+    host, port = rtu_server
+    conn = await tmodbus_connect_tcp(host, port=port, unit_id=UNIT_ID, framer="rtu")
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

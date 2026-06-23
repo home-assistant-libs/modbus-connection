@@ -13,9 +13,14 @@ from __future__ import annotations
 import asyncio
 import struct
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Literal, TypeVar
 
-from tmodbus import AsyncModbusClient, create_async_rtu_client, create_async_tcp_client
+from tmodbus import (
+    AsyncModbusClient,
+    create_async_rtu_client,
+    create_async_rtu_over_tcp_client,
+    create_async_tcp_client,
+)
 from tmodbus.exceptions import (
     ModbusConnectionError as TModbusConnectionError,
 )
@@ -40,6 +45,8 @@ from ..exceptions import (
 )
 
 _T = TypeVar("_T")
+
+Framing = Literal["socket", "rtu"]
 
 __all__ = [
     "TmodbusConnection",
@@ -290,13 +297,21 @@ async def connect_tcp(
     port: int = 502,
     timeout: float = 3,
     unit_id: int = 1,
+    framer: Framing = "socket",
 ) -> TmodbusConnection:
-    """Open a Modbus TCP connection over tmodbus and return a live handle.
+    """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
+
+    ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
+    (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
+    gateways speak.
 
     ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    client = create_async_tcp_client(
+    create = (
+        create_async_rtu_over_tcp_client if framer == "rtu" else create_async_tcp_client
+    )
+    client = create(
         host,
         port,
         unit_id=unit_id,
