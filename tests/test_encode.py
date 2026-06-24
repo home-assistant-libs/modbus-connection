@@ -48,6 +48,16 @@ def test_negative_two_complement() -> None:
     assert encode_int(-1, count=4) == [0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]
 
 
+def test_encode_int_rejects_out_of_range() -> None:
+    # Accepts the full signed and unsigned range for the width...
+    assert encode_int(0xFFFF, count=1) == [0xFFFF]
+    assert encode_int(-0x8000, count=1) == [0x8000]
+    # ...but raises rather than silently truncating onto the wire.
+    for value, count in [(0x10000, 1), (70000, 1), (-0x8001, 1), (1 << 32, 2)]:
+        with pytest.raises(OverflowError):
+            encode_int(value, count=count)
+
+
 def test_float_round_trips() -> None:
     assert decode_float32(encode_float32(3.5)) == pytest.approx(3.5)
     assert decode_float64(encode_float64(-7.25)) == pytest.approx(-7.25)

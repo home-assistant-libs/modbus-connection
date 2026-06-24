@@ -39,9 +39,10 @@ makes that sharing possible while keeping the backend swappable: the
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
   stateless per-unit handle with no lifecycle methods. Every method **raises** on
   failure — it never returns `None`.
-- The full 19-function-code Modbus surface is exposed, plus typed reads
-  (`read_uint16`, `read_float32`, …) that own datatype + word/byte ordering. A
-  backend that cannot implement a code raises `NotImplementedError`.
+- The full 19-function-code Modbus surface is exposed as raw register/coil I/O. A
+  backend that cannot implement a code raises `NotImplementedError`. Datatype and
+  word/byte-order decoding lives one layer up, in `modbus_connection.decode` /
+  `.encode` and the `modbus_connection.model` device framework.
 
 ## Install
 
@@ -61,8 +62,10 @@ async def main() -> None:
     conn = await connect_tcp("192.168.1.50", port=502)
     try:
         unit = conn.for_unit(1)
-        outside_temp = await unit.read_int16(9)        # raw register, signed
-        flow_setpoint = await unit.read_float32(40, word_order="big")
+        from modbus_connection.decode import decode_int16, decode_float32
+
+        outside_temp = decode_int16(await unit.read_holding_registers(9, 1))
+        flow_setpoint = decode_float32(await unit.read_holding_registers(40, 2))
         pump_on = (await unit.read_coils(56, 1))[0]
         print(outside_temp, flow_setpoint, pump_on)
     finally:
@@ -213,8 +216,8 @@ async def test_reads_setpoint(mock_modbus_unit):
     mock_modbus_unit.holding[2] = [0x0001, 0x86A0]  # list -> consecutive registers
     mock_modbus_unit.holding[9] = lambda: 7         # callable -> evaluated per read
 
-    assert await mock_modbus_unit.read_uint16(40) == 1234
-    assert await mock_modbus_unit.read_uint32(2) == 100000
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [1234]
+    assert await mock_modbus_unit.read_holding_registers(2, 2) == [0x0001, 0x86A0]
 ```
 
 Reads resolve against the per-space stores (`holding`, `input`, `coils`,

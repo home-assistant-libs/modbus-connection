@@ -71,6 +71,23 @@ async def test_nan_sentinel() -> None:
     assert meter.temperature is None
 
 
+async def test_fractional_scale_above_one_rounds_not_truncates() -> None:
+    class Dev(Component):
+        value = gauge(0, 2.5)  # 3 * 2.5 = 7.5, must not truncate to 7
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 3
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.value == pytest.approx(7.5)
+
+
+async def test_write_out_of_range_raises() -> None:
+    meter = _meter({})
+    with pytest.raises(OverflowError):
+        await meter.write("count", 70000)  # count is a uint16
+
+
 async def test_uint32_int32() -> None:
     raw = (-12345) & 0xFFFFFFFF
     meter = _meter({3: 0x0001, 4: 0x86A0, 5: raw >> 16, 6: raw & 0xFFFF})
@@ -173,6 +190,15 @@ def test_factories_return_concrete_field_types() -> None:
 def test_read_only_field_encode_raises() -> None:
     with pytest.raises(NotImplementedError):
         scaled_sum(0).encode(5)  # MagnitudeField is read-only
+
+
+def test_unbound_field_unknown_enum_decodes_to_none() -> None:
+    class Mode(IntEnum):
+        OFF = 0
+
+    # A field never assigned to a Component (no __set_name__) must still decode an
+    # unknown enum code to None rather than crash on the warning path.
+    assert enum(0, Mode).decode([9]) is None
 
 
 async def test_generic_enum_flags_string_and_64bit() -> None:
@@ -309,6 +335,11 @@ def test_plan_blocks_keeps_multiregister_whole() -> None:
     blocks = plan_blocks([(a, 1) for a in range(99)] + [(99, 2)])
     field_block = next(b for b in blocks if b[0] <= 99 < b[0] + b[1])
     assert field_block[0] <= 100 < field_block[0] + field_block[1]
+
+
+def test_plan_blocks_rejects_field_wider_than_read_limit() -> None:
+    with pytest.raises(ValueError, match="exceeds"):
+        plan_blocks([(0, 130)])  # one value can't span >125 registers in a read
 
 
 def test_plan_blocks_range_aware_never_crosses_gap() -> None:

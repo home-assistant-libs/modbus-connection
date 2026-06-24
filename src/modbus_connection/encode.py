@@ -33,10 +33,18 @@ def split_words(raw: int, *, count: int, word_order: WordOrder = "big") -> list[
 
 
 def encode_int(value: int, *, count: int, word_order: WordOrder = "big") -> list[int]:
-    """Encode an integer into ``count`` register words (two's complement)."""
+    """Encode an integer into ``count`` register words (two's complement).
+
+    Raises ``OverflowError`` if ``value`` does not fit in ``count`` registers as
+    either a signed or unsigned integer, rather than silently truncating it onto
+    the wire.
+    """
     raw = int(value)
+    bits = 16 * count
+    if not -(1 << (bits - 1)) <= raw < (1 << bits):
+        raise OverflowError(f"{value} does not fit in {count} register(s)")
     if raw < 0:
-        raw += 1 << (16 * count)
+        raw += 1 << bits
     return split_words(raw, count=count, word_order=word_order)
 
 

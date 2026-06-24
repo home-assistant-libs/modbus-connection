@@ -67,9 +67,12 @@ _warned_unknown_enum: set[tuple[type, int]] = set()
 
 
 def _decimals(scale: float) -> int:
-    """Number of decimals implied by a scale factor (0.1 -> 1, 0.01 -> 2)."""
-    if scale >= 1:
-        return 0
+    """Number of decimals implied by a scale factor (0.1 -> 1, 2.5 -> 1, 10 -> 0).
+
+    A whole-number scale formats to no fractional digits and yields 0, so the
+    result stays an ``int``; a fractional scale (whether below or above 1) keeps
+    its decimals, so e.g. a 2.5 scale is rounded rather than truncated.
+    """
     return max(0, len(f"{scale:.10f}".rstrip("0").split(".")[1]))
 
 
@@ -80,6 +83,10 @@ class RegisterField[T](ABC):
     shares, and declares the codec contract (:meth:`decode` / :meth:`encode`).
     The concrete subclasses below implement one codec each.
     """
+
+    # Set to the attribute name by __set_name__ when used as a class descriptor;
+    # the default keeps decode()/logging working on an unbound field.
+    name: str = ""
 
     def __init__(
         self,
@@ -329,6 +336,8 @@ class Eui48Field(RegisterField[str]):
 
 class CoilField:
     """A coil exposed as a ``bool | None`` attribute."""
+
+    name: str = ""  # set by __set_name__ when used as a class descriptor
 
     def __init__(
         self,

@@ -71,6 +71,12 @@ def _plan_blocks(
     ordered = sorted(set(spans))
     if not ordered:
         return []
+    for _, width in ordered:
+        if width > _MAX_SPAN:
+            raise ValueError(
+                f"a field spanning {width} registers exceeds the "
+                f"{_MAX_SPAN}-register Modbus read limit"
+            )
     blocks: list[tuple[int, int]] = []
     block_start, width = ordered[0]
     block_end = block_start + width - 1  # last (inclusive) address covered so far
