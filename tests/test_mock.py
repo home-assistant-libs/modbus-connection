@@ -169,6 +169,52 @@ async def test_on_write_unsubscribe(mock_modbus_unit: MockModbusUnit) -> None:
     assert events == []
 
 
+# -- write failures -----------------------------------------------------------
+
+
+async def test_fail_write_raises_and_leaves_value_unchanged(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    events: list[WriteEvent] = []
+    mock_modbus_unit.on_write(events.append)
+    mock_modbus_unit.holding[40] = 7
+    mock_modbus_unit.fail_write(40, ModbusExceptionError(3))
+
+    with pytest.raises(ModbusExceptionError) as excinfo:
+        await mock_modbus_unit.write_register(40, 99)
+    assert excinfo.value.exception_code == 3
+    # The store is untouched and no on_write callback fired.
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [7]
+    assert events == []
+
+
+async def test_fail_write_cleared_with_none(mock_modbus_unit: MockModbusUnit) -> None:
+    mock_modbus_unit.fail_write(40, ModbusExceptionError(3))
+    mock_modbus_unit.fail_write(40, None)
+    await mock_modbus_unit.write_register(40, 99)
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [99]
+
+
+async def test_fail_write_triggers_on_any_covered_address(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    mock_modbus_unit.fail_write(43, ModbusExceptionError(2))
+    # A multi-register write spanning the armed address fails as a whole...
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.write_registers(42, [1, 2, 3])
+    assert await mock_modbus_unit.read_holding_registers(42, 3) == [0, 0, 0]
+    # ...while a write that doesn't cover it succeeds.
+    await mock_modbus_unit.write_registers(50, [1, 2, 3])
+    assert await mock_modbus_unit.read_holding_registers(50, 3) == [1, 2, 3]
+
+
+async def test_fail_write_applies_to_coils(mock_modbus_unit: MockModbusUnit) -> None:
+    mock_modbus_unit.fail_write(5, ModbusExceptionError(3))
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.write_coil(5, True)
+    assert await mock_modbus_unit.read_coils(5, 1) == [False]
+
+
 # -- connection lifecycle -----------------------------------------------------
 
 
