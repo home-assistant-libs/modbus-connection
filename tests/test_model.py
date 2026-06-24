@@ -20,6 +20,12 @@ from modbus_connection.model import (
     uint32,
 )
 from modbus_connection.model._planning import _plan_blocks as plan_blocks
+from modbus_connection.model.fields import (
+    FloatField,
+    MagnitudeField,
+    NumberField,
+    RawField,
+)
 
 
 class Meter(Component):
@@ -143,6 +149,24 @@ async def test_dynamic_scale_register_pooled_in_one_read() -> None:
     # Value (0) and its scale register (2) sit close enough to share one block.
     assert len(reads) == 1
     assert scaled.current == pytest.approx(1234.0)
+
+
+# -- field types --------------------------------------------------------------
+
+
+def test_factories_return_concrete_field_types() -> None:
+    assert isinstance(gauge(0, 0.1), NumberField)
+    assert isinstance(integer(0), NumberField)
+    assert isinstance(uint32(0), NumberField)
+    assert isinstance(int32(0), NumberField)
+    assert isinstance(float32(0), FloatField)
+    assert isinstance(raw_register(0), RawField)
+    assert isinstance(scaled_sum(0), MagnitudeField)
+
+
+def test_read_only_field_encode_raises() -> None:
+    with pytest.raises(NotImplementedError):
+        scaled_sum(0).encode(5)  # MagnitudeField is read-only
 
 
 # -- writes -------------------------------------------------------------------

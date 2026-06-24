@@ -3,10 +3,9 @@
 `SunSpec <https://sunspec.org>`_ defines a standard Modbus information model used
 by most PV inverters, meters and batteries. Each point has a fixed data type and
 a reserved *unimplemented* value the device sends when the point is absent. These
-factories build :class:`modbus_connection.model.RegisterField` descriptors with
-the right width, sign and sentinel, so an unimplemented point decodes to
-``None`` automatically — the same fields you would otherwise hand-roll with the
-generic factories, minus the boilerplate.
+factories build model field descriptors with the right width, sign and sentinel,
+so an unimplemented point decodes to ``None`` automatically — the same fields you
+would otherwise hand-roll with the generic factories, minus the boilerplate.
 
 Scaled points reference a scale-factor (``sunssf``) register: pass
 ``scale_register=`` its address and the value is returned as ``raw * 10**sf``,
@@ -21,17 +20,23 @@ with ``sf`` read alongside on each update::
         wh = acc32(8)                     # lifetime energy, Wh
 
 Word order is big-endian throughout, per the SunSpec spec. Enum and bitfield
-points decode to their raw integer — wrap them in a ``@property`` in your
-component to map to an ``enum.Enum`` or ``enum.IntFlag``.
+points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
+to map them to members natively.
 """
 
 from __future__ import annotations
 
 from enum import IntEnum, IntFlag
-from ipaddress import IPv4Address, IPv6Address
 from typing import Any, overload
 
-from . import RegisterField
+from .fields import (
+    Eui48Field,
+    FloatField,
+    IPv4Field,
+    IPv6Field,
+    NumberField,
+    StringField,
+)
 
 __all__ = [
     "acc16",
@@ -80,8 +85,8 @@ def _scaled(
     stride: int,
     writable: bool,
     unit: str | None,
-) -> RegisterField[float]:
-    return RegisterField(
+) -> NumberField[float]:
+    return NumberField(
         address,
         count=count,
         signed=signed,
@@ -104,7 +109,7 @@ def int16(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """A signed 16-bit point (unimplemented 0x8000)."""
     return _scaled(
         address,
@@ -129,7 +134,7 @@ def uint16(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """An unsigned 16-bit point (unimplemented 0xFFFF)."""
     return _scaled(
         address,
@@ -154,7 +159,7 @@ def int32(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """A signed 32-bit point over two registers (unimplemented 0x80000000)."""
     return _scaled(
         address,
@@ -179,7 +184,7 @@ def uint32(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """An unsigned 32-bit point over two registers (unimplemented 0xFFFFFFFF)."""
     return _scaled(
         address,
@@ -204,7 +209,7 @@ def int64(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """A signed 64-bit point over four registers (unimplemented 0x8000…)."""
     return _scaled(
         address,
@@ -229,7 +234,7 @@ def uint64(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
-) -> RegisterField[float]:
+) -> NumberField[float]:
     """An unsigned 64-bit point over four registers (unimplemented 0xFFFF…)."""
     return _scaled(
         address,
@@ -247,9 +252,9 @@ def uint64(
 
 def acc16(
     address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
-) -> RegisterField[int]:
+) -> NumberField[int]:
     """A 16-bit accumulator — a monotonic counter (0 means not accumulated)."""
-    return RegisterField(
+    return NumberField(
         address,
         count=1,
         signed=False,
@@ -262,9 +267,9 @@ def acc16(
 
 def acc32(
     address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
-) -> RegisterField[int]:
+) -> NumberField[int]:
     """A 32-bit accumulator over two registers (0 means not accumulated)."""
-    return RegisterField(
+    return NumberField(
         address,
         count=2,
         signed=False,
@@ -277,9 +282,9 @@ def acc32(
 
 def acc64(
     address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
-) -> RegisterField[int]:
+) -> NumberField[int]:
     """A 64-bit accumulator over four registers (0 means not accumulated)."""
-    return RegisterField(
+    return NumberField(
         address,
         count=4,
         signed=False,
@@ -290,31 +295,31 @@ def acc64(
     )
 
 
-def sunssf(address: int, *, stride: int = 0) -> RegisterField[int]:
+def sunssf(address: int, *, stride: int = 0) -> NumberField[int]:
     """A scale-factor point: a signed int16 power-of-ten exponent."""
-    return RegisterField(address, count=1, signed=True, nan=_INT16_NAN, stride=stride)
+    return NumberField(address, count=1, signed=True, nan=_INT16_NAN, stride=stride)
 
 
 @overload
 def enum16(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]: ...
+) -> NumberField[int]: ...
 @overload
 def enum16[E: IntEnum](
     address: int, enum: type[E], *, stride: int = 0, writable: bool = False
-) -> RegisterField[E]: ...
+) -> NumberField[E]: ...
 def enum16(
     address: int,
     enum: type[IntEnum] | None = None,
     *,
     stride: int = 0,
     writable: bool = False,
-) -> RegisterField[Any]:
+) -> NumberField[Any]:
     """A 16-bit enumeration (unimplemented 0xFFFF).
 
     Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
     """
-    return RegisterField(
+    return NumberField(
         address,
         count=1,
         signed=False,
@@ -328,23 +333,23 @@ def enum16(
 @overload
 def enum32(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]: ...
+) -> NumberField[int]: ...
 @overload
 def enum32[E: IntEnum](
     address: int, enum: type[E], *, stride: int = 0, writable: bool = False
-) -> RegisterField[E]: ...
+) -> NumberField[E]: ...
 def enum32(
     address: int,
     enum: type[IntEnum] | None = None,
     *,
     stride: int = 0,
     writable: bool = False,
-) -> RegisterField[Any]:
+) -> NumberField[Any]:
     """A 32-bit enumeration over two registers (unimplemented 0xFFFFFFFF).
 
     Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
     """
-    return RegisterField(
+    return NumberField(
         address,
         count=2,
         signed=False,
@@ -358,23 +363,23 @@ def enum32(
 @overload
 def bitfield16(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]: ...
+) -> NumberField[int]: ...
 @overload
 def bitfield16[F: IntFlag](
     address: int, flags: type[F], *, stride: int = 0, writable: bool = False
-) -> RegisterField[F]: ...
+) -> NumberField[F]: ...
 def bitfield16(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
     writable: bool = False,
-) -> RegisterField[Any]:
+) -> NumberField[Any]:
     """A 16-bit bitfield (unimplemented 0xFFFF).
 
     Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
     """
-    return RegisterField(
+    return NumberField(
         address,
         count=1,
         signed=False,
@@ -388,23 +393,23 @@ def bitfield16(
 @overload
 def bitfield32(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]: ...
+) -> NumberField[int]: ...
 @overload
 def bitfield32[F: IntFlag](
     address: int, flags: type[F], *, stride: int = 0, writable: bool = False
-) -> RegisterField[F]: ...
+) -> NumberField[F]: ...
 def bitfield32(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
     writable: bool = False,
-) -> RegisterField[Any]:
+) -> NumberField[Any]:
     """A 32-bit bitfield over two registers (unimplemented 0xFFFFFFFF).
 
     Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
     """
-    return RegisterField(
+    return NumberField(
         address,
         count=2,
         signed=False,
@@ -418,23 +423,23 @@ def bitfield32(
 @overload
 def bitfield64(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]: ...
+) -> NumberField[int]: ...
 @overload
 def bitfield64[F: IntFlag](
     address: int, flags: type[F], *, stride: int = 0, writable: bool = False
-) -> RegisterField[F]: ...
+) -> NumberField[F]: ...
 def bitfield64(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
     writable: bool = False,
-) -> RegisterField[Any]:
+) -> NumberField[Any]:
     """A 64-bit bitfield over four registers (unimplemented 0xFFFFFFFFFFFFFFFF).
 
     Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
     """
-    return RegisterField(
+    return NumberField(
         address,
         count=4,
         signed=False,
@@ -447,11 +452,10 @@ def bitfield64(
 
 def float32(
     address: int, *, stride: int = 0, writable: bool = False, unit: str | None = None
-) -> RegisterField[float]:
+) -> FloatField:
     """An IEEE-754 single-precision point (unimplemented NaN)."""
-    return RegisterField(
+    return FloatField(
         address,
-        kind="float",
         count=2,
         nan=_FLOAT_NAN,
         stride=stride,
@@ -462,11 +466,10 @@ def float32(
 
 def float64(
     address: int, *, stride: int = 0, writable: bool = False, unit: str | None = None
-) -> RegisterField[float]:
+) -> FloatField:
     """An IEEE-754 double-precision point over four registers (unimplemented NaN)."""
-    return RegisterField(
+    return FloatField(
         address,
-        kind="float",
         count=4,
         nan=_FLOAT_NAN,
         stride=stride,
@@ -477,23 +480,21 @@ def float64(
 
 def string(
     address: int, length: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[str]:
+) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
-    return RegisterField(
-        address, kind="string", count=length, stride=stride, writable=writable
-    )
+    return StringField(address, count=length, stride=stride, writable=writable)
 
 
-def ipaddr(address: int, *, stride: int = 0) -> RegisterField[IPv4Address]:
+def ipaddr(address: int, *, stride: int = 0) -> IPv4Field:
     """An IPv4 address over two registers."""
-    return RegisterField(address, kind="ipaddr", count=2, stride=stride)
+    return IPv4Field(address, count=2, stride=stride)
 
 
-def ipv6addr(address: int, *, stride: int = 0) -> RegisterField[IPv6Address]:
+def ipv6addr(address: int, *, stride: int = 0) -> IPv6Field:
     """An IPv6 address over eight registers."""
-    return RegisterField(address, kind="ipv6addr", count=8, stride=stride)
+    return IPv6Field(address, count=8, stride=stride)
 
 
-def eui48(address: int, *, stride: int = 0) -> RegisterField[str]:
+def eui48(address: int, *, stride: int = 0) -> Eui48Field:
     """An EUI-48 / MAC address over three registers."""
-    return RegisterField(address, kind="eui48", count=3, stride=stride)
+    return Eui48Field(address, count=3, stride=stride)
