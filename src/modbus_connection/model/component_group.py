@@ -10,10 +10,11 @@ from ._planning import (
     CoilItem,
     Range,
     RegisterItem,
+    RegisterSpace,
     _bulk_read_coils,
     _bulk_read_registers,
     _plan_blocks,
-    _register_spans,
+    _plan_register_blocks,
 )
 from .component import Component
 
@@ -31,12 +32,16 @@ class ComponentGroup:
     Modbus call rather than each component querying on its own. Each component's
     listeners fire after the update.
 
+    Components may mix register spaces — an input (FC04) sub-system and a holding
+    (FC03) sub-system in the same group are read with separate block reads.
+
     The pooled plan is built from the components' static layout on the first
     :meth:`async_update` and reused on every later poll. The readable address
-    ``ranges`` come from the components — they describe one device's address map,
-    so every component in the group must declare the same
-    :attr:`Component.register_ranges` / :attr:`Component.coil_ranges`; a mismatch
-    raises ``ValueError``.
+    ``ranges`` come from the components — they describe one device's address map.
+    ``register_ranges`` applies per register space, so components sharing a space
+    must declare the same :attr:`Component.register_ranges` (a device's input and
+    holding ranges may differ); every component must share
+    :attr:`Component.coil_ranges`. A mismatch raises ``ValueError``.
 
     The component list, their fields, and the ranges are read once and cached;
     mutating any of them after the first update is not supported — build a new
@@ -50,8 +55,24 @@ class ComponentGroup:
     ) -> None:
         self._unit = unit
         self._components = list(components)
-        self._register_ranges = self._shared_ranges("register_ranges")
+        self._register_ranges_by_space = self._ranges_by_space()
         self._coil_ranges = self._shared_ranges("coil_ranges")
+
+    def _ranges_by_space(self) -> dict[RegisterSpace, tuple[Range, ...] | None]:
+        """Per-space register ranges; components sharing a space must agree."""
+        by_space: dict[RegisterSpace, list[Component]] = {}
+        for component in self._components:
+            by_space.setdefault(component.register_space, []).append(component)
+        ranges: dict[RegisterSpace, tuple[Range, ...] | None] = {}
+        for space, components in by_space.items():
+            distinct = {c.register_ranges for c in components}
+            if len(distinct) > 1:
+                raise ValueError(
+                    f"every {space}-space component in a ComponentGroup must share "
+                    f"register_ranges, but got differing values: {distinct}"
+                )
+            ranges[space] = next(iter(distinct), None)
+        return ranges
 
     def _shared_ranges(self, attr: str) -> tuple[Range, ...] | None:
         """The ranges shared by every component, or raise if they disagree."""
@@ -72,9 +93,9 @@ class ComponentGroup:
         return [item for c in self._components for item in c.coil_items]
 
     @cached_property
-    def _register_blocks(self) -> list[tuple[int, int]]:
-        return _plan_blocks(
-            _register_spans(self._register_items), self._register_ranges
+    def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
+        return _plan_register_blocks(
+            self._register_items, self._register_ranges_by_space
         )
 
     @cached_property

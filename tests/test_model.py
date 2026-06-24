@@ -321,3 +321,136 @@ async def test_group_rejects_mismatched_ranges() -> None:
     unit = MockModbusConnection().for_unit(1)
     with pytest.raises(ValueError, match="register_ranges"):
         ComponentGroup(unit, [_Ranged(unit), Other(unit)])
+
+
+# -- input registers (FC04) ---------------------------------------------------
+
+
+class _SpyUnit:
+    """Records ``(space, address, count)`` for both register read functions."""
+
+    def __init__(self, inner: MockModbusUnit) -> None:
+        self._inner = inner
+        self.reads: list[tuple[str, int, int]] = []
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        self.reads.append(("holding", address, count))
+        return await self._inner.read_holding_registers(address, count)
+
+    async def read_input_registers(self, address: int, count: int) -> list[int]:
+        self.reads.append(("input", address, count))
+        return await self._inner.read_input_registers(address, count)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+
+class _InputMeter(Component):
+    register_space = "input"
+    temp = gauge(5, 0.1)
+
+
+class _HoldingMeter(Component):
+    power = integer(0, signed=False)
+
+
+async def test_input_component_reads_via_fc04() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.input[5] = 215
+    unit.holding[5] = 999  # would decode to 99.9 if (wrongly) read from holding
+    meter = _InputMeter(unit)
+    await meter.async_update()
+    assert meter.temp == pytest.approx(21.5)
+
+
+async def test_group_reads_input_and_holding_separately() -> None:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding[0] = 100
+    inner.input[5] = 215
+    unit = _SpyUnit(inner)
+    holding, inp = _HoldingMeter(unit), _InputMeter(unit)  # type: ignore[arg-type]
+    await ComponentGroup(unit, [holding, inp]).async_update()  # type: ignore[list-item]
+    assert holding.power == 100
+    assert inp.temp == pytest.approx(21.5)
+    assert ("holding", 0, 1) in unit.reads
+    assert ("input", 5, 1) in unit.reads
+
+
+async def test_adjacent_input_and_holding_not_merged() -> None:
+    class _InputAt5(Component):
+        register_space = "input"
+        a = integer(5)
+
+    class _HoldingAt6(Component):
+        b = integer(6)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.input[5] = 1
+    inner.holding[6] = 2
+    unit = _SpyUnit(inner)
+    await ComponentGroup(  # type: ignore[list-item]
+        unit, [_InputAt5(unit), _HoldingAt6(unit)]
+    ).async_update()
+    # Numerically adjacent but in different spaces: two separate single-word reads.
+    assert ("input", 5, 1) in unit.reads
+    assert ("holding", 6, 1) in unit.reads
+
+
+async def test_input_component_respects_ranges() -> None:
+    class _RangedInput(Component):
+        register_space = "input"
+        register_ranges = ((0, 6), (9, 40))  # 7-8 unreadable
+        near = integer(5)
+        far = integer(9)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.input.update({5: 1, 9: 2})
+    unit = _SpyUnit(inner)
+    comp = _RangedInput(unit)  # type: ignore[arg-type]
+    await comp.async_update()
+    read = {
+        (space, start + i) for space, start, count in unit.reads for i in range(count)
+    }
+    assert ("input", 7) not in read and ("input", 8) not in read
+    assert comp.near == 1 and comp.far == 2
+
+
+async def test_group_allows_different_ranges_across_spaces() -> None:
+    class InputComp(Component):
+        register_space = "input"
+        register_ranges = ((0, 50),)
+        a = integer(0)
+
+    class HoldingComp(Component):
+        register_ranges = ((0, 100),)
+        b = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    # Different ranges are fine because the components are in different spaces.
+    ComponentGroup(unit, [InputComp(unit), HoldingComp(unit)])
+
+
+async def test_group_rejects_mismatched_ranges_within_a_space() -> None:
+    class InputA(Component):
+        register_space = "input"
+        register_ranges = ((0, 50),)
+        a = integer(0)
+
+    class InputB(Component):
+        register_space = "input"
+        register_ranges = ((0, 99),)
+        b = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="input-space"):
+        ComponentGroup(unit, [InputA(unit), InputB(unit)])
+
+
+async def test_write_to_input_field_raises() -> None:
+    class WritableInput(Component):
+        register_space = "input"
+        x = integer(0, writable=True)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(AttributeError, match="input"):
+        await WritableInput(unit).write("x", 5)

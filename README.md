@@ -179,6 +179,26 @@ await group.async_update()
 Leave them as the default `None` for devices with a contiguous map (plain
 gap-based planning).
 
+### Register spaces (holding vs input)
+
+A component's register fields default to the **holding** space (FC03). For a
+read-only sub-system whose data lives in **input** registers (FC04), set
+`register_space = "input"` on the component — fields and factories are
+unchanged:
+
+```python
+class Sensors(Component):
+    register_space = "input"
+    flow_temp = gauge(5, 0.1, unit="°C")   # read with FC04
+```
+
+Input and holding are separate address spaces (input 507 ≠ holding 507), so the
+planner never merges them into one read, and `register_ranges` applies within the
+component's own space. A `ComponentGroup` may mix input and holding components: it
+reads each space with its own block reads, and components only need matching
+`register_ranges` with others in the *same* space. Input registers are physically
+read-only, so writing a field on an `"input"` component raises.
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an

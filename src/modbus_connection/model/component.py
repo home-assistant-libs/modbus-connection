@@ -10,10 +10,11 @@ from ._planning import (
     CoilItem,
     Range,
     RegisterItem,
+    RegisterSpace,
     _bulk_read_coils,
     _bulk_read_registers,
     _plan_blocks,
-    _register_spans,
+    _plan_register_blocks,
 )
 from .fields import CoilField, RegisterField
 
@@ -36,6 +37,10 @@ class Component:
     datasheet) — as class attributes on a subclass or per instance — so reads
     never cross an unreadable gap.
 
+    A component's register fields all live in one register space: holding (FC03,
+    the default) or input (FC04). Set :attr:`register_space` to ``"input"`` for a
+    read-only input-register sub-system. Input registers cannot be written.
+
     The read plan (which blocks to fetch) is derived from the static field layout
     and cached on first :meth:`async_update`, so each subsequent poll reuses it
     rather than re-planning. The fields and ``register_ranges`` / ``coil_ranges``
@@ -49,9 +54,13 @@ class Component:
 
     # The device's readable address ranges; None falls back to gap-based planning.
     # Override on a subclass (or set per instance) to constrain reads to the
-    # addresses the device actually answers.
+    # addresses the device actually answers. ``register_ranges`` applies within
+    # this component's own register space.
     register_ranges: tuple[Range, ...] | None = None
     coil_ranges: tuple[Range, ...] | None = None
+
+    # The register space this component's fields are read from (FC03 / FC04).
+    register_space: RegisterSpace = "holding"
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -107,7 +116,13 @@ class Component:
                     self._index - 1
                 )
             items.append(
-                RegisterItem(self._address(field), field, self._values, scale_address)
+                RegisterItem(
+                    self._address(field),
+                    field,
+                    self._values,
+                    scale_address,
+                    self.register_space,
+                )
             )
         return items
 
@@ -117,8 +132,10 @@ class Component:
         return [(self._address(f), f, self._coils) for f in self._coil_fields.values()]
 
     @cached_property
-    def _register_blocks(self) -> list[tuple[int, int]]:
-        return _plan_blocks(_register_spans(self.register_items), self.register_ranges)
+    def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
+        return _plan_register_blocks(
+            self.register_items, {self.register_space: self.register_ranges}
+        )
 
     @cached_property
     def _coil_blocks(self) -> list[tuple[int, int]]:
@@ -156,6 +173,11 @@ class Component:
             register = self._register_fields[field]
             if not register.writable:
                 raise AttributeError(f"{field} is read-only")
+            if self.register_space != "holding":
+                raise AttributeError(
+                    f"{field} is in the {self.register_space} register space, "
+                    "which is read-only"
+                )
             await self._unlock(register)
             address = self._address(register)
             words = register.encode(value)

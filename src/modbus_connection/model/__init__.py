@@ -44,7 +44,9 @@ model name::
 
 Reads are pooled into block reads. A device may pass its readable address
 ``ranges`` so the planner merges only within a range and never reads across an
-unreadable gap.
+unreadable gap. Register fields default to the holding space (FC03); a component
+that sets ``register_space = "input"`` is read with FC04 instead, and the two
+spaces are always planned and read separately.
 
 The implementation is split across :mod:`~modbus_connection.model.fields` (the
 field descriptors and factories), :mod:`~modbus_connection.model.component` and
@@ -54,7 +56,7 @@ here.
 
 from __future__ import annotations
 
-from ._planning import Range
+from ._planning import Range, RegisterSpace
 from .component import Component, UpdateListener
 from .component_group import ComponentGroup
 from .fields import (
@@ -76,6 +78,7 @@ __all__ = [
     "ComponentGroup",
     "Range",
     "RegisterField",
+    "RegisterSpace",
     "UpdateListener",
     "coil",
     "float32",

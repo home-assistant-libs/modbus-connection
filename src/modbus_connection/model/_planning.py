@@ -7,8 +7,8 @@ the results back. Not part of the public API — use :class:`Component` /
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, NamedTuple
+from collections.abc import Awaitable, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from ..decode import decode_int16
 from ..exceptions import ModbusExceptionError
@@ -18,9 +18,16 @@ if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
 _MAX_GAP = 8  # merge registers/coils less than this many addresses apart
-_MAX_SPAN = 100  # but never read a block wider than this
+# Never read a block wider than this. 125 is the Modbus per-request ceiling for
+# read-holding (FC03) and read-input (FC04) registers (0x7D).
+_MAX_SPAN = 125
 
 Range = tuple[int, int]  # an inclusive (low, high) readable address range
+
+# Which register space a field is read from: input (FC04) or holding (FC03).
+# They are separate address spaces — input 507 is not holding 507 — so blocks
+# from different spaces are never merged into one read.
+RegisterSpace = Literal["input", "holding"]
 
 
 class RegisterItem(NamedTuple):
@@ -30,6 +37,7 @@ class RegisterItem(NamedTuple):
     field: RegisterField[Any]
     store: dict[str, Any]  # the component store decoded values land in
     scale_address: int | None  # absolute address of the field's sunssf register
+    space: RegisterSpace  # the register space to read this field from
 
 
 CoilItem = tuple[int, "CoilField", dict[str, Any]]
@@ -94,48 +102,77 @@ def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
     return spans
 
 
+def _plan_register_blocks(
+    items: list[RegisterItem],
+    ranges_by_space: dict[RegisterSpace, tuple[Range, ...] | None],
+) -> dict[RegisterSpace, list[tuple[int, int]]]:
+    """Plan read blocks separately per register space; spaces never merge.
+
+    Items are partitioned by their :attr:`RegisterItem.space` and each partition
+    is planned on its own — an input and a holding span at numerically adjacent
+    addresses land in different reads. ``ranges_by_space`` gives the readable
+    address ranges for each space (a device's input and holding ranges differ).
+    """
+    by_space: dict[RegisterSpace, list[RegisterItem]] = {}
+    for item in items:
+        by_space.setdefault(item.space, []).append(item)
+    return {
+        space: _plan_blocks(_register_spans(space_items), ranges_by_space.get(space))
+        for space, space_items in by_space.items()
+    }
+
+
 async def _bulk_read_registers(
     unit: ModbusUnit,
     items: list[RegisterItem],
-    blocks: list[tuple[int, int]],
+    blocks: dict[RegisterSpace, list[tuple[int, int]]],
 ) -> None:
-    """Read every register target over the precomputed ``blocks``.
+    """Read every register target over the precomputed per-space ``blocks``.
 
-    ``blocks`` is the read plan (from :func:`_plan_blocks` over
-    :func:`_register_spans`); it is passed in rather than recomputed so a polling
-    component plans its static layout once. Targets are pooled, so adjacent
-    registers — even ones belonging to different sub-systems — are fetched
-    together, and a multi-register value is always kept within one block. A
-    field's ``sunssf`` scale register (if any) is read in the same pass and
-    applied at decode. Each field's decoded value lands in its ``store`` under
-    ``field.name``; a Modbus exception covering a field's registers sets it to
-    ``None`` (other errors propagate so the caller can mark the device down).
+    ``blocks`` is the read plan (from :func:`_plan_register_blocks`); it is passed
+    in rather than recomputed so a polling component plans its static layout once.
+    Each space's blocks are read with the matching function — ``read_input_registers``
+    (FC04) for ``"input"``, ``read_holding_registers`` (FC03) for ``"holding"`` —
+    and a field's ``sunssf`` scale register (read from the same space) is fetched
+    in the same pass and applied at decode. Each field's decoded value lands in
+    its ``store`` under ``field.name``; a Modbus exception covering a field's
+    registers sets it to ``None`` (other errors propagate so the caller can mark
+    the device down).
     """
     if not items:
         return
-    words_by_address: dict[int, int] = {}
-    failed: set[int] = set()
-    for start, count in blocks:
-        try:
-            words = await unit.read_holding_registers(start, count)
-        except ModbusExceptionError:
-            failed.update(range(start, start + count))
-            continue
-        for offset in range(count):
-            words_by_address[start + offset] = words[offset]
+    readers: dict[RegisterSpace, Callable[[int, int], Awaitable[list[int]]]] = {
+        "holding": unit.read_holding_registers,
+        "input": unit.read_input_registers,
+    }
+    # Keyed by (space, address): input and holding share the same address numbers
+    # but are distinct registers, so they must not collide here.
+    words: dict[tuple[RegisterSpace, int], int] = {}
+    failed: set[tuple[RegisterSpace, int]] = set()
+    for space, space_blocks in blocks.items():
+        read = readers[space]
+        for start, count in space_blocks:
+            try:
+                got = await read(start, count)
+            except ModbusExceptionError:
+                failed.update((space, start + offset) for offset in range(count))
+                continue
+            for offset in range(count):
+                words[(space, start + offset)] = got[offset]
     for item in items:
         field = item.field
-        addresses = range(item.address, item.address + field.count)
-        if any(address in failed for address in addresses):
+        keys = [(item.space, item.address + offset) for offset in range(field.count)]
+        if any(key in failed for key in keys):
             item.store[field.name] = None
             continue
         scale_exponent: int | None = None
         if item.scale_address is not None:
-            if item.scale_address in failed:
+            scale_key = (item.space, item.scale_address)
+            if scale_key in failed:
                 item.store[field.name] = None
                 continue
-            scale_exponent = decode_int16([words_by_address[item.scale_address]])
-        field_words = [words_by_address[address] for address in addresses]
+            scale_exponent = decode_int16([words[scale_key]])
+        field_words = [words[key] for key in keys]
         item.store[field.name] = field.decode(field_words, scale_exponent)
 
 
