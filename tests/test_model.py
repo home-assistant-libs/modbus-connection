@@ -230,6 +230,23 @@ async def test_generic_enum_flags_string_and_64bit() -> None:
     assert dev.ratio == pytest.approx(1.5)
 
 
+async def test_generic_enum_signed_codes() -> None:
+    class Mode(IntEnum):
+        ERR = -1  # sent as 0xFFFF
+        OK = 0
+
+    class Dev(Component):
+        signed_mode = enum(0, Mode, signed=True)
+        unsigned_mode = enum(1, Mode)  # default unsigned
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xFFFF, 1: 0xFFFF})
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.signed_mode is Mode.ERR  # 0xFFFF read as -1
+    assert dev.unsigned_mode is None  # 65535 has no member
+
+
 async def test_generic_enum_unknown_value_is_none() -> None:
     from modbus_connection.model import fields
 

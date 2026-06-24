@@ -215,7 +215,11 @@ class NumberField[T](_ScaledField[T]):
         if self.nan is not None and raw == self.nan:
             return None
         if self.enum_type is not None:
-            return self._to_enum(raw)
+            # Map the signed or unsigned code, per the field's `signed` flag; the
+            # nan check above still matches the raw (unsigned) sentinel pattern.
+            return self._to_enum(
+                decode_int(words, signed=self.signed, word_order=self.word_order)
+            )
         value = decode_int(words, signed=self.signed, word_order=self.word_order)
         return self._scale(value, scale_exponent)
 
@@ -605,6 +609,7 @@ def enum[E: IntEnum](
     enum_type: type[E],
     *,
     count: int = 1,
+    signed: bool = False,
     word_order: WordOrder = "big",
     nan: int | None = None,
     stride: int = 0,
@@ -615,13 +620,15 @@ def enum[E: IntEnum](
     """An integer register mapped to an ``IntEnum`` member.
 
     A code with no member decodes to ``None`` (warned once per value). ``nan`` is
-    an optional raw sentinel that also decodes to ``None``. ``level_coil`` names a
-    write-unlock coil released before a write (for writable mode registers).
+    an optional raw sentinel that also decodes to ``None``. ``signed`` interprets
+    the code as two's-complement for devices with negative enum codes (e.g. -1
+    sent as 0xFFFF); the default is unsigned. ``level_coil`` names a write-unlock
+    coil released before a write (for writable mode registers).
     """
     return NumberField(
         address,
         count=count,
-        signed=False,
+        signed=signed,
         enum_type=enum_type,
         word_order=word_order,
         nan=nan,
@@ -637,6 +644,7 @@ def flags[F: IntFlag](
     flag_type: type[F],
     *,
     count: int = 1,
+    signed: bool = False,
     word_order: WordOrder = "big",
     nan: int | None = None,
     stride: int = 0,
@@ -646,12 +654,13 @@ def flags[F: IntFlag](
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
+    ``signed`` interprets the raw word as two's-complement before mapping;
     ``level_coil`` names a write-unlock coil released before a write.
     """
     return NumberField(
         address,
         count=count,
-        signed=False,
+        signed=signed,
         enum_type=flag_type,
         word_order=word_order,
         nan=nan,
