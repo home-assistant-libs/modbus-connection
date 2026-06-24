@@ -53,6 +53,7 @@ import logging
 import math
 from collections.abc import Callable, Iterable
 from enum import Enum
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, NamedTuple, overload
 
 from .._types import WordOrder
@@ -731,11 +732,6 @@ class Component:
         self._values: dict[str, Any] = {}
         self._coils: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
-        # Read targets and their block plan are static; built once, then reused.
-        self._register_items: list[RegisterItem] | None = None
-        self._coil_items: list[CoilItem] | None = None
-        self._register_blocks: list[tuple[int, int]] | None = None
-        self._coil_blocks: list[tuple[int, int]] | None = None
 
     def _address(self, field: RegisterField[Any] | CoilField) -> int:
         return field.address + field.stride * (self._index - 1)
@@ -756,32 +752,38 @@ class Component:
 
     # -- update --------------------------------------------------------------
 
+    @cached_property
     def register_items(self) -> list[RegisterItem]:
-        """This component's register read targets, scale registers resolved (cached)."""
-        if self._register_items is None:
-            items = []
-            for field in self._register_fields.values():
-                scale_address = None
-                if field.scale_register is not None:
-                    scale_address = (
-                        field.scale_register
-                        + field.scale_register_stride * (self._index - 1)
-                    )
-                items.append(
-                    RegisterItem(
-                        self._address(field), field, self._values, scale_address
-                    )
-                )
-            self._register_items = items
-        return self._register_items
+        """This component's register read targets, scale registers resolved.
 
+        Derived once from the static field layout and cached for the instance's
+        life; do not mutate the field set afterwards.
+        """
+        items = []
+        for field in self._register_fields.values():
+            scale_address = None
+            if field.scale_register is not None:
+                scale_address = field.scale_register + field.scale_register_stride * (
+                    self._index - 1
+                )
+            items.append(
+                RegisterItem(self._address(field), field, self._values, scale_address)
+            )
+        return items
+
+    @cached_property
     def coil_items(self) -> list[CoilItem]:
         """This component's coil read targets (absolute address, field, store)."""
-        if self._coil_items is None:
-            self._coil_items = [
-                (self._address(f), f, self._coils) for f in self._coil_fields.values()
-            ]
-        return self._coil_items
+        return [(self._address(f), f, self._coils) for f in self._coil_fields.values()]
+
+    @cached_property
+    def _register_blocks(self) -> list[tuple[int, int]]:
+        return _plan_blocks(_register_spans(self.register_items), self.register_ranges)
+
+    @cached_property
+    def _coil_blocks(self) -> list[tuple[int, int]]:
+        spans = ((address, 1) for address, _, _ in self.coil_items)
+        return _plan_blocks(spans, self.coil_ranges)
 
     def notify(self) -> None:
         """Fire every registered update listener."""
@@ -793,21 +795,13 @@ class Component:
 
         Reads only this sub-system's own registers, so it can refresh on its own.
         A device that owns several components can instead pool their
-        :meth:`register_items` / :meth:`coil_items` into one bulk read. The block
+        :attr:`register_items` / :attr:`coil_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
         """
-        register_items = self.register_items()
-        coil_items = self.coil_items()
-        if self._register_blocks is None:
-            self._register_blocks = _plan_blocks(
-                _register_spans(register_items), self.register_ranges
-            )
-        if self._coil_blocks is None:
-            self._coil_blocks = _plan_blocks(
-                ((address, 1) for address, _, _ in coil_items), self.coil_ranges
-            )
-        await _bulk_read_registers(self._unit, register_items, self._register_blocks)
-        await _bulk_read_coils(self._unit, coil_items, self._coil_blocks)
+        await _bulk_read_registers(
+            self._unit, self.register_items, self._register_blocks
+        )
+        await _bulk_read_coils(self._unit, self.coil_items, self._coil_blocks)
         self.notify()
 
     # -- writes --------------------------------------------------------------
@@ -877,34 +871,31 @@ class ComponentGroup:
         self._components = list(components)
         self._register_ranges = register_ranges
         self._coil_ranges = coil_ranges
-        # Pooled targets and their block plan are static; built once, then reused.
-        self._register_items: list[RegisterItem] | None = None
-        self._coil_items: list[CoilItem] | None = None
-        self._register_blocks: list[tuple[int, int]] | None = None
-        self._coil_blocks: list[tuple[int, int]] | None = None
+
+    @cached_property
+    def _register_items(self) -> list[RegisterItem]:
+        return [item for c in self._components for item in c.register_items]
+
+    @cached_property
+    def _coil_items(self) -> list[CoilItem]:
+        return [item for c in self._components for item in c.coil_items]
+
+    @cached_property
+    def _register_blocks(self) -> list[tuple[int, int]]:
+        return _plan_blocks(
+            _register_spans(self._register_items), self._register_ranges
+        )
+
+    @cached_property
+    def _coil_blocks(self) -> list[tuple[int, int]]:
+        spans = ((address, 1) for address, _, _ in self._coil_items)
+        return _plan_blocks(spans, self._coil_ranges)
 
     async def async_update(self) -> None:
         """Refresh every component in one pooled set of reads, then notify each.
 
         The block plan is built on the first call and reused on later polls.
         """
-        if self._register_items is None:
-            self._register_items = [
-                item for c in self._components for item in c.register_items()
-            ]
-            self._coil_items = [
-                item for c in self._components for item in c.coil_items()
-            ]
-            self._register_blocks = _plan_blocks(
-                _register_spans(self._register_items), self._register_ranges
-            )
-            self._coil_blocks = _plan_blocks(
-                ((address, 1) for address, _, _ in self._coil_items),
-                self._coil_ranges,
-            )
-        assert self._coil_items is not None
-        assert self._register_blocks is not None
-        assert self._coil_blocks is not None
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks
         )
