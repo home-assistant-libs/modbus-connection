@@ -141,6 +141,50 @@ class RegisterField[T]:
         scale_register_stride: int = 0,
         enum_type: type[Enum] | None = None,
     ) -> None:
+        """Build a register field. Prefer the typed factories below over this.
+
+        Args:
+            address: Holding-register address of the value's first word, before
+                ``stride`` is applied. The absolute address read is
+                ``address + stride * (index - 1)``.
+            scale: Static multiplier applied to the decoded number (e.g. ``0.1``
+                for a tenths value). Combines with ``scale_register`` if both are
+                set. Applies to ``number`` / ``float`` / ``magnitudes`` kinds.
+            signed: Whether the integer is two's-complement signed. Ignored by
+                non-integer kinds.
+            writable: Whether :meth:`Component.write` may write this field.
+            nan: Raw value that decodes to ``None`` (an "unimplemented" sentinel,
+                e.g. ``0x8000``). For ``float``, any non-``None`` value enables
+                NaN-to-``None`` decoding instead of an exact match.
+            kind: Which codec to use: ``"number"`` (scaled integer), ``"raw"``
+                (the word(s) as-is, no sign/scale/nan), ``"float"`` (IEEE-754 over
+                two or four registers), ``"string"``, ``"magnitudes"`` (registers
+                summed by weight), or an address format ``"ipaddr"`` /
+                ``"ipv6addr"`` / ``"eui48"``.
+            count: Number of 16-bit registers the value spans (2 for
+                uint32/float32, 4 for uint64/float64, the string/address length).
+            word_order: Order of registers within a multi-register value;
+                ``"big"`` is most-significant word first. Byte order within each
+                register is always big-endian.
+            stride: Per-index address increment for a repeated block of identical
+                sub-units; see ``address``. ``0`` means the field is at a fixed
+                address.
+            unit: Unit-of-measure label carried as metadata; not used in decoding.
+            level_coil: Address of a write-unlock/override coil set to ``False``
+                immediately before a write to this field; ``None`` if not needed.
+            level_coil_stride: Per-index increment for ``level_coil``.
+            magnitudes: For ``kind="magnitudes"``, the per-register weights that
+                are multiplied and summed (e.g. ``(1, 1000, 1_000_000)`` for
+                Wh/kWh/MWh); ``count`` must equal ``len(magnitudes)``.
+            scale_register: Address of a SunSpec ``sunssf`` register (a signed
+                int16 exponent) read alongside this field and applied as
+                ``value * 10**sf``; ``None`` for a static scale only.
+            scale_register_stride: Per-index increment for ``scale_register``.
+            enum_type: An ``IntEnum`` / ``IntFlag`` to map the raw value through.
+                An ``IntFlag`` keeps unknown bits; an ``IntEnum`` with no member
+                for the value decodes to ``None`` (warned once per value).
+                ``None`` returns the raw int.
+        """
         self.address = address
         self.scale = scale
         self.signed = signed
@@ -548,33 +592,38 @@ def _plan_blocks(
     return blocks
 
 
-async def _bulk_read_registers(
-    unit: ModbusUnit,
-    items: list[RegisterItem],
-    ranges: tuple[Range, ...] | None = None,
-) -> None:
-    """Read every register target in as few Modbus calls as possible.
-
-    Targets are pooled across whatever components are passed in, so adjacent
-    registers — even ones belonging to different sub-systems — are fetched
-    together, and a multi-register value is always kept within one block. A
-    field's ``sunssf`` scale register (if any) is read in the same pooled pass and
-    applied at decode. ``ranges`` (the device's readable address ranges) keeps
-    reads from crossing an unreadable gap. Each field's decoded value lands in its
-    ``store`` under ``field.name``; a Modbus exception covering a field's
-    registers sets it to ``None`` (other errors propagate so the caller can mark
-    the device down).
-    """
-    if not items:
-        return
+def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
+    """The ``(address, width)`` spans a register read must cover (values + sunssf)."""
     spans: list[tuple[int, int]] = []
     for item in items:
         spans.append((item.address, item.field.count))
         if item.scale_address is not None:
             spans.append((item.scale_address, 1))
+    return spans
+
+
+async def _bulk_read_registers(
+    unit: ModbusUnit,
+    items: list[RegisterItem],
+    blocks: list[tuple[int, int]],
+) -> None:
+    """Read every register target over the precomputed ``blocks``.
+
+    ``blocks`` is the read plan (from :func:`_plan_blocks` over
+    :func:`_register_spans`); it is passed in rather than recomputed so a polling
+    component plans its static layout once. Targets are pooled, so adjacent
+    registers — even ones belonging to different sub-systems — are fetched
+    together, and a multi-register value is always kept within one block. A
+    field's ``sunssf`` scale register (if any) is read in the same pass and
+    applied at decode. Each field's decoded value lands in its ``store`` under
+    ``field.name``; a Modbus exception covering a field's registers sets it to
+    ``None`` (other errors propagate so the caller can mark the device down).
+    """
+    if not items:
+        return
     words_by_address: dict[int, int] = {}
     failed: set[int] = set()
-    for start, count in _plan_blocks(spans, ranges):
+    for start, count in blocks:
         try:
             words = await unit.read_holding_registers(start, count)
         except ModbusExceptionError:
@@ -601,15 +650,15 @@ async def _bulk_read_registers(
 async def _bulk_read_coils(
     unit: ModbusUnit,
     items: list[CoilItem],
-    ranges: tuple[Range, ...] | None = None,
+    blocks: list[tuple[int, int]],
 ) -> None:
-    """Read coil ``(address, field, store)`` targets in as few calls as possible."""
+    """Read coil targets over the precomputed ``blocks`` (plan passed in, see above)."""
     if not items:
         return
     by_address: dict[int, list[tuple[CoilField, dict[str, Any]]]] = {}
     for address, field, store in items:
         by_address.setdefault(address, []).append((field, store))
-    for start, count in _plan_blocks(((address, 1) for address in by_address), ranges):
+    for start, count in blocks:
         try:
             bits = await unit.read_coils(start, count)
         except ModbusExceptionError:
@@ -635,6 +684,11 @@ class Component:
     declare :attr:`register_ranges` / :attr:`coil_ranges` (e.g. from the device's
     datasheet) — as class attributes on a subclass or per instance — so reads
     never cross an unreadable gap.
+
+    The read plan (which blocks to fetch) is derived from the static field layout
+    and cached on first :meth:`async_update`, so each subsequent poll reuses it
+    rather than re-planning. Set ``register_ranges`` / ``coil_ranges`` before the
+    first update.
     """
 
     _register_fields: dict[str, RegisterField[Any]] = {}
@@ -665,6 +719,11 @@ class Component:
         self._values: dict[str, Any] = {}
         self._coils: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
+        # Read targets and their block plan are static; built once, then reused.
+        self._register_items: list[RegisterItem] | None = None
+        self._coil_items: list[CoilItem] | None = None
+        self._register_blocks: list[tuple[int, int]] | None = None
+        self._coil_blocks: list[tuple[int, int]] | None = None
 
     def _address(self, field: RegisterField[Any] | CoilField) -> int:
         return field.address + field.stride * (self._index - 1)
@@ -686,22 +745,31 @@ class Component:
     # -- update --------------------------------------------------------------
 
     def register_items(self) -> list[RegisterItem]:
-        """This component's register read targets, scale registers resolved."""
-        items = []
-        for field in self._register_fields.values():
-            scale_address = None
-            if field.scale_register is not None:
-                scale_address = field.scale_register + field.scale_register_stride * (
-                    self._index - 1
+        """This component's register read targets, scale registers resolved (cached)."""
+        if self._register_items is None:
+            items = []
+            for field in self._register_fields.values():
+                scale_address = None
+                if field.scale_register is not None:
+                    scale_address = (
+                        field.scale_register
+                        + field.scale_register_stride * (self._index - 1)
+                    )
+                items.append(
+                    RegisterItem(
+                        self._address(field), field, self._values, scale_address
+                    )
                 )
-            items.append(
-                RegisterItem(self._address(field), field, self._values, scale_address)
-            )
-        return items
+            self._register_items = items
+        return self._register_items
 
     def coil_items(self) -> list[CoilItem]:
         """This component's coil read targets (absolute address, field, store)."""
-        return [(self._address(f), f, self._coils) for f in self._coil_fields.values()]
+        if self._coil_items is None:
+            self._coil_items = [
+                (self._address(f), f, self._coils) for f in self._coil_fields.values()
+            ]
+        return self._coil_items
 
     def notify(self) -> None:
         """Fire every registered update listener."""
@@ -713,12 +781,21 @@ class Component:
 
         Reads only this sub-system's own registers, so it can refresh on its own.
         A device that owns several components can instead pool their
-        :meth:`register_items` / :meth:`coil_items` into one bulk read.
+        :meth:`register_items` / :meth:`coil_items` into one bulk read. The block
+        plan is built on the first call and reused on later polls.
         """
-        await _bulk_read_registers(
-            self._unit, self.register_items(), self.register_ranges
-        )
-        await _bulk_read_coils(self._unit, self.coil_items(), self.coil_ranges)
+        register_items = self.register_items()
+        coil_items = self.coil_items()
+        if self._register_blocks is None:
+            self._register_blocks = _plan_blocks(
+                _register_spans(register_items), self.register_ranges
+            )
+        if self._coil_blocks is None:
+            self._coil_blocks = _plan_blocks(
+                ((address, 1) for address, _, _ in coil_items), self.coil_ranges
+            )
+        await _bulk_read_registers(self._unit, register_items, self._register_blocks)
+        await _bulk_read_coils(self._unit, coil_items, self._coil_blocks)
         self.notify()
 
     # -- writes --------------------------------------------------------------
@@ -769,11 +846,18 @@ async def async_update_all(
     reads — adjacent registers from different components are fetched together —
     rather than each component querying on its own. Listeners fire per component
     afterwards. Pass the device's readable ``ranges`` to avoid crossing gaps.
+
+    The plan spans whichever components are passed, so it is built per call (over
+    their cached targets) rather than stored on any one component.
     """
     items = list(components)
     register_items = [item for c in items for item in c.register_items()]
     coil_items = [item for c in items for item in c.coil_items()]
-    await _bulk_read_registers(unit, register_items, register_ranges)
-    await _bulk_read_coils(unit, coil_items, coil_ranges)
+    register_blocks = _plan_blocks(_register_spans(register_items), register_ranges)
+    coil_blocks = _plan_blocks(
+        ((address, 1) for address, _, _ in coil_items), coil_ranges
+    )
+    await _bulk_read_registers(unit, register_items, register_blocks)
+    await _bulk_read_coils(unit, coil_items, coil_blocks)
     for component in items:
         component.notify()
