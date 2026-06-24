@@ -99,7 +99,7 @@ as few Modbus calls as possible. It talks only to a `ModbusUnit`, so it runs ove
 any backend (or the mock).
 
 ```python
-from modbus_connection.model import Component, Device, gauge, integer, uint32, coil
+from modbus_connection.model import Component, gauge, uint32, coil
 
 class Meter(Component):
     voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
