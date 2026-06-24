@@ -209,10 +209,21 @@ async def test_fail_write_triggers_on_any_covered_address(
 
 
 async def test_fail_write_applies_to_coils(mock_modbus_unit: MockModbusUnit) -> None:
-    mock_modbus_unit.fail_write(5, ModbusExceptionError(3))
+    mock_modbus_unit.fail_write(5, ModbusExceptionError(3), register_type="coil")
     with pytest.raises(ModbusExceptionError):
         await mock_modbus_unit.write_coil(5, True)
     assert await mock_modbus_unit.read_coils(5, 1) == [False]
+
+
+async def test_fail_write_coil_and_holding_addresses_are_independent(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    # Arming holding 5 must not affect a coil write at 5 (separate data tables).
+    mock_modbus_unit.fail_write(5, ModbusExceptionError(3))  # defaults to holding
+    await mock_modbus_unit.write_coil(5, True)
+    assert await mock_modbus_unit.read_coils(5, 1) == [True]
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.write_register(5, 1)
 
 
 # -- connection lifecycle -----------------------------------------------------

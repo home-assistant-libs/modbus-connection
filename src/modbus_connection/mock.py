@@ -170,7 +170,7 @@ class MockModbusUnit:
         self.coils: dict[int, CoilSpec] = {}
         self.discrete_inputs: dict[int, CoilSpec] = {}
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
-        self._write_failures: dict[int, Exception] = {}
+        self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
         self._responses: dict[str, object] = {}
 
     @property
@@ -200,18 +200,30 @@ class MockModbusUnit:
 
         return unsubscribe
 
-    def fail_write(self, address: int, error: Exception | None) -> None:
+    def fail_write(
+        self,
+        address: int,
+        error: Exception | None,
+        *,
+        register_type: RegisterType = "holding",
+    ) -> None:
         """Arm (or clear) a failure for writes touching ``address``.
 
-        A write covering ``address`` raises ``error`` *before* mutating the
-        store, mirroring a device that rejects the write: the stored value is
-        left unchanged and ``on_write`` callbacks do not fire. The failure
-        persists until cleared with ``fail_write(address, None)``.
+        A matching write raises ``error`` *before* mutating the store, mirroring
+        a device that rejects the write: the stored value is left unchanged and
+        ``on_write`` callbacks do not fire. The failure persists until cleared
+        with ``fail_write(address, None)``.
+
+        ``register_type`` selects the data table — ``"holding"`` (the default,
+        covering register writes incl. ``mask_write_register``) or ``"coil"``.
+        Coil and holding addresses are independent, so arming one never affects
+        the other.
         """
+        key = (register_type, address)
         if error is None:
-            self._write_failures.pop(address, None)
+            self._write_failures.pop(key, None)
         else:
-            self._write_failures[address] = error
+            self._write_failures[key] = error
 
     def set_response(self, method: str, value: object) -> None:
         """Set the canned result for an exotic function code (e.g.
@@ -219,9 +231,11 @@ class MockModbusUnit:
         callable evaluated per call."""
         self._responses[method] = value
 
-    def _raise_if_write_fails(self, address: int, count: int = 1) -> None:
+    def _raise_if_write_fails(
+        self, register_type: RegisterType, address: int, count: int = 1
+    ) -> None:
         for offset in range(count):
-            error = self._write_failures.get(address + offset)
+            error = self._write_failures.get((register_type, address + offset))
             if error is not None:
                 raise error
 
@@ -250,14 +264,14 @@ class MockModbusUnit:
 
     async def write_register(self, address: int, value: int) -> None:
         self._ensure_connected()
-        self._raise_if_write_fails(address)
+        self._raise_if_write_fails("holding", address)
         self.holding[address] = int(value)
         self._fire_write(WriteEvent("holding", address, [int(value)]))
 
     async def write_registers(self, address: int, values: list[int]) -> None:
         self._ensure_connected()
         ints = [int(v) for v in values]
-        self._raise_if_write_fails(address, len(ints))
+        self._raise_if_write_fails("holding", address, len(ints))
         for offset, value in enumerate(ints):
             self.holding[address + offset] = value
         self._fire_write(WriteEvent("holding", address, ints))
@@ -274,14 +288,14 @@ class MockModbusUnit:
 
     async def write_coil(self, address: int, value: bool) -> None:
         self._ensure_connected()
-        self._raise_if_write_fails(address)
+        self._raise_if_write_fails("coil", address)
         self.coils[address] = bool(value)
         self._fire_write(WriteEvent("coil", address, [bool(value)]))
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
         self._ensure_connected()
         bools = [bool(v) for v in values]
-        self._raise_if_write_fails(address, len(bools))
+        self._raise_if_write_fails("coil", address, len(bools))
         for offset, value in enumerate(bools):
             self.coils[address + offset] = value
         self._fire_write(WriteEvent("coil", address, bools))
@@ -325,7 +339,7 @@ class MockModbusUnit:
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
         self._ensure_connected()
-        self._raise_if_write_fails(address)
+        self._raise_if_write_fails("holding", address)
         current = _read_registers(self.holding, address, 1)[0]
         new = (current & and_mask) | (or_mask & ~and_mask)
         self.holding[address] = new
