@@ -96,7 +96,7 @@ as few Modbus calls as possible. It talks only to a `ModbusUnit`, so it runs ove
 any backend (or the mock).
 
 ```python
-from modbus_connection.model import Component, gauge, integer, uint32, coil
+from modbus_connection.model import Component, Device, gauge, integer, uint32, coil
 
 class Meter(Component):
     voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
@@ -128,8 +128,18 @@ class Heater(Component):
 
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a
-unit in one consolidated set of reads, use
-`async_update_all(unit, components, register_ranges, coil_ranges)`.
+unit in one consolidated set of reads, group them in a `Device` and call
+`async_update()` on it:
+
+```python
+device = Device(unit, [water_heater, circuit_1, circuit_2, circuit_3])
+await device.async_update()  # one pooled set of reads; each component notified
+```
+
+The `Device` builds its pooled read plan from the components' static layout on
+the first update and reuses it on every later poll. The component list, their
+fields, and the ranges are read once and cached — mutating them after the first
+update is not supported; build a new `Device` (or `Component`) instead.
 
 ### Readable address ranges
 
@@ -141,7 +151,7 @@ specific ranges, and a read that crosses a gap is rejected.
 Declare the device's readable ranges and the planner merges **only within a
 range**, never across a boundary, and still clips each read to the addresses
 actually used. Set them as a class attribute (shared by every instance) or per
-instance; the same tuples are passed to `async_update_all` for the pooled path:
+instance; the same tuples are passed to `Device` for the pooled path:
 
 ```python
 class Thermostat(Component):
@@ -153,8 +163,10 @@ class Thermostat(Component):
     model = integer(0)
     outside = gauge(9, 0.1, unit="°C")
 
-await async_update_all(unit, [thermostat], Thermostat.register_ranges,
-                       Thermostat.coil_ranges)
+device = Device(unit, [thermostat],
+                register_ranges=Thermostat.register_ranges,
+                coil_ranges=Thermostat.coil_ranges)
+await device.async_update()
 ```
 
 Leave them as the default `None` for devices with a contiguous map (plain

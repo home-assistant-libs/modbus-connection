@@ -79,10 +79,10 @@ Range = tuple[int, int]  # an inclusive (low, high) readable address range
 __all__ = [
     "CoilField",
     "Component",
+    "Device",
     "Range",
     "RegisterField",
     "UpdateListener",
-    "async_update_all",
     "coil",
     "float32",
     "gauge",
@@ -687,8 +687,10 @@ class Component:
 
     The read plan (which blocks to fetch) is derived from the static field layout
     and cached on first :meth:`async_update`, so each subsequent poll reuses it
-    rather than re-planning. Set ``register_ranges`` / ``coil_ranges`` before the
-    first update.
+    rather than re-planning. The fields and ``register_ranges`` / ``coil_ranges``
+    are read once at that point; mutating them afterwards is not supported — set
+    the ranges before the first update, and build a new component to change the
+    field layout.
     """
 
     _register_fields: dict[str, RegisterField[Any]] = {}
@@ -834,30 +836,68 @@ class Component:
         await self._unit.write_coil(address, False)
 
 
-async def async_update_all(
-    unit: ModbusUnit,
-    components: Iterable[Component],
-    register_ranges: tuple[Range, ...] | None = None,
-    coil_ranges: tuple[Range, ...] | None = None,
-) -> None:
-    """Refresh several components that share one unit in pooled block reads.
+class Device:
+    """Several :class:`Component`s on one unit, refreshed in pooled block reads.
 
-    Their register and coil targets are merged into a single consolidated set of
-    reads — adjacent registers from different components are fetched together —
-    rather than each component querying on its own. Listeners fire per component
-    afterwards. Pass the device's readable ``ranges`` to avoid crossing gaps.
+    A device groups the sub-systems of one physical device — e.g. a Trovis
+    controller's water heater and heating circuits 1-3 — and reads them together:
+    their register and coil targets are merged into a single consolidated set of
+    block reads, so adjacent registers from different components are fetched in
+    the same Modbus call rather than each component querying on its own. Each
+    component's listeners fire after the update.
 
-    The plan spans whichever components are passed, so it is built per call (over
-    their cached targets) rather than stored on any one component.
+    The pooled plan is built from the components' static layout on the first
+    :meth:`async_update` and reused on every later poll. Pass the device's
+    readable ``ranges`` to keep reads from crossing an unreadable gap.
+
+    The component list, their fields, and the ranges are read once and cached;
+    mutating any of them after the first update is not supported — build a new
+    ``Device`` instead.
     """
-    items = list(components)
-    register_items = [item for c in items for item in c.register_items()]
-    coil_items = [item for c in items for item in c.coil_items()]
-    register_blocks = _plan_blocks(_register_spans(register_items), register_ranges)
-    coil_blocks = _plan_blocks(
-        ((address, 1) for address, _, _ in coil_items), coil_ranges
-    )
-    await _bulk_read_registers(unit, register_items, register_blocks)
-    await _bulk_read_coils(unit, coil_items, coil_blocks)
-    for component in items:
-        component.notify()
+
+    def __init__(
+        self,
+        unit: ModbusUnit,
+        components: Iterable[Component],
+        *,
+        register_ranges: tuple[Range, ...] | None = None,
+        coil_ranges: tuple[Range, ...] | None = None,
+    ) -> None:
+        self._unit = unit
+        self._components = list(components)
+        self._register_ranges = register_ranges
+        self._coil_ranges = coil_ranges
+        # Pooled targets and their block plan are static; built once, then reused.
+        self._register_items: list[RegisterItem] | None = None
+        self._coil_items: list[CoilItem] | None = None
+        self._register_blocks: list[tuple[int, int]] | None = None
+        self._coil_blocks: list[tuple[int, int]] | None = None
+
+    async def async_update(self) -> None:
+        """Refresh every component in one pooled set of reads, then notify each.
+
+        The block plan is built on the first call and reused on later polls.
+        """
+        if self._register_items is None:
+            self._register_items = [
+                item for c in self._components for item in c.register_items()
+            ]
+            self._coil_items = [
+                item for c in self._components for item in c.coil_items()
+            ]
+            self._register_blocks = _plan_blocks(
+                _register_spans(self._register_items), self._register_ranges
+            )
+            self._coil_blocks = _plan_blocks(
+                ((address, 1) for address, _, _ in self._coil_items),
+                self._coil_ranges,
+            )
+        assert self._coil_items is not None
+        assert self._register_blocks is not None
+        assert self._coil_blocks is not None
+        await _bulk_read_registers(
+            self._unit, self._register_items, self._register_blocks
+        )
+        await _bulk_read_coils(self._unit, self._coil_items, self._coil_blocks)
+        for component in self._components:
+            component.notify()

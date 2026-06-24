@@ -9,7 +9,7 @@ import pytest
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
-    async_update_all,
+    Device,
     coil,
     float32,
     gauge,
@@ -240,26 +240,43 @@ def test_plan_blocks_range_aware_never_crosses_gap() -> None:
 # -- device-level pooling -----------------------------------------------------
 
 
-async def test_async_update_all_pools_reads() -> None:
-    class Counting:
-        def __init__(self, inner: MockModbusUnit) -> None:
-            self._inner = inner
-            self.reads: list[tuple[int, int]] = []
+class _Counting:
+    """Wraps a unit and records each holding-register read."""
 
-        async def read_holding_registers(self, address: int, count: int) -> list[int]:
-            self.reads.append((address, count))
-            return await self._inner.read_holding_registers(address, count)
+    def __init__(self, inner: MockModbusUnit) -> None:
+        self._inner = inner
+        self.reads: list[tuple[int, int]] = []
 
-        def __getattr__(self, name: str) -> object:
-            return getattr(self._inner, name)
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        self.reads.append((address, count))
+        return await self._inner.read_holding_registers(address, count)
 
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+
+async def test_device_pools_reads() -> None:
     inner = MockModbusConnection().for_unit(1)
     inner.holding.update({0: 1, 1: 200, 3: 0x0001, 4: 0x86A0})
-    unit = Counting(inner)
+    unit = _Counting(inner)
     meter = Meter(unit)  # type: ignore[arg-type]
 
-    await async_update_all(unit, [meter])  # type: ignore[list-item]
+    device = Device(unit, [meter])  # type: ignore[list-item]
+    await device.async_update()
 
     # count/temperature/raw/energy/balance/flow span 0..8 -> one pooled block.
     assert len(unit.reads) == 1
     assert meter.count == 1 and meter.energy == 100000
+
+
+async def test_device_reuses_plan_across_polls() -> None:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 1, 3: 0x0001, 4: 0x86A0})
+    unit = _Counting(inner)
+    device = Device(unit, [Meter(unit)])  # type: ignore[list-item]
+
+    await device.async_update()
+    await device.async_update()
+    # Same single pooled block each poll: 2 reads total, no re-planning surprises.
+    assert unit.reads == [unit.reads[0], unit.reads[0]]
+    assert len(unit.reads) == 2
