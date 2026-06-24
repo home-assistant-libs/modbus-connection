@@ -69,12 +69,7 @@ def _value_to_registers(value: object, fmt: str, word_order: WordOrder) -> list[
 
 
 class TmodbusConnection:
-    """A live tmodbus connection.
-
-    Request serialization is tmodbus's job: the smart transport added by its
-    client factories holds a lock around each send/receive, so this wrapper adds
-    none of its own.
-    """
+    """A live tmodbus connection."""
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
