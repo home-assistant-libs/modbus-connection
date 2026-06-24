@@ -600,11 +600,14 @@ def enum[E: IntEnum](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
+    level_coil: int | None = None,
+    level_coil_stride: int = 0,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
     A code with no member decodes to ``None`` (warned once per value). ``nan`` is
-    an optional raw sentinel that also decodes to ``None``.
+    an optional raw sentinel that also decodes to ``None``. ``level_coil`` names a
+    write-unlock coil released before a write (for writable mode registers).
     """
     return NumberField(
         address,
@@ -615,6 +618,8 @@ def enum[E: IntEnum](
         nan=nan,
         stride=stride,
         writable=writable,
+        level_coil=level_coil,
+        level_coil_stride=level_coil_stride,
     )
 
 
@@ -627,8 +632,13 @@ def flags[F: IntFlag](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
+    level_coil: int | None = None,
+    level_coil_stride: int = 0,
 ) -> NumberField[F]:
-    """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept)."""
+    """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
+
+    ``level_coil`` names a write-unlock coil released before a write.
+    """
     return NumberField(
         address,
         count=count,
@@ -638,6 +648,8 @@ def flags[F: IntFlag](
         nan=nan,
         stride=stride,
         writable=writable,
+        level_coil=level_coil,
+        level_coil_stride=level_coil_stride,
     )
 
 

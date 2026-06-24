@@ -259,6 +259,23 @@ async def test_write_unlock_coil() -> None:
     assert (await unit.read_holding_registers(10, 1))[0] == 3
 
 
+async def test_write_enum_with_level_coil() -> None:
+    class Mode(IntEnum):
+        AUTO = 0
+        BOOST = 4
+
+    class Heater(Component):
+        mode = enum(10, Mode, writable=True, level_coil=88)
+
+    unit = MockModbusConnection().for_unit(1)
+    await unit.write_coil(88, True)  # start locked
+    heater = Heater(unit)
+    await heater.write("mode", Mode.BOOST)
+    # Unlock coil released, then the enum member written as its int value.
+    assert (await unit.read_coils(88, 1))[0] is False
+    assert (await unit.read_holding_registers(10, 1))[0] == 4
+
+
 # -- listeners + independent update ------------------------------------------
 
 
