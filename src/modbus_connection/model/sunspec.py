@@ -28,6 +28,7 @@ component to map to an ``enum.Enum`` or ``enum.IntFlag``.
 from __future__ import annotations
 
 from enum import IntEnum, IntFlag
+from ipaddress import IPv4Address, IPv6Address
 from typing import Any, overload
 
 from . import RegisterField
@@ -483,12 +484,12 @@ def string(
     )
 
 
-def ipaddr(address: int, *, stride: int = 0) -> RegisterField[str]:
+def ipaddr(address: int, *, stride: int = 0) -> RegisterField[IPv4Address]:
     """An IPv4 address over two registers."""
     return RegisterField(address, kind="ipaddr", count=2, stride=stride)
 
 
-def ipv6addr(address: int, *, stride: int = 0) -> RegisterField[str]:
+def ipv6addr(address: int, *, stride: int = 0) -> RegisterField[IPv6Address]:
     """An IPv6 address over eight registers."""
     return RegisterField(address, kind="ipv6addr", count=8, stride=stride)
 

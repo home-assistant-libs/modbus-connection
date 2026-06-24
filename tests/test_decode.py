@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import struct
 
@@ -74,8 +75,10 @@ def test_scaled_sum_adds_by_magnitude() -> None:
 
 
 def test_address_formats() -> None:
-    assert decode_ipaddr([0xC0A8, 0x0001]) == "192.168.0.1"
-    assert decode_ipv6addr([0x2001, 0xDB8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1"
+    assert decode_ipaddr([0xC0A8, 0x0001]) == ipaddress.IPv4Address("192.168.0.1")
+    assert decode_ipv6addr([0x2001, 0xDB8, 0, 0, 0, 0, 0, 1]) == ipaddress.IPv6Address(
+        "2001:db8::1"
+    )
     assert decode_eui48([0x0011, 0x2233, 0x4455]) == "00:11:22:33:44:55"
 
 

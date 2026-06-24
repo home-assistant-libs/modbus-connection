@@ -118,14 +118,14 @@ def decode_scaled_sum(words: list[int], magnitudes: tuple[int, ...]) -> int:
     return sum((w & 0xFFFF) * m for w, m in zip(words, magnitudes, strict=True))
 
 
-def decode_ipaddr(words: list[int]) -> str:
+def decode_ipaddr(words: list[int]) -> ipaddress.IPv4Address:
     """Decode two registers as an IPv4 address (SunSpec ``ipaddr``)."""
-    return str(ipaddress.IPv4Address(combine_words(words)))
+    return ipaddress.IPv4Address(combine_words(words))
 
 
-def decode_ipv6addr(words: list[int]) -> str:
+def decode_ipv6addr(words: list[int]) -> ipaddress.IPv6Address:
     """Decode eight registers as an IPv6 address (SunSpec ``ipv6addr``)."""
-    return str(ipaddress.IPv6Address(combine_words(words)))
+    return ipaddress.IPv6Address(combine_words(words))
 
 
 def decode_eui48(words: list[int]) -> str:
