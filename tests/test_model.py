@@ -19,7 +19,7 @@ from modbus_connection.model import (
     scaled_sum,
     uint32,
 )
-from modbus_connection.model import _plan_blocks as plan_blocks
+from modbus_connection.model._planning import _plan_blocks as plan_blocks
 
 
 class Meter(Component):
@@ -85,26 +85,16 @@ async def test_word_order_little() -> None:
     assert le.value == 100000
 
 
-async def test_plan_is_built_once_across_polls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modbus_connection.model as model
-
-    calls = 0
-    original = model._plan_blocks
-
-    def counting(*args: object, **kwargs: object) -> list[tuple[int, int]]:
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(model, "_plan_blocks", counting)
+async def test_plan_is_built_once_across_polls() -> None:
     meter = _meter({0: 7})
     await meter.async_update()
+    register_blocks = meter._register_blocks
+    coil_blocks = meter._coil_blocks
     await meter.async_update()
     await meter.async_update()
-    # One plan for registers + one for coils, regardless of how many polls run.
-    assert calls == 2
+    # The cached_property plan is the same object each poll, never rebuilt.
+    assert meter._register_blocks is register_blocks
+    assert meter._coil_blocks is coil_blocks
 
 
 async def test_scaled_sum_adds_magnitudes() -> None:

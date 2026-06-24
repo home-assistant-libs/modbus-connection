@@ -8,9 +8,8 @@ from enum import IntEnum, IntFlag
 
 import pytest
 
-import modbus_connection.model as model
 from modbus_connection.mock import MockModbusConnection
-from modbus_connection.model import Component
+from modbus_connection.model import Component, fields
 from modbus_connection.model import sunspec as ss
 
 
@@ -136,7 +135,7 @@ async def test_enum_write_accepts_member() -> None:
 async def test_unknown_enum_decodes_to_none_and_warns_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    model._warned_unknown_enum.clear()
+    fields._warned_unknown_enum.clear()
     dev = _device({0: 7})  # 7 is not a Mode member
     with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
         await dev.async_update()
