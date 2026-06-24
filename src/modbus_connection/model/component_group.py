@@ -32,8 +32,11 @@ class ComponentGroup:
     listeners fire after the update.
 
     The pooled plan is built from the components' static layout on the first
-    :meth:`async_update` and reused on every later poll. Pass the device's
-    readable ``ranges`` to keep reads from crossing an unreadable gap.
+    :meth:`async_update` and reused on every later poll. The readable address
+    ``ranges`` come from the components — they describe one device's address map,
+    so every component in the group must declare the same
+    :attr:`Component.register_ranges` / :attr:`Component.coil_ranges`; a mismatch
+    raises ``ValueError``.
 
     The component list, their fields, and the ranges are read once and cached;
     mutating any of them after the first update is not supported — build a new
@@ -44,14 +47,21 @@ class ComponentGroup:
         self,
         unit: ModbusUnit,
         components: Iterable[Component],
-        *,
-        register_ranges: tuple[Range, ...] | None = None,
-        coil_ranges: tuple[Range, ...] | None = None,
     ) -> None:
         self._unit = unit
         self._components = list(components)
-        self._register_ranges = register_ranges
-        self._coil_ranges = coil_ranges
+        self._register_ranges = self._shared_ranges("register_ranges")
+        self._coil_ranges = self._shared_ranges("coil_ranges")
+
+    def _shared_ranges(self, attr: str) -> tuple[Range, ...] | None:
+        """The ranges shared by every component, or raise if they disagree."""
+        distinct = {getattr(c, attr) for c in self._components}
+        if len(distinct) > 1:
+            raise ValueError(
+                f"every component in a ComponentGroup must share {attr}, "
+                f"but got differing values: {distinct}"
+            )
+        return next(iter(distinct), None)
 
     @cached_property
     def _register_items(self) -> list[RegisterItem]:

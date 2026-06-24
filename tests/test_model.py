@@ -270,3 +270,30 @@ async def test_group_reuses_plan_across_polls() -> None:
     # Same single pooled block each poll: 2 reads total, no re-planning surprises.
     assert unit.reads == [unit.reads[0], unit.reads[0]]
     assert len(unit.reads) == 2
+
+
+class _Ranged(Component):
+    register_ranges = ((0, 6), (9, 40))  # 7-8 unreadable
+    near = integer(5)
+    far = integer(9)
+
+
+async def test_group_derives_ranges_from_components() -> None:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({5: 1, 9: 2})
+    unit = _Counting(inner)
+    # Two components sharing ranges: accepted, and the gap is honoured.
+    group = ComponentGroup(unit, [_Ranged(unit), _Ranged(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    read = {start + i for start, count in unit.reads for i in range(count)}
+    assert 7 not in read and 8 not in read  # never crosses the unreadable gap
+
+
+async def test_group_rejects_mismatched_ranges() -> None:
+    class Other(Component):
+        register_ranges = ((0, 40),)
+        value = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="register_ranges"):
+        ComponentGroup(unit, [_Ranged(unit), Other(unit)])

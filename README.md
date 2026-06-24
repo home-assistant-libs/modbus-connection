@@ -159,7 +159,8 @@ specific ranges, and a read that crosses a gap is rejected.
 Declare the device's readable ranges and the planner merges **only within a
 range**, never across a boundary, and still clips each read to the addresses
 actually used. Set them as a class attribute (shared by every instance) or per
-instance; the same tuples are passed to `ComponentGroup` for the pooled path:
+instance. A `ComponentGroup` reads the ranges off its components, so every
+component in a group must declare the same ranges (it raises otherwise):
 
 ```python
 class Thermostat(Component):
@@ -171,9 +172,7 @@ class Thermostat(Component):
     model = integer(0)
     outside = gauge(9, 0.1, unit="°C")
 
-group = ComponentGroup(unit, [thermostat],
-                       register_ranges=Thermostat.register_ranges,
-                       coil_ranges=Thermostat.coil_ranges)
+group = ComponentGroup(unit, [thermostat])  # ranges come from the components
 await group.async_update()
 ```
 
