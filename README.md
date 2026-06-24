@@ -110,36 +110,44 @@ meter.voltage                                # float | None
 await meter.write("relay", True)
 ```
 
-Only very generic field types ship here — `integer`, `gauge`, `raw_register`,
-`uint32` / `int32` / `float32`, and `coil` (plus an optional `nan` sentinel,
-`word_order`, and a `level_coil` write-unlock). Device-specific shaping (enums,
-packed dates/times) is left to the consumer via a private field + a `@property`,
-so static typing stays exact:
+Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
+`int32` / `float32`, `scaled_sum`, and `coil` (plus an optional `nan` sentinel,
+`word_order`, and a `level_coil` write-unlock). The full SunSpec type set,
+including `enum`/`bitfield` fields that map natively to an `IntEnum` / `IntFlag`,
+lives in `modbus_connection.model.sunspec`.
+
+Shaping that neither covers — composing or transforming a value, packed
+dates/times — is left to the consumer via a private field + a `@property`, so
+static typing stays exact. For example, prefixing a version register with a
+hard-coded model name:
 
 ```python
-class Heater(Component):
-    _mode_raw = integer(5)
+from modbus_connection.model.sunspec import string
+
+class Controller(Component):
+    _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
 
     @property
-    def mode(self) -> Mode | None:
-        raw = self._mode_raw
-        return Mode(raw) if raw is not None else None
+    def model(self) -> str | None:
+        firmware = self._firmware
+        return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a
-unit in one consolidated set of reads, group them in a `Device` and call
+unit in one consolidated set of reads, group them in a `ComponentGroup` and call
 `async_update()` on it:
 
 ```python
-device = Device(unit, [water_heater, circuit_1, circuit_2, circuit_3])
-await device.async_update()  # one pooled set of reads; each component notified
+group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
+await group.async_update()  # one pooled set of reads; each component notified
 ```
 
-The `Device` builds its pooled read plan from the components' static layout on
-the first update and reuses it on every later poll. The component list, their
-fields, and the ranges are read once and cached — mutating them after the first
-update is not supported; build a new `Device` (or `Component`) instead.
+The `ComponentGroup` builds its pooled read plan from the components' static
+layout on the first update and reuses it on every later poll. The component list,
+their fields, and the ranges are read once and cached — mutating them after the
+first update is not supported; build a new `ComponentGroup` (or `Component`)
+instead.
 
 ### Readable address ranges
 
@@ -151,7 +159,7 @@ specific ranges, and a read that crosses a gap is rejected.
 Declare the device's readable ranges and the planner merges **only within a
 range**, never across a boundary, and still clips each read to the addresses
 actually used. Set them as a class attribute (shared by every instance) or per
-instance; the same tuples are passed to `Device` for the pooled path:
+instance; the same tuples are passed to `ComponentGroup` for the pooled path:
 
 ```python
 class Thermostat(Component):
@@ -163,10 +171,10 @@ class Thermostat(Component):
     model = integer(0)
     outside = gauge(9, 0.1, unit="°C")
 
-device = Device(unit, [thermostat],
-                register_ranges=Thermostat.register_ranges,
-                coil_ranges=Thermostat.coil_ranges)
-await device.async_update()
+group = ComponentGroup(unit, [thermostat],
+                       register_ranges=Thermostat.register_ranges,
+                       coil_ranges=Thermostat.coil_ranges)
+await group.async_update()
 ```
 
 Leave them as the default `None` for devices with a contiguous map (plain

@@ -20,17 +20,27 @@ A ``Component`` is a sub-system whose attributes are ``RegisterField`` /
     await meter.async_update()
     meter.voltage            # float | None
 
-Only very generic field types ship here: scaled / unscaled integers, raw words,
-and 32-bit / float values. Device-specific shaping (enums, packed dates/times,
-sentinel handling beyond a single ``nan`` value) belongs in the consumer, done
-with a private field plus a normal ``@property`` so static typing stays exact::
+Generic field types ship here: scaled / unscaled integers, raw words, 32-bit /
+float values, strings and the ``scaled_sum`` magnitude counter. The full SunSpec
+type set — including ``enum``/``bitfield`` fields that map natively to an
+``IntEnum`` / ``IntFlag`` — lives in :mod:`modbus_connection.model.sunspec`.
 
-    _mode_raw = integer(5)
+Shaping that neither covers — composing or transforming a value, packed
+dates/times, sentinel handling beyond a single ``nan`` — belongs in the consumer,
+done with a private field plus a normal ``@property`` so static typing stays
+exact. For example, presenting a version register prefixed with a hard-coded
+model name::
 
-    @property
-    def mode(self) -> Mode | None:
-        raw = self._mode_raw
-        return Mode(raw) if raw is not None else None
+    from modbus_connection.model import Component
+    from modbus_connection.model.sunspec import string
+
+    class Controller(Component):
+        _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
+
+        @property
+        def model(self) -> str | None:
+            firmware = self._firmware
+            return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 
 Reads are pooled into block reads. A device may pass its readable address
 ``ranges`` so the planner merges only within a range and never reads across an
@@ -79,7 +89,7 @@ Range = tuple[int, int]  # an inclusive (low, high) readable address range
 __all__ = [
     "CoilField",
     "Component",
-    "Device",
+    "ComponentGroup",
     "Range",
     "RegisterField",
     "UpdateListener",
@@ -836,15 +846,15 @@ class Component:
         await self._unit.write_coil(address, False)
 
 
-class Device:
+class ComponentGroup:
     """Several :class:`Component`s on one unit, refreshed in pooled block reads.
 
-    A device groups the sub-systems of one physical device — e.g. a Trovis
-    controller's water heater and heating circuits 1-3 — and reads them together:
-    their register and coil targets are merged into a single consolidated set of
-    block reads, so adjacent registers from different components are fetched in
-    the same Modbus call rather than each component querying on its own. Each
-    component's listeners fire after the update.
+    Groups the sub-systems of one physical device — e.g. a Trovis controller's
+    water heater and heating circuits 1-3 — and reads them together: their
+    register and coil targets are merged into a single consolidated set of block
+    reads, so adjacent registers from different components are fetched in the same
+    Modbus call rather than each component querying on its own. Each component's
+    listeners fire after the update.
 
     The pooled plan is built from the components' static layout on the first
     :meth:`async_update` and reused on every later poll. Pass the device's
@@ -852,7 +862,7 @@ class Device:
 
     The component list, their fields, and the ranges are read once and cached;
     mutating any of them after the first update is not supported — build a new
-    ``Device`` instead.
+    ``ComponentGroup`` instead.
     """
 
     def __init__(
