@@ -88,6 +88,78 @@ Both backends raise the same neutral types:
 - `ModbusExceptionError` — device returned a Modbus exception response
   (`.exception_code` carries the raw code).
 
+## Device modelling (`modbus_connection.model`)
+
+An optional, backend-neutral framework for mapping a device's registers and coils
+to typed Python attributes and reading the whole device — or one sub-system — in
+as few Modbus calls as possible. It talks only to a `ModbusUnit`, so it runs over
+any backend (or the mock).
+
+```python
+from modbus_connection.model import Component, gauge, integer, uint32, coil
+
+class Meter(Component):
+    voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
+    current = gauge(1, 0.1, unit="A")
+    energy = uint32(2, unit="Wh")            # 32-bit over two registers
+    relay = coil(0, writable=True)
+
+meter = Meter(unit)
+await meter.async_update()                   # one block read
+meter.voltage                                # float | None
+await meter.write("relay", True)
+```
+
+Only very generic field types ship here — `integer`, `gauge`, `raw_register`,
+`uint32` / `int32` / `float32`, and `coil` (plus an optional `nan` sentinel,
+`word_order`, and a `level_coil` write-unlock). Device-specific shaping (enums,
+packed dates/times) is left to the consumer via a private field + a `@property`,
+so static typing stays exact:
+
+```python
+class Heater(Component):
+    _mode_raw = integer(5)
+
+    @property
+    def mode(self) -> Mode | None:
+        raw = self._mode_raw
+        return Mode(raw) if raw is not None else None
+```
+
+Each component can refresh independently and has its own update listeners (one
+Home Assistant entity per component). To refresh several components that share a
+unit in one consolidated set of reads, use
+`async_update_all(unit, components, register_ranges, coil_ranges)`.
+
+### Readable address ranges
+
+Reads are pooled into block reads — addresses close together are fetched in one
+call. By default the planner merges anything within a small gap, which assumes
+every address in between is readable. Many devices only answer reads inside
+specific ranges, and a read that crosses a gap is rejected.
+
+Declare the device's readable ranges and the planner merges **only within a
+range**, never across a boundary, and still clips each read to the addresses
+actually used. Set them as a class attribute (shared by every instance) or per
+instance; the same tuples are passed to `async_update_all` for the pooled path:
+
+```python
+class Thermostat(Component):
+    # (low, high) inclusive. The device answers 0–6 and 9–40 but nothing in
+    # between, so 7–8 are never read and a 0..40 block is split at the gap.
+    register_ranges = ((0, 6), (9, 40))
+    coil_ranges = ((0, 15),)
+
+    model = integer(0)
+    outside = gauge(9, 0.1, unit="°C")
+
+await async_update_all(unit, [thermostat], Thermostat.register_ranges,
+                       Thermostat.coil_ranges)
+```
+
+Leave them as the default `None` for devices with a contiguous map (plain
+gap-based planning).
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an
