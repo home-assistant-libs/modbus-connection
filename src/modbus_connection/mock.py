@@ -23,12 +23,10 @@ raises before mutating the store, so the value is left unchanged.
 
 from __future__ import annotations
 
-import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ._types import WordOrder
 from .exceptions import ModbusConnectionError
 
 __all__ = [
@@ -89,23 +87,6 @@ def _read_registers(space: dict[int, Any], address: int, count: int) -> list[int
 def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
     materialized = _materialize(space, bool)
     return [bool(materialized.get(address + i, False)) for i in range(count)]
-
-
-# -- 16-bit register codec (big-endian bytes; configurable word order) --------
-
-
-def _registers_to_value(
-    registers: list[int], fmt: str, word_order: WordOrder
-) -> object:
-    ordered = list(reversed(registers)) if word_order == "little" else registers
-    raw = b"".join(int(reg).to_bytes(2, "big") for reg in ordered)
-    return struct.unpack(">" + fmt, raw)[0]
-
-
-def _value_to_registers(value: object, fmt: str, word_order: WordOrder) -> list[int]:
-    raw = struct.pack(">" + fmt, value)
-    registers = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
-    return list(reversed(registers)) if word_order == "little" else registers
 
 
 class MockModbusConnection:
@@ -299,39 +280,6 @@ class MockModbusUnit:
         for offset, value in enumerate(bools):
             self.coils[address + offset] = value
         self._fire_write(WriteEvent("coil", address, bools))
-
-    # -- typed reads / writes (always over holding registers) -----------------
-
-    async def read_uint16(self, address: int) -> int:
-        registers = await self.read_holding_registers(address, 1)
-        return int(_registers_to_value(registers, "H", "big"))
-
-    async def read_int16(self, address: int) -> int:
-        registers = await self.read_holding_registers(address, 1)
-        return int(_registers_to_value(registers, "h", "big"))
-
-    async def read_uint32(self, address: int, *, word_order: WordOrder = "big") -> int:
-        registers = await self.read_holding_registers(address, 2)
-        return int(_registers_to_value(registers, "I", word_order))
-
-    async def read_float32(
-        self, address: int, *, word_order: WordOrder = "big"
-    ) -> float:
-        registers = await self.read_holding_registers(address, 2)
-        return float(_registers_to_value(registers, "f", word_order))
-
-    async def read_string(self, address: int, length: int) -> str:
-        registers = await self.read_holding_registers(address, length)
-        raw = b"".join(int(reg).to_bytes(2, "big") for reg in registers)
-        return raw.decode("ascii", errors="ignore").rstrip("\x00")
-
-    async def write_uint16(self, address: int, value: int) -> None:
-        await self.write_registers(address, _value_to_registers(value, "H", "big"))
-
-    async def write_float32(
-        self, address: int, value: float, *, word_order: WordOrder = "big"
-    ) -> None:
-        await self.write_registers(address, _value_to_registers(value, "f", word_order))
 
     # -- full function-code surface -------------------------------------------
 

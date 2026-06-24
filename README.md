@@ -39,9 +39,10 @@ makes that sharing possible while keeping the backend swappable: the
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
   stateless per-unit handle with no lifecycle methods. Every method **raises** on
   failure — it never returns `None`.
-- The full 19-function-code Modbus surface is exposed, plus typed reads
-  (`read_uint16`, `read_float32`, …) that own datatype + word/byte ordering. A
-  backend that cannot implement a code raises `NotImplementedError`.
+- The full 19-function-code Modbus surface is exposed as raw register/coil I/O. A
+  backend that cannot implement a code raises `NotImplementedError`. Datatype and
+  word/byte-order decoding lives one layer up, in `modbus_connection.decode` /
+  `.encode` and the `modbus_connection.model` device framework.
 
 ## Install
 
@@ -61,8 +62,10 @@ async def main() -> None:
     conn = await connect_tcp("192.168.1.50", port=502)
     try:
         unit = conn.for_unit(1)
-        outside_temp = await unit.read_int16(9)        # raw register, signed
-        flow_setpoint = await unit.read_float32(40, word_order="big")
+        from modbus_connection.decode import decode_int16, decode_float32
+
+        outside_temp = decode_int16(await unit.read_holding_registers(9, 1))
+        flow_setpoint = decode_float32(await unit.read_holding_registers(40, 2))
         pump_on = (await unit.read_coils(56, 1))[0]
         print(outside_temp, flow_setpoint, pump_on)
     finally:
@@ -88,6 +91,119 @@ Both backends raise the same neutral types:
 - `ModbusExceptionError` — device returned a Modbus exception response
   (`.exception_code` carries the raw code).
 
+## Device modelling (`modbus_connection.model`)
+
+An optional, backend-neutral framework for mapping a device's registers and coils
+to typed Python attributes and reading the whole device — or one sub-system — in
+as few Modbus calls as possible. It talks only to a `ModbusUnit`, so it runs over
+any backend (or the mock).
+
+```python
+from modbus_connection.model import Component, Device, gauge, integer, uint32, coil
+
+class Meter(Component):
+    voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
+    current = gauge(1, 0.1, unit="A")
+    energy = uint32(2, unit="Wh")            # 32-bit over two registers
+    relay = coil(0, writable=True)
+
+meter = Meter(unit)
+await meter.async_update()                   # one block read
+meter.voltage                                # float | None
+await meter.write("relay", True)
+```
+
+Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
+`int32` / `uint64` / `int64`, `float32` / `float64`, `string`, `scaled_sum`,
+`enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
+`nan` sentinel, `word_order`, and a `level_coil` write-unlock). The SunSpec
+module `modbus_connection.model.sunspec` adds the same types pre-wired with their
+"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
+`eui48`).
+
+Shaping that neither covers — composing or transforming a value, packed
+dates/times — is left to the consumer via a private field + a `@property`, so
+static typing stays exact. For example, prefixing a version register with a
+hard-coded model name:
+
+```python
+from modbus_connection.model import Component, string
+
+class Controller(Component):
+    _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
+
+    @property
+    def model(self) -> str | None:
+        firmware = self._firmware
+        return f"TROVIS 5576 ({firmware})" if firmware is not None else None
+```
+
+Each component can refresh independently and has its own update listeners (one
+Home Assistant entity per component). To refresh several components that share a
+unit in one consolidated set of reads, group them in a `ComponentGroup` and call
+`async_update()` on it:
+
+```python
+group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
+await group.async_update()  # one pooled set of reads; each component notified
+```
+
+The `ComponentGroup` builds its pooled read plan from the components' static
+layout on the first update and reuses it on every later poll. The component list,
+their fields, and the ranges are read once and cached — mutating them after the
+first update is not supported; build a new `ComponentGroup` (or `Component`)
+instead.
+
+### Readable address ranges
+
+Reads are pooled into block reads — addresses close together are fetched in one
+call. By default the planner merges anything within a small gap, which assumes
+every address in between is readable. Many devices only answer reads inside
+specific ranges, and a read that crosses a gap is rejected.
+
+Declare the device's readable ranges and the planner merges **only within a
+range**, never across a boundary, and still clips each read to the addresses
+actually used. Set them as a class attribute (shared by every instance) or per
+instance. A `ComponentGroup` reads the ranges off its components, so every
+component in a group must declare the same ranges (it raises otherwise):
+
+```python
+class Thermostat(Component):
+    # (low, high) inclusive. The device answers 0–6 and 9–40 but nothing in
+    # between, so 7–8 are never read and a 0..40 block is split at the gap.
+    register_ranges = ((0, 6), (9, 40))
+    coil_ranges = ((0, 15),)
+
+    model = integer(0)
+    outside = gauge(9, 0.1, unit="°C")
+
+group = ComponentGroup(unit, [thermostat])  # ranges come from the components
+await group.async_update()
+```
+
+Leave them as the default `None` for devices with a contiguous map (plain
+gap-based planning).
+
+### Register spaces (holding vs input)
+
+A component's register fields default to the **holding** space (FC03). For a
+read-only sub-system whose data lives in **input** registers (FC04), set
+`register_space = "input"` on the component — fields and factories are
+unchanged:
+
+```python
+class Sensors(Component):
+    register_space = "input"
+    flow_temp = gauge(5, 0.1, unit="°C")   # read with FC04
+```
+
+Input and holding are separate address spaces (input 507 ≠ holding 507), so the
+planner never merges them into one read, and `register_ranges` applies within the
+component's own space. A `ComponentGroup` may mix input and holding components: it
+reads each space with its own block reads, and components only need matching
+`register_ranges` with others in the *same* space. Input registers are physically
+read-only, so writing a field on an `"input"` component raises.
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an
@@ -100,8 +216,8 @@ async def test_reads_setpoint(mock_modbus_unit):
     mock_modbus_unit.holding[2] = [0x0001, 0x86A0]  # list -> consecutive registers
     mock_modbus_unit.holding[9] = lambda: 7         # callable -> evaluated per read
 
-    assert await mock_modbus_unit.read_uint16(40) == 1234
-    assert await mock_modbus_unit.read_uint32(2) == 100000
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [1234]
+    assert await mock_modbus_unit.read_holding_registers(2, 2) == [0x0001, 0x86A0]
 ```
 
 Reads resolve against the per-space stores (`holding`, `input`, `coils`,

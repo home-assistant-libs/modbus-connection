@@ -21,12 +21,7 @@ from pymodbus.server import ModbusTcpServer
 
 UNIT_ID = 1
 
-# Known holding-register contents. Addresses chosen to exercise every typed read.
-#   0  : uint16 1234
-#   1  : 0xFFFF -> int16 -1
-#   2-3: uint32 (big) 70000
-#   4-5: float32 12.5
-#   6-9: string "AB CD"
+# Known holding-register contents, shared by the raw-read and parity tests.
 HOLDING: dict[int, int] = {0: 1234, 1: 0xFFFF}
 HOLDING[2], HOLDING[3] = (70000 >> 16) & 0xFFFF, 70000 & 0xFFFF
 _f = struct.unpack(">HH", struct.pack(">f", 12.5))

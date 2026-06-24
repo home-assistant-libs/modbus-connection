@@ -11,7 +11,6 @@ Requires the ``[tmodbus]`` extra.
 from __future__ import annotations
 
 import functools
-import struct
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate, Literal
 
@@ -36,7 +35,6 @@ from tmodbus.pdu import (
     WriteFileRecordPDU,
 )
 
-from .._types import WordOrder
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
@@ -52,20 +50,6 @@ __all__ = [
     "connect_serial",
     "connect_tcp",
 ]
-
-
-def _registers_to_value(
-    registers: list[int], fmt: str, word_order: WordOrder
-) -> object:
-    ordered = list(reversed(registers)) if word_order == "little" else registers
-    raw = b"".join(int(reg).to_bytes(2, "big") for reg in ordered)
-    return struct.unpack(">" + fmt, raw)[0]
-
-
-def _value_to_registers(value: object, fmt: str, word_order: WordOrder) -> list[int]:
-    raw = struct.pack(">" + fmt, value)
-    registers = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
-    return list(reversed(registers)) if word_order == "little" else registers
 
 
 class TmodbusConnection:
@@ -175,50 +159,6 @@ class TmodbusUnit:
     @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
         await self._client.write_multiple_coils(address, values)
-
-    # -- typed reads / writes -------------------------------------------------
-
-    @_map_errors
-    async def read_uint16(self, address: int) -> int:
-        return int(await self._client.read_uint16(address))
-
-    @_map_errors
-    async def read_int16(self, address: int) -> int:
-        return int(await self._client.read_int16(address))
-
-    @_map_errors
-    async def read_uint32(self, address: int, *, word_order: WordOrder = "big") -> int:
-        if word_order == "big":
-            return int(await self._client.read_uint32(address))
-        registers = await self.read_holding_registers(address, 2)
-        return int(_registers_to_value(registers, "I", word_order))
-
-    @_map_errors
-    async def read_float32(
-        self, address: int, *, word_order: WordOrder = "big"
-    ) -> float:
-        if word_order == "big":
-            return float(await self._client.read_float(address))
-        registers = await self.read_holding_registers(address, 2)
-        return float(_registers_to_value(registers, "f", word_order))
-
-    @_map_errors
-    async def read_string(self, address: int, length: int) -> str:
-        value = await self._client.read_string(address, number_of_registers=length)
-        return value.rstrip("\x00")
-
-    @_map_errors
-    async def write_uint16(self, address: int, value: int) -> None:
-        await self._client.write_uint16(address, value)
-
-    @_map_errors
-    async def write_float32(
-        self, address: int, value: float, *, word_order: WordOrder = "big"
-    ) -> None:
-        if word_order == "big":
-            await self._client.write_float(address, value)
-            return
-        await self.write_registers(address, _value_to_registers(value, "f", word_order))
 
     # -- full function-code surface -------------------------------------------
 
