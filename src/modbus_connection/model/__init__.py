@@ -39,8 +39,10 @@ unreadable gap.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable, Iterable
+from enum import Enum
 from typing import TYPE_CHECKING, Any, NamedTuple, overload
 
 from .._types import WordOrder
@@ -61,6 +63,12 @@ from ..exceptions import ModbusExceptionError
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+
+_LOGGER = logging.getLogger(__name__)
+
+# (enum class, raw value) pairs we have already warned about, so an unrecognized
+# enum code is logged only once per distinct value rather than on every poll.
+_warned_unknown_enum: set[tuple[type, int]] = set()
 
 _MAX_GAP = 8  # merge registers/coils less than this many addresses apart
 _MAX_SPAN = 100  # but never read a block wider than this
@@ -107,6 +115,10 @@ class RegisterField[T]:
     address of a ``sunssf`` (signed int16) register read alongside this field on
     each update, the value then returned as ``raw * 10**sf``. ``level_coil`` names
     a coil set to ``False`` before a write (for devices with a write-unlock coil).
+
+    ``enum_type`` maps the raw value through an ``IntEnum`` / ``IntFlag``: an
+    ``IntEnum`` code with no member decodes to ``None`` (warned once per value),
+    while ``IntFlag`` keeps any unknown bits.
     """
 
     def __init__(
@@ -127,6 +139,7 @@ class RegisterField[T]:
         magnitudes: tuple[int, ...] | None = None,
         scale_register: int | None = None,
         scale_register_stride: int = 0,
+        enum_type: type[Enum] | None = None,
     ) -> None:
         self.address = address
         self.scale = scale
@@ -149,6 +162,8 @@ class RegisterField[T]:
         # static scale.
         self.scale_register = scale_register
         self.scale_register_stride = scale_register_stride
+        # IntEnum / IntFlag to map the raw value through; None returns the raw int.
+        self.enum_type = enum_type
         self._decimals = _decimals(scale)
 
     def __set_name__(self, owner: type, name: str) -> None:
@@ -194,6 +209,8 @@ class RegisterField[T]:
             return raw  # the word(s) as-is: no NaN, sign, or scaling
         if self.nan is not None and raw == self.nan:
             return None
+        if self.enum_type is not None:
+            return self._to_enum(raw)
         if self.kind == "magnitudes":
             assert self.magnitudes is not None
             return self._scale(
@@ -201,6 +218,23 @@ class RegisterField[T]:
             )
         value = decode_int(words, signed=self.signed, word_order=self.word_order)
         return self._scale(value, scale_exponent)
+
+    def _to_enum(self, raw: int) -> Any:
+        """Map a raw value through ``enum_type``; unknown IntEnum codes warn once."""
+        assert self.enum_type is not None
+        try:
+            return self.enum_type(raw)  # IntFlag keeps unknown bits; IntEnum may raise
+        except ValueError:
+            key = (self.enum_type, raw)
+            if key not in _warned_unknown_enum:
+                _warned_unknown_enum.add(key)
+                _LOGGER.warning(
+                    "Field %r: %s has no member for value %d; decoding as None",
+                    self.name,
+                    self.enum_type.__name__,
+                    raw,
+                )
+            return None
 
     def _scale(self, value: float, scale_exponent: int | None) -> Any:
         """Apply this field's static scale and optional 10**sf, then round."""

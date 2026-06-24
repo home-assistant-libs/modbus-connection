@@ -27,7 +27,7 @@ __all__ = [
 
 
 def split_words(raw: int, *, count: int, word_order: WordOrder = "big") -> list[int]:
-    """Split an integer into ``count`` register words (most-significant first)."""
+    """Split an integer into ``count`` register words per ``word_order``."""
     words = [(raw >> (16 * (count - 1 - i))) & 0xFFFF for i in range(count)]
     return words if word_order == "big" else list(reversed(words))
 

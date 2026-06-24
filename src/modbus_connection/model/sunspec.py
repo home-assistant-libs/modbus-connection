@@ -27,6 +27,9 @@ component to map to an ``enum.Enum`` or ``enum.IntFlag``.
 
 from __future__ import annotations
 
+from enum import IntEnum, IntFlag
+from typing import Any, overload
+
 from . import RegisterField
 
 __all__ = [
@@ -291,71 +294,151 @@ def sunssf(address: int, *, stride: int = 0) -> RegisterField[int]:
     return RegisterField(address, count=1, signed=True, nan=_INT16_NAN, stride=stride)
 
 
+@overload
 def enum16(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]:
-    """A 16-bit enumeration; decodes to the raw code (unimplemented 0xFFFF)."""
+) -> RegisterField[int]: ...
+@overload
+def enum16[E: IntEnum](
+    address: int, enum: type[E], *, stride: int = 0, writable: bool = False
+) -> RegisterField[E]: ...
+def enum16(
+    address: int,
+    enum: type[IntEnum] | None = None,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+) -> RegisterField[Any]:
+    """A 16-bit enumeration (unimplemented 0xFFFF).
+
+    Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
+    """
     return RegisterField(
         address,
         count=1,
         signed=False,
         nan=_UINT16_NAN,
+        enum_type=enum,
         stride=stride,
         writable=writable,
     )
 
 
+@overload
 def enum32(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]:
-    """A 32-bit enumeration; decodes to the raw code (unimplemented 0xFFFFFFFF)."""
+) -> RegisterField[int]: ...
+@overload
+def enum32[E: IntEnum](
+    address: int, enum: type[E], *, stride: int = 0, writable: bool = False
+) -> RegisterField[E]: ...
+def enum32(
+    address: int,
+    enum: type[IntEnum] | None = None,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+) -> RegisterField[Any]:
+    """A 32-bit enumeration over two registers (unimplemented 0xFFFFFFFF).
+
+    Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
+    """
     return RegisterField(
         address,
         count=2,
         signed=False,
         nan=_UINT32_NAN,
+        enum_type=enum,
         stride=stride,
         writable=writable,
     )
 
 
+@overload
 def bitfield16(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]:
-    """A 16-bit bitfield; decodes to the raw word (unimplemented 0xFFFF)."""
+) -> RegisterField[int]: ...
+@overload
+def bitfield16[F: IntFlag](
+    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+) -> RegisterField[F]: ...
+def bitfield16(
+    address: int,
+    flags: type[IntFlag] | None = None,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+) -> RegisterField[Any]:
+    """A 16-bit bitfield (unimplemented 0xFFFF).
+
+    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
+    """
     return RegisterField(
         address,
         count=1,
         signed=False,
         nan=_UINT16_NAN,
+        enum_type=flags,
         stride=stride,
         writable=writable,
     )
 
 
+@overload
 def bitfield32(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]:
-    """A 32-bit bitfield over two registers (unimplemented 0xFFFFFFFF)."""
+) -> RegisterField[int]: ...
+@overload
+def bitfield32[F: IntFlag](
+    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+) -> RegisterField[F]: ...
+def bitfield32(
+    address: int,
+    flags: type[IntFlag] | None = None,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+) -> RegisterField[Any]:
+    """A 32-bit bitfield over two registers (unimplemented 0xFFFFFFFF).
+
+    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
+    """
     return RegisterField(
         address,
         count=2,
         signed=False,
         nan=_UINT32_NAN,
+        enum_type=flags,
         stride=stride,
         writable=writable,
     )
 
 
+@overload
 def bitfield64(
     address: int, *, stride: int = 0, writable: bool = False
-) -> RegisterField[int]:
-    """A 64-bit bitfield over four registers (unimplemented 0xFFFFFFFFFFFFFFFF)."""
+) -> RegisterField[int]: ...
+@overload
+def bitfield64[F: IntFlag](
+    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+) -> RegisterField[F]: ...
+def bitfield64(
+    address: int,
+    flags: type[IntFlag] | None = None,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+) -> RegisterField[Any]:
+    """A 64-bit bitfield over four registers (unimplemented 0xFFFFFFFFFFFFFFFF).
+
+    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
+    """
     return RegisterField(
         address,
         count=4,
         signed=False,
         nan=_UINT64_NAN,
+        enum_type=flags,
         stride=stride,
         writable=writable,
     )

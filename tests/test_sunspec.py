@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import struct
+from enum import IntEnum, IntFlag
 
 import pytest
 
+import modbus_connection.model as model
 from modbus_connection.mock import MockModbusConnection
 from modbus_connection.model import Component
 from modbus_connection.model import sunspec as ss
+
+
+class Mode(IntEnum):
+    OFF = 0
+    HEAT = 2
+    COOL = 3
+
+
+class Events(IntFlag):
+    OVERTEMP = 1
+    DOOR_OPEN = 2
 
 
 class Inverter(Component):
@@ -86,3 +100,55 @@ def test_all_factories_build_fields() -> None:
         factory = getattr(ss, name)
         field = factory(0, 4) if name == "string" else factory(0)
         assert field.count >= 1
+
+
+# -- native enum / bitfield mapping -------------------------------------------
+
+
+class Device(Component):
+    mode = ss.enum16(0, Mode, writable=True)
+    events = ss.bitfield16(1, Events)
+    raw_mode = ss.enum16(2)  # bare form keeps the raw int
+
+
+def _device(values: dict[int, int]) -> Device:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(values)
+    return Device(unit)
+
+
+async def test_enum_and_bitfield_decode_to_members() -> None:
+    dev = _device({0: 2, 1: 0b11, 2: 5})
+    await dev.async_update()
+    assert dev.mode is Mode.HEAT
+    assert dev.mode == 2  # IntEnum stays int-comparable
+    assert dev.events == Events.OVERTEMP | Events.DOOR_OPEN
+    assert dev.events & Events.OVERTEMP
+    assert dev.raw_mode == 5  # no enum passed -> raw int
+
+
+async def test_enum_write_accepts_member() -> None:
+    dev = _device({})
+    await dev.write("mode", Mode.COOL)
+    assert (await dev._unit.read_holding_registers(0, 1))[0] == 3
+
+
+async def test_unknown_enum_decodes_to_none_and_warns_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model._warned_unknown_enum.clear()
+    dev = _device({0: 7})  # 7 is not a Mode member
+    with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
+        await dev.async_update()
+        assert dev.mode is None
+        await dev.async_update()  # second poll: still None, no second warning
+        assert dev.mode is None
+    warnings = [r for r in caplog.records if "no member for value 7" in r.message]
+    assert len(warnings) == 1
+
+
+async def test_unknown_bitfield_bits_are_kept() -> None:
+    dev = _device({1: 0xFFF0})  # unknown high bits, IntFlag KEEP boundary
+    await dev.async_update()
+    assert dev.events is not None
+    assert int(dev.events) == 0xFFF0

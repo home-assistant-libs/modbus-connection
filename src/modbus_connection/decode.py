@@ -40,7 +40,7 @@ __all__ = [
 
 
 def combine_words(words: list[int], *, word_order: WordOrder = "big") -> int:
-    """Pack register words into one unsigned integer (most-significant word first)."""
+    """Pack register words into one unsigned integer per ``word_order``."""
     ordered = words if word_order == "big" else list(reversed(words))
     raw = 0
     for word in ordered:

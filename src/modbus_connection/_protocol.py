@@ -35,10 +35,6 @@ class ModbusUnit(Protocol):
     async def write_coil(self, address: int, value: bool) -> None: ...
     async def write_coils(self, address: int, values: list[bool]) -> None: ...
 
-    # Typed reads/writes and device modelling live above this protocol: feed the
-    # raw register words to modbus_connection.decode / .encode, or use
-    # modbus_connection.model. The connection only moves registers and coils.
-
     # The full Modbus function-code set (complete spec). A backend that doesn't
     # implement a given code raises NotImplementedError.
     async def read_exception_status(self) -> int: ...  # 0x07
