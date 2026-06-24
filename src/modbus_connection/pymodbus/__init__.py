@@ -9,8 +9,9 @@ Requires the ``[pymodbus]`` extra.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Literal
+import functools
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, Literal
 
 from pymodbus import FramerType
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
@@ -43,6 +44,38 @@ __all__ = [
     "connect_serial",
     "connect_tcp",
 ]
+
+
+def _map_errors[**P, R](
+    func: Callable[P, Awaitable[R]],
+) -> Callable[P, Coroutine[Any, Any, R]]:
+    """Map pymodbus transport exceptions onto the neutral hierarchy."""
+
+    @functools.wraps(func)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return await func(*args, **kwargs)
+        except ConnectionException as err:
+            raise ModbusConnectionError(str(err)) from err
+        except ModbusIOException as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except ModbusException as err:
+            raise ModbusError(str(err)) from err
+
+    return wrapper
+
+
+def _check(response: ModbusPDU) -> ModbusPDU:
+    """Raise the neutral error for a pymodbus error-response PDU; else pass it on.
+
+    pymodbus returns decoded error PDUs rather than raising on them, so every
+    request must inspect ``isError()`` itself.
+    """
+    if response.isError():
+        if isinstance(response, ExceptionResponse):
+            raise ModbusExceptionError(response.exception_code)
+        raise ModbusError(f"Modbus request failed: {response}")
+    return response
 
 
 class _GenericDiagnostic(DiagnosticBase):
@@ -105,43 +138,13 @@ class PymodbusConnection:
             for callback in list(self._lost_callbacks):
                 callback()
 
-    async def _request(self, method: str, *args: object, **kwargs: object) -> ModbusPDU:
-        client_method = getattr(self._client, method)
-        try:
-            response = await client_method(*args, **kwargs)
-        except ConnectionException as err:
-            raise ModbusConnectionError(str(err)) from err
-        except ModbusIOException as err:
-            raise ModbusTimeoutError(str(err)) from err
-        except ModbusException as err:
-            raise ModbusError(str(err)) from err
-        if response.isError():
-            if isinstance(response, ExceptionResponse):
-                raise ModbusExceptionError(response.exception_code)
-            raise ModbusError(f"Modbus request {method} failed: {response}")
-        return response
-
-    async def _execute(self, request: ModbusPDU) -> ModbusPDU:
-        try:
-            response = await self._client.execute(False, request)
-        except ConnectionException as err:
-            raise ModbusConnectionError(str(err)) from err
-        except ModbusIOException as err:
-            raise ModbusTimeoutError(str(err)) from err
-        except ModbusException as err:
-            raise ModbusError(str(err)) from err
-        if response.isError():
-            if isinstance(response, ExceptionResponse):
-                raise ModbusExceptionError(response.exception_code)
-            raise ModbusError(f"Modbus execute failed: {response}")
-        return response
-
 
 class PymodbusUnit:
     """A stateless per-unit handle. Every method raises on failure."""
 
     def __init__(self, connection: PymodbusConnection, unit_id: int) -> None:
         self._conn = connection
+        self._client = connection._client
         self._unit_id = unit_id
 
     @property
@@ -150,49 +153,61 @@ class PymodbusUnit:
 
     # -- raw register I/O -----------------------------------------------------
 
+    @_map_errors
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        response = await self._conn._request(
-            "read_holding_registers", address, count=count, device_id=self._unit_id
+        response = _check(
+            await self._client.read_holding_registers(
+                address, count=count, device_id=self._unit_id
+            )
         )
         return response.registers
 
+    @_map_errors
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        response = await self._conn._request(
-            "read_input_registers", address, count=count, device_id=self._unit_id
+        response = _check(
+            await self._client.read_input_registers(
+                address, count=count, device_id=self._unit_id
+            )
         )
         return response.registers
 
+    @_map_errors
     async def write_register(self, address: int, value: int) -> None:
-        await self._conn._request(
-            "write_register", address, value, device_id=self._unit_id
+        _check(
+            await self._client.write_register(address, value, device_id=self._unit_id)
         )
 
+    @_map_errors
     async def write_registers(self, address: int, values: list[int]) -> None:
-        await self._conn._request(
-            "write_registers", address, values, device_id=self._unit_id
+        _check(
+            await self._client.write_registers(address, values, device_id=self._unit_id)
         )
 
     # -- raw coil / discrete-input I/O ----------------------------------------
 
+    @_map_errors
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        response = await self._conn._request(
-            "read_coils", address, count=count, device_id=self._unit_id
+        response = _check(
+            await self._client.read_coils(address, count=count, device_id=self._unit_id)
         )
         return response.bits[:count]
 
+    @_map_errors
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        response = await self._conn._request(
-            "read_discrete_inputs", address, count=count, device_id=self._unit_id
+        response = _check(
+            await self._client.read_discrete_inputs(
+                address, count=count, device_id=self._unit_id
+            )
         )
         return response.bits[:count]
 
+    @_map_errors
     async def write_coil(self, address: int, value: bool) -> None:
-        await self._conn._request("write_coil", address, value, device_id=self._unit_id)
+        _check(await self._client.write_coil(address, value, device_id=self._unit_id))
 
+    @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
-        await self._conn._request(
-            "write_coils", address, values, device_id=self._unit_id
-        )
+        _check(await self._client.write_coils(address, values, device_id=self._unit_id))
 
     # -- typed reads / writes -------------------------------------------------
 
@@ -241,29 +256,32 @@ class PymodbusUnit:
 
     # -- full function-code surface -------------------------------------------
 
+    @_map_errors
     async def read_exception_status(self) -> int:  # 0x07
-        response = await self._conn._request(
-            "read_exception_status", device_id=self._unit_id
+        response = _check(
+            await self._client.read_exception_status(device_id=self._unit_id)
         )
         return int(response.status)
 
+    @_map_errors
     async def report_server_id(self) -> bytes:  # 0x11
-        response = await self._conn._request(
-            "report_device_id", device_id=self._unit_id
-        )
+        response = _check(await self._client.report_device_id(device_id=self._unit_id))
         return bytes(response.identifier)
 
+    @_map_errors
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
-        await self._conn._request(
-            "mask_write_register",
-            address=address,
-            and_mask=and_mask,
-            or_mask=or_mask,
-            device_id=self._unit_id,
+        _check(
+            await self._client.mask_write_register(
+                address=address,
+                and_mask=and_mask,
+                or_mask=or_mask,
+                device_id=self._unit_id,
+            )
         )
 
+    @_map_errors
     async def read_write_registers(
         self,
         read_address: int,
@@ -271,40 +289,47 @@ class PymodbusUnit:
         write_address: int,
         write_values: list[int],
     ) -> list[int]:  # 0x17
-        response = await self._conn._request(
-            "readwrite_registers",
-            read_address=read_address,
-            read_count=read_count,
-            write_address=write_address,
-            values=write_values,
-            device_id=self._unit_id,
+        response = _check(
+            await self._client.readwrite_registers(
+                read_address=read_address,
+                read_count=read_count,
+                write_address=write_address,
+                values=write_values,
+                device_id=self._unit_id,
+            )
         )
         return response.registers
 
+    @_map_errors
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
-        response = await self._conn._request(
-            "read_fifo_queue", address=address, device_id=self._unit_id
+        response = _check(
+            await self._client.read_fifo_queue(address=address, device_id=self._unit_id)
         )
         return response.values
 
+    @_map_errors
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
-        response = await self._conn._request(
-            "read_device_information", device_id=self._unit_id
+        response = _check(
+            await self._client.read_device_information(device_id=self._unit_id)
         )
         return response.information
 
+    @_map_errors
     async def read_file_record(
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
         request_record = FileRecord(
             file_number=file, record_number=record, record_length=length
         )
-        response = await self._conn._request(
-            "read_file_record", records=[request_record], device_id=self._unit_id
+        response = _check(
+            await self._client.read_file_record(
+                records=[request_record], device_id=self._unit_id
+            )
         )
         data = response.records[0].record_data
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
+    @_map_errors
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
@@ -315,14 +340,17 @@ class PymodbusUnit:
             record_length=len(values),
             record_data=payload,
         )
-        await self._conn._request(
-            "write_file_record", records=[request_record], device_id=self._unit_id
+        _check(
+            await self._client.write_file_record(
+                records=[request_record], device_id=self._unit_id
+            )
         )
 
+    @_map_errors
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
         request = _build_diagnostic(sub_function, data)
         request.dev_id = self._unit_id
-        response = await self._conn._execute(request)
+        response = _check(await self._client.execute(False, request))
         message = response.message
         if isinstance(message, (bytes, bytearray)):
             return int.from_bytes(message, "big")
@@ -330,15 +358,17 @@ class PymodbusUnit:
             return int(message[0]) if message else 0
         return int(message)
 
+    @_map_errors
     async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
-        response = await self._conn._request(
-            "diag_get_comm_event_counter", device_id=self._unit_id
+        response = _check(
+            await self._client.diag_get_comm_event_counter(device_id=self._unit_id)
         )
         return int(response.status), int(response.count)
 
+    @_map_errors
     async def get_comm_event_log(self) -> bytes:  # 0x0C
-        response = await self._conn._request(
-            "diag_get_comm_event_log", device_id=self._unit_id
+        response = _check(
+            await self._client.diag_get_comm_event_log(device_id=self._unit_id)
         )
         return b"".join(int(event).to_bytes(1, "big") for event in response.events)
 

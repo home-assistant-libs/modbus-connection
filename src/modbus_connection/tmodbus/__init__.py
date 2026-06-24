@@ -10,9 +10,10 @@ Requires the ``[tmodbus]`` extra.
 
 from __future__ import annotations
 
+import functools
 import struct
-from collections.abc import Awaitable, Callable
-from typing import Literal, TypeVar
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, Concatenate, Literal
 
 from tmodbus import (
     AsyncModbusClient,
@@ -42,8 +43,6 @@ from ..exceptions import (
     ModbusExceptionError,
     ModbusTimeoutError,
 )
-
-_T = TypeVar("_T")
 
 Framing = Literal["socket", "rtu"]
 
@@ -106,11 +105,22 @@ class TmodbusConnection:
         for callback in list(self._lost_callbacks):
             callback()
 
-    async def _call(self, awaitable: Awaitable[_T]) -> _T:
+
+def _map_errors[**P, R](
+    func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
+) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
+    """Map tmodbus exceptions onto the neutral hierarchy.
+
+    Decorates ``TmodbusUnit`` methods so each body just calls the client
+    directly; a connection-lost error also fires the owner's lost callbacks.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            return await awaitable
+            return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
-            self._notify_lost()
+            self._conn._notify_lost()
             raise ModbusConnectionError(str(err)) from err
         except (TimeoutError, RequestRetryFailedError) as err:
             raise ModbusTimeoutError(str(err)) from err
@@ -118,6 +128,8 @@ class TmodbusConnection:
             raise ModbusExceptionError(int(err.error_code)) from err
         except TModbusError as err:
             raise ModbusError(str(err)) from err
+
+    return wrapper
 
 
 class TmodbusUnit:
@@ -135,89 +147,102 @@ class TmodbusUnit:
 
     # -- raw register I/O -----------------------------------------------------
 
+    @_map_errors
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        return await self._conn._call(
-            self._client.read_holding_registers(address, count)
-        )
+        return await self._client.read_holding_registers(address, count)
 
+    @_map_errors
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        return await self._conn._call(self._client.read_input_registers(address, count))
+        return await self._client.read_input_registers(address, count)
 
+    @_map_errors
     async def write_register(self, address: int, value: int) -> None:
-        await self._conn._call(self._client.write_single_register(address, value))
+        await self._client.write_single_register(address, value)
 
+    @_map_errors
     async def write_registers(self, address: int, values: list[int]) -> None:
-        await self._conn._call(self._client.write_multiple_registers(address, values))
+        await self._client.write_multiple_registers(address, values)
 
     # -- raw coil / discrete-input I/O ----------------------------------------
 
+    @_map_errors
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        return await self._conn._call(self._client.read_coils(address, count))
+        return await self._client.read_coils(address, count)
 
+    @_map_errors
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        return await self._conn._call(self._client.read_discrete_inputs(address, count))
+        return await self._client.read_discrete_inputs(address, count)
 
+    @_map_errors
     async def write_coil(self, address: int, value: bool) -> None:
-        await self._conn._call(self._client.write_single_coil(address, value))
+        await self._client.write_single_coil(address, value)
 
+    @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
-        await self._conn._call(self._client.write_multiple_coils(address, values))
+        await self._client.write_multiple_coils(address, values)
 
     # -- typed reads / writes -------------------------------------------------
 
+    @_map_errors
     async def read_uint16(self, address: int) -> int:
-        return int(await self._conn._call(self._client.read_uint16(address)))
+        return int(await self._client.read_uint16(address))
 
+    @_map_errors
     async def read_int16(self, address: int) -> int:
-        return int(await self._conn._call(self._client.read_int16(address)))
+        return int(await self._client.read_int16(address))
 
+    @_map_errors
     async def read_uint32(self, address: int, *, word_order: WordOrder = "big") -> int:
         if word_order == "big":
-            return int(await self._conn._call(self._client.read_uint32(address)))
+            return int(await self._client.read_uint32(address))
         registers = await self.read_holding_registers(address, 2)
         return int(_registers_to_value(registers, "I", word_order))
 
+    @_map_errors
     async def read_float32(
         self, address: int, *, word_order: WordOrder = "big"
     ) -> float:
         if word_order == "big":
-            return float(await self._conn._call(self._client.read_float(address)))
+            return float(await self._client.read_float(address))
         registers = await self.read_holding_registers(address, 2)
         return float(_registers_to_value(registers, "f", word_order))
 
+    @_map_errors
     async def read_string(self, address: int, length: int) -> str:
-        value = await self._conn._call(
-            self._client.read_string(address, number_of_registers=length)
-        )
+        value = await self._client.read_string(address, number_of_registers=length)
         return value.rstrip("\x00")
 
+    @_map_errors
     async def write_uint16(self, address: int, value: int) -> None:
-        await self._conn._call(self._client.write_uint16(address, value))
+        await self._client.write_uint16(address, value)
 
+    @_map_errors
     async def write_float32(
         self, address: int, value: float, *, word_order: WordOrder = "big"
     ) -> None:
         if word_order == "big":
-            await self._conn._call(self._client.write_float(address, value))
+            await self._client.write_float(address, value)
             return
         await self.write_registers(address, _value_to_registers(value, "f", word_order))
 
     # -- full function-code surface -------------------------------------------
 
+    @_map_errors
     async def read_exception_status(self) -> int:  # 0x07
-        return int(await self._conn._call(self._client.read_exception_status()))
+        return int(await self._client.read_exception_status())
 
+    @_map_errors
     async def report_server_id(self) -> bytes:  # 0x11
-        response = await self._conn._call(self._client.read_server_id())
+        response = await self._client.read_server_id()
         return bytes(response.server_id)
 
+    @_map_errors
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
-        await self._conn._call(
-            self._client.mask_write_register(address, and_mask, or_mask)
-        )
+        await self._client.mask_write_register(address, and_mask, or_mask)
 
+    @_map_errors
     async def read_write_registers(
         self,
         read_address: int,
@@ -225,33 +250,35 @@ class TmodbusUnit:
         write_address: int,
         write_values: list[int],
     ) -> list[int]:  # 0x17
-        return await self._conn._call(
-            self._client.read_write_multiple_registers(
-                read_address, read_count, write_address, write_values
-            )
+        return await self._client.read_write_multiple_registers(
+            read_address, read_count, write_address, write_values
         )
 
+    @_map_errors
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
-        return await self._conn._call(self._client.read_fifo_queue(address))
+        return await self._client.read_fifo_queue(address)
 
+    @_map_errors
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
-        return await self._conn._call(self._client.read_device_identification(1, 0))
+        return await self._client.read_device_identification(1, 0)
 
+    @_map_errors
     async def read_file_record(
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
         pdu = ReadFileRecordPDU([FileRecordRequest(file, record, length)])
         # ReadFileRecordPDU decodes to list[bytes], one entry per requested record.
-        records = await self._conn._call(self._client.execute(pdu))
+        records = await self._client.execute(pdu)
         data = records[0]
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
+    @_map_errors
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
         payload = b"".join(int(value).to_bytes(2, "big") for value in values)
         pdu = WriteFileRecordPDU([FileRecord(file, record, payload)])
-        await self._conn._call(self._client.execute(pdu))
+        await self._client.execute(pdu)
 
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
         raise NotImplementedError("tmodbus does not implement diagnostics (FC 0x08)")
