@@ -20,7 +20,7 @@ dependencies = []
 
 [project.optional-dependencies]
 pymodbus = ["pymodbus[serial]>=3.11"]
-tmodbus = ["tmodbus>=0.3", "serialx>=0.1"]
+tmodbus = ["tmodbus[async-serial]>=0.3"]
 
 [project.entry-points.pytest11]
 modbus_connection = "modbus_connection.pytest_plugin"
@@ -33,8 +33,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "pymodbus[serial]>=3.11",
-    "tmodbus>=0.3",
-    "serialx>=0.1",
+    "tmodbus[async-serial]>=0.3",
 ]
 
 [tool.hatch.build.targets.wheel]
