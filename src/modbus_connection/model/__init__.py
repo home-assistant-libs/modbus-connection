@@ -20,10 +20,12 @@ A ``Component`` is a sub-system whose attributes are ``RegisterField`` /
     await meter.async_update()
     meter.voltage            # float | None
 
-Generic field types ship here: scaled / unscaled integers, raw words, 32-bit /
-float values, strings and the ``scaled_sum`` magnitude counter. The full SunSpec
-type set — including ``enum``/``bitfield`` fields that map natively to an
-``IntEnum`` / ``IntFlag`` — lives in :mod:`modbus_connection.model.sunspec`.
+Generic field types ship here: scaled / unscaled integers (16/32/64-bit), raw
+words, ``float32`` / ``float64``, strings, the ``scaled_sum`` magnitude counter,
+and ``enum`` / ``flags`` fields that map natively to an ``IntEnum`` / ``IntFlag``.
+The SunSpec module :mod:`modbus_connection.model.sunspec` adds the same types
+pre-wired with their per-point "unimplemented" sentinels, plus the address types
+(``ipaddr`` / ``ipv6addr`` / ``eui48``).
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times, sentinel handling beyond a single ``nan`` — belongs in the consumer,
@@ -31,8 +33,7 @@ done with a private field plus a normal ``@property`` so static typing stays
 exact. For example, presenting a version register prefixed with a hard-coded
 model name::
 
-    from modbus_connection.model import Component
-    from modbus_connection.model.sunspec import string
+    from modbus_connection.model import Component, string
 
     class Controller(Component):
         _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
@@ -63,13 +64,19 @@ from .fields import (
     CoilField,
     RegisterField,
     coil,
+    enum,
+    flags,
     float32,
+    float64,
     gauge,
     int32,
+    int64,
     integer,
     raw_register,
     scaled_sum,
+    string,
     uint32,
+    uint64,
 )
 
 __all__ = [
@@ -81,11 +88,17 @@ __all__ = [
     "RegisterSpace",
     "UpdateListener",
     "coil",
+    "enum",
+    "flags",
     "float32",
+    "float64",
     "gauge",
     "int32",
+    "int64",
     "integer",
     "raw_register",
     "scaled_sum",
+    "string",
     "uint32",
+    "uint64",
 ]

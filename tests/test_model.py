@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from enum import IntEnum, IntFlag
 
 import pytest
 
@@ -11,13 +12,18 @@ from modbus_connection.model import (
     Component,
     ComponentGroup,
     coil,
+    enum,
+    flags,
     float32,
+    float64,
     gauge,
     int32,
     integer,
     raw_register,
     scaled_sum,
+    string,
     uint32,
+    uint64,
 )
 from modbus_connection.model._planning import _plan_blocks as plan_blocks
 from modbus_connection.model.fields import (
@@ -167,6 +173,52 @@ def test_factories_return_concrete_field_types() -> None:
 def test_read_only_field_encode_raises() -> None:
     with pytest.raises(NotImplementedError):
         scaled_sum(0).encode(5)  # MagnitudeField is read-only
+
+
+async def test_generic_enum_flags_string_and_64bit() -> None:
+    class Mode(IntEnum):
+        OFF = 0
+        HEAT = 2
+
+    class Events(IntFlag):
+        A = 1
+        B = 2
+
+    class Dev(Component):
+        mode = enum(0, Mode)
+        events = flags(1, Events)
+        name = string(2, 2)  # "ABCD"
+        total = uint64(4)
+        ratio = float64(8)
+
+    unit = MockModbusConnection().for_unit(1)
+    hi = struct.unpack(">HHHH", struct.pack(">d", 1.5))
+    unit.holding.update({0: 2, 1: 0b11, 2: 0x4142, 3: 0x4344, 4: 0, 5: 0, 6: 0, 7: 5})
+    unit.holding.update(dict(zip(range(8, 12), hi, strict=True)))
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.mode is Mode.HEAT
+    assert dev.events == Events.A | Events.B
+    assert dev.name == "ABCD"
+    assert dev.total == 5
+    assert dev.ratio == pytest.approx(1.5)
+
+
+async def test_generic_enum_unknown_value_is_none() -> None:
+    from modbus_connection.model import fields
+
+    class Mode(IntEnum):
+        OFF = 0
+
+    class Dev(Component):
+        mode = enum(0, Mode)
+
+    fields._warned_unknown_enum.clear()
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 9  # not a Mode member
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.mode is None
 
 
 # -- writes -------------------------------------------------------------------

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, overload
 
@@ -44,13 +44,19 @@ __all__ = [
     "RegisterField",
     "StringField",
     "coil",
+    "enum",
+    "flags",
     "float32",
+    "float64",
     "gauge",
     "int32",
+    "int64",
     "integer",
     "raw_register",
     "scaled_sum",
+    "string",
     "uint32",
+    "uint64",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -511,6 +517,128 @@ def scaled_sum(
     all three and returns the total in Wh.
     """
     return MagnitudeField(address, magnitudes, scale=scale, stride=stride, unit=unit)
+
+
+def uint64(
+    address: int,
+    *,
+    scale: float = 1.0,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool = False,
+    unit: str | None = None,
+) -> NumberField[int]:
+    """An unsigned 64-bit value over four consecutive registers."""
+    return NumberField(
+        address,
+        count=4,
+        word_order=word_order,
+        scale=scale,
+        signed=False,
+        stride=stride,
+        writable=writable,
+        unit=unit,
+    )
+
+
+def int64(
+    address: int,
+    *,
+    scale: float = 1.0,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool = False,
+    unit: str | None = None,
+) -> NumberField[int]:
+    """A signed 64-bit value over four consecutive registers."""
+    return NumberField(
+        address,
+        count=4,
+        word_order=word_order,
+        scale=scale,
+        signed=True,
+        stride=stride,
+        writable=writable,
+        unit=unit,
+    )
+
+
+def float64(
+    address: int,
+    *,
+    scale: float = 1.0,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool = False,
+    unit: str | None = None,
+) -> FloatField:
+    """An IEEE-754 double-precision float over four consecutive registers."""
+    return FloatField(
+        address,
+        count=4,
+        word_order=word_order,
+        scale=scale,
+        stride=stride,
+        writable=writable,
+        unit=unit,
+    )
+
+
+def string(
+    address: int, length: int, *, stride: int = 0, writable: bool = False
+) -> StringField:
+    """A fixed-length null-padded ASCII string over ``length`` registers."""
+    return StringField(address, count=length, stride=stride, writable=writable)
+
+
+def enum[E: IntEnum](
+    address: int,
+    enum_type: type[E],
+    *,
+    count: int = 1,
+    word_order: WordOrder = "big",
+    nan: int | None = None,
+    stride: int = 0,
+    writable: bool = False,
+) -> NumberField[E]:
+    """An integer register mapped to an ``IntEnum`` member.
+
+    A code with no member decodes to ``None`` (warned once per value). ``nan`` is
+    an optional raw sentinel that also decodes to ``None``.
+    """
+    return NumberField(
+        address,
+        count=count,
+        signed=False,
+        enum_type=enum_type,
+        word_order=word_order,
+        nan=nan,
+        stride=stride,
+        writable=writable,
+    )
+
+
+def flags[F: IntFlag](
+    address: int,
+    flag_type: type[F],
+    *,
+    count: int = 1,
+    word_order: WordOrder = "big",
+    nan: int | None = None,
+    stride: int = 0,
+    writable: bool = False,
+) -> NumberField[F]:
+    """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept)."""
+    return NumberField(
+        address,
+        count=count,
+        signed=False,
+        enum_type=flag_type,
+        word_order=word_order,
+        nan=nan,
+        stride=stride,
+        writable=writable,
+    )
 
 
 def coil(

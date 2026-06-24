@@ -111,10 +111,12 @@ await meter.write("relay", True)
 ```
 
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
-`int32` / `float32`, `scaled_sum`, and `coil` (plus an optional `nan` sentinel,
-`word_order`, and a `level_coil` write-unlock). The full SunSpec type set,
-including `enum`/`bitfield` fields that map natively to an `IntEnum` / `IntFlag`,
-lives in `modbus_connection.model.sunspec`.
+`int32` / `uint64` / `int64`, `float32` / `float64`, `string`, `scaled_sum`,
+`enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
+`nan` sentinel, `word_order`, and a `level_coil` write-unlock). The SunSpec
+module `modbus_connection.model.sunspec` adds the same types pre-wired with their
+"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
+`eui48`).
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times — is left to the consumer via a private field + a `@property`, so
@@ -122,7 +124,7 @@ static typing stays exact. For example, prefixing a version register with a
 hard-coded model name:
 
 ```python
-from modbus_connection.model.sunspec import string
+from modbus_connection.model import Component, string
 
 class Controller(Component):
     _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
