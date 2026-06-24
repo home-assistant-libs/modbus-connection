@@ -116,6 +116,33 @@ def test_command_sets_ready(mock_modbus_unit):
     mock_modbus_unit.on_write(respond)
 ```
 
+To simulate a device **rejecting a write**, arm `fail_write`. The next write
+covering that address raises the given error *before* the store is touched, so
+the value is left unchanged and `on_write` callbacks don't fire. `register_type`
+defaults to `"holding"` (use `"coil"` for coil writes — the two tables are
+independent); pass `None` to clear.
+
+```python
+async def test_write_rejected(mock_modbus_unit):
+    mock_modbus_unit.holding[40] = 7
+    mock_modbus_unit.fail_write(40, ModbusExceptionError(3))  # illegal data value
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.write_register(40, 99)
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [7]  # unchanged
+
+    mock_modbus_unit.fail_write(40, None)                     # clear it
+    await mock_modbus_unit.write_register(40, 99)             # now succeeds
+```
+
+To simulate a **read failing**, give the register a callable that raises — it's
+evaluated on every read:
+
+```python
+def boom():
+    raise ModbusExceptionError(2)       # illegal data address
+mock_modbus_unit.holding[9] = boom
+```
+
 Fixtures: `mock_modbus_connection` (a `MockModbusConnection`) and
 `mock_modbus_unit` (its unit 1). `MockModbusConnection` / `MockModbusUnit` are
 also importable from `modbus_connection.mock` for direct construction.
