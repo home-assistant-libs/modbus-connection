@@ -39,15 +39,28 @@ unreadable gap.
 
 from __future__ import annotations
 
-import struct
+import math
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, NamedTuple, overload
 
-from ._types import WordOrder
-from .exceptions import ModbusExceptionError
+from .._types import WordOrder
+from ..decode import (
+    combine_words,
+    decode_eui48,
+    decode_float32,
+    decode_float64,
+    decode_int,
+    decode_int16,
+    decode_ipaddr,
+    decode_ipv6addr,
+    decode_scaled_sum,
+    decode_string,
+)
+from ..encode import encode_float32, encode_float64, encode_int, encode_string
+from ..exceptions import ModbusExceptionError
 
 if TYPE_CHECKING:
-    from ._protocol import ModbusUnit
+    from .._protocol import ModbusUnit
 
 _MAX_GAP = 8  # merge registers/coils less than this many addresses apart
 _MAX_SPAN = 100  # but never read a block wider than this
@@ -68,6 +81,7 @@ __all__ = [
     "int32",
     "integer",
     "raw_register",
+    "scaled_sum",
     "uint32",
 ]
 
@@ -83,10 +97,16 @@ class RegisterField[T]:
     """A holding register exposed as a typed attribute (returns ``T | None``).
 
     ``kind`` is one of ``"number"`` (scaled, optionally signed), ``"raw"`` (the
-    word as-is) or ``"float"`` (IEEE-754 over two registers). A value spanning
+    word as-is), ``"float"`` (IEEE-754 over two or four registers), ``"string"``,
+    ``"magnitudes"`` (consecutive registers summed by weight) or one of the
+    address formats ``"ipaddr"`` / ``"ipv6addr"`` / ``"eui48"``. A value spanning
     several registers sets ``count`` (and ``word_order``); ``nan`` is an optional
-    sentinel that decodes to ``None``. ``level_coil`` names a coil that is set to
-    ``False`` before a write (for devices with a write-unlock/override coil).
+    sentinel that decodes to ``None``.
+
+    A SunSpec-style dynamic scale factor is given via ``scale_register``: the
+    address of a ``sunssf`` (signed int16) register read alongside this field on
+    each update, the value then returned as ``raw * 10**sf``. ``level_coil`` names
+    a coil set to ``False`` before a write (for devices with a write-unlock coil).
     """
 
     def __init__(
@@ -104,13 +124,16 @@ class RegisterField[T]:
         unit: str | None = None,
         level_coil: int | None = None,
         level_coil_stride: int = 0,
+        magnitudes: tuple[int, ...] | None = None,
+        scale_register: int | None = None,
+        scale_register_stride: int = 0,
     ) -> None:
         self.address = address
         self.scale = scale
         self.signed = signed
         self.writable = writable
         self.nan = nan
-        self.kind = kind  # number | raw | float
+        self.kind = kind
         # Number of 16-bit registers this value spans (2 for uint32/float32/...).
         self.count = count
         self.word_order = word_order
@@ -120,6 +143,12 @@ class RegisterField[T]:
         # write-unlock/override coil; None if no such coil is needed.
         self.level_coil = level_coil
         self.level_coil_stride = level_coil_stride
+        # Per-register weights for a "magnitudes" field (e.g. Wh/kWh/MWh).
+        self.magnitudes = magnitudes
+        # Address of a sunssf register whose 10**sf scales this field; None for a
+        # static scale.
+        self.scale_register = scale_register
+        self.scale_register_stride = scale_register_stride
         self._decimals = _decimals(scale)
 
     def __set_name__(self, owner: type, name: str) -> None:
@@ -140,48 +169,65 @@ class RegisterField[T]:
 
     # -- codec ---------------------------------------------------------------
 
-    def _combine(self, words: list[int]) -> int:
-        """Pack the field's registers into one integer (per ``word_order``)."""
-        ordered = words if self.word_order == "big" else list(reversed(words))
-        raw = 0
-        for word in ordered:
-            raw = (raw << 16) | (word & 0xFFFF)
-        return raw
+    def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
+        """Decode this field's ``count`` register words into its Python value.
 
-    def decode(self, words: list[int]) -> Any:
-        """Decode this field's ``count`` register words into its Python value."""
+        ``scale_exponent`` is the value of the field's ``sunssf`` register, if it
+        has one; the result is then multiplied by ``10**scale_exponent``.
+        """
+        if self.kind == "string":
+            return decode_string(words)
+        if self.kind == "ipaddr":
+            return decode_ipaddr(words)
+        if self.kind == "ipv6addr":
+            return decode_ipv6addr(words)
+        if self.kind == "eui48":
+            return decode_eui48(words)
         if self.kind == "float":
-            ordered = words if self.word_order == "big" else list(reversed(words))
-            raw_bytes = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in ordered)
-            value = struct.unpack(">f", raw_bytes)[0]
-            return value * self.scale if self.scale != 1.0 else value
-        raw = self._combine(words)
+            decoder = decode_float64 if self.count == 4 else decode_float32
+            value = decoder(words, word_order=self.word_order)
+            if self.nan is not None and math.isnan(value):
+                return None
+            return self._scale(value, scale_exponent)
+        raw = combine_words(words, word_order=self.word_order)
         if self.kind == "raw":
             return raw  # the word(s) as-is: no NaN, sign, or scaling
         if self.nan is not None and raw == self.nan:
             return None
-        bits = 16 * self.count
-        if self.signed and raw >= 1 << (bits - 1):
-            raw -= 1 << bits
-        value = raw * self.scale
-        return int(value) if self._decimals == 0 else round(value, self._decimals)
+        if self.kind == "magnitudes":
+            assert self.magnitudes is not None
+            return self._scale(
+                decode_scaled_sum(words, self.magnitudes), scale_exponent
+            )
+        value = decode_int(words, signed=self.signed, word_order=self.word_order)
+        return self._scale(value, scale_exponent)
+
+    def _scale(self, value: float, scale_exponent: int | None) -> Any:
+        """Apply this field's static scale and optional 10**sf, then round."""
+        factor = self.scale
+        if scale_exponent is not None:
+            factor *= 10.0**scale_exponent
+        if factor == 1.0:
+            return value  # keep ints integral when there is nothing to scale
+        scaled = value * factor
+        decimals = self._decimals if scale_exponent is None else _decimals(factor)
+        return int(scaled) if decimals == 0 else round(scaled, decimals)
 
     def encode(self, value: Any) -> list[int]:
         """Encode a Python value into this field's ``count`` register words."""
+        if self.scale_register is not None:
+            raise NotImplementedError(
+                "writing a dynamically-scaled field is unsupported"
+            )
         if self.kind == "float":
-            raw_bytes = struct.pack(">f", float(value))
-            words = [
-                int.from_bytes(raw_bytes[i : i + 2], "big")
-                for i in range(0, len(raw_bytes), 2)
-            ]
-            return words if self.word_order == "big" else list(reversed(words))
+            encoder = encode_float64 if self.count == 4 else encode_float32
+            return encoder(value, word_order=self.word_order)
+        if self.kind == "string":
+            return encode_string(value, length=self.count)
+        if self.kind in ("magnitudes", "ipaddr", "ipv6addr", "eui48"):
+            raise NotImplementedError(f"{self.kind} fields are read-only")
         raw = round(value / self.scale) if self.scale != 1.0 else int(value)
-        if raw < 0:
-            raw += 1 << (16 * self.count)
-        words = [
-            (raw >> (16 * (self.count - 1 - i))) & 0xFFFF for i in range(self.count)
-        ]
-        return words if self.word_order == "big" else list(reversed(words))
+        return encode_int(raw, count=self.count, word_order=self.word_order)
 
 
 class CoilField:
@@ -232,9 +278,15 @@ def gauge(
     writable: bool = False,
     level_coil: int | None = None,
     level_coil_stride: int = 0,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
     unit: str | None = None,
 ) -> RegisterField[float]:
-    """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage)."""
+    """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
+
+    Pass ``scale_register`` for a device whose scale factor lives in another
+    register (read as a signed int16 and applied as ``10**sf``).
+    """
     return RegisterField(
         address,
         scale=scale,
@@ -244,6 +296,8 @@ def gauge(
         writable=writable,
         level_coil=level_coil,
         level_coil_stride=level_coil_stride,
+        scale_register=scale_register,
+        scale_register_stride=scale_register_stride,
         unit=unit,
     )
 
@@ -257,9 +311,15 @@ def integer(
     writable: bool = False,
     level_coil: int | None = None,
     level_coil_stride: int = 0,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
     unit: str | None = None,
 ) -> RegisterField[int]:
-    """An unscaled integer register (counts, percentages, addresses)."""
+    """An unscaled integer register (counts, percentages, addresses).
+
+    Pass ``scale_register`` for a device whose scale factor lives in another
+    register (read as a signed int16 and applied as ``10**sf``).
+    """
     return RegisterField(
         address,
         scale=1.0,
@@ -269,6 +329,8 @@ def integer(
         writable=writable,
         level_coil=level_coil,
         level_coil_stride=level_coil_stride,
+        scale_register=scale_register,
+        scale_register_stride=scale_register_stride,
         unit=unit,
     )
 
@@ -346,6 +408,33 @@ def float32(
     )
 
 
+def scaled_sum(
+    address: int,
+    magnitudes: tuple[int, ...] = (1, 1000, 1_000_000),
+    *,
+    scale: float = 1.0,
+    stride: int = 0,
+    unit: str | None = None,
+) -> RegisterField[int]:
+    """Consecutive registers summed by weight (read-only).
+
+    For devices that spread a counter across registers of rising magnitude — e.g.
+    Stiebel Eltron energy meters expose Wh, kWh and MWh in three consecutive
+    registers that you add up: ``scaled_sum(addr, (1, 1000, 1_000_000))`` reads
+    all three and returns the total in Wh.
+    """
+    return RegisterField(
+        address,
+        kind="magnitudes",
+        count=len(magnitudes),
+        magnitudes=magnitudes,
+        scale=scale,
+        signed=False,
+        stride=stride,
+        unit=unit,
+    )
+
+
 def coil(
     address: int,
     *,
@@ -364,8 +453,15 @@ def coil(
     )
 
 
-# A read target: (absolute address, field, the component store to write into).
-RegisterItem = tuple[int, "RegisterField[Any]", dict[str, Any]]
+class RegisterItem(NamedTuple):
+    """A register read target: where to read, what field, and where to store it."""
+
+    address: int  # absolute start address of the field's own registers
+    field: RegisterField[Any]
+    store: dict[str, Any]  # the component store decoded values land in
+    scale_address: int | None  # absolute address of the field's sunssf register
+
+
 CoilItem = tuple[int, "CoilField", dict[str, Any]]
 
 
@@ -423,34 +519,49 @@ async def _bulk_read_registers(
     items: list[RegisterItem],
     ranges: tuple[Range, ...] | None = None,
 ) -> None:
-    """Read every ``(address, field, store)`` in as few Modbus calls as possible.
+    """Read every register target in as few Modbus calls as possible.
 
     Targets are pooled across whatever components are passed in, so adjacent
     registers — even ones belonging to different sub-systems — are fetched
-    together, and a multi-register value is always kept within one block.
-    ``ranges`` (the device's readable address ranges) keeps reads from crossing an
-    unreadable gap. Each field's decoded value lands in its ``store`` under
-    ``field.name``; a Modbus exception covering a block sets those fields to
-    ``None`` (other errors propagate so the caller can mark the device down).
+    together, and a multi-register value is always kept within one block. A
+    field's ``sunssf`` scale register (if any) is read in the same pooled pass and
+    applied at decode. ``ranges`` (the device's readable address ranges) keeps
+    reads from crossing an unreadable gap. Each field's decoded value lands in its
+    ``store`` under ``field.name``; a Modbus exception covering a field's
+    registers sets it to ``None`` (other errors propagate so the caller can mark
+    the device down).
     """
     if not items:
         return
-    by_address: dict[int, list[tuple[RegisterField[Any], dict[str, Any]]]] = {}
     spans: list[tuple[int, int]] = []
-    for address, field, store in items:
-        by_address.setdefault(address, []).append((field, store))
-        spans.append((address, field.count))
+    for item in items:
+        spans.append((item.address, item.field.count))
+        if item.scale_address is not None:
+            spans.append((item.scale_address, 1))
+    words_by_address: dict[int, int] = {}
+    failed: set[int] = set()
     for start, count in _plan_blocks(spans, ranges):
         try:
             words = await unit.read_holding_registers(start, count)
         except ModbusExceptionError:
-            for offset in range(count):
-                for field, store in by_address.get(start + offset, ()):
-                    store[field.name] = None
+            failed.update(range(start, start + count))
             continue
         for offset in range(count):
-            for field, store in by_address.get(start + offset, ()):
-                store[field.name] = field.decode(words[offset : offset + field.count])
+            words_by_address[start + offset] = words[offset]
+    for item in items:
+        field = item.field
+        addresses = range(item.address, item.address + field.count)
+        if any(address in failed for address in addresses):
+            item.store[field.name] = None
+            continue
+        scale_exponent: int | None = None
+        if item.scale_address is not None:
+            if item.scale_address in failed:
+                item.store[field.name] = None
+                continue
+            scale_exponent = decode_int16([words_by_address[item.scale_address]])
+        field_words = [words_by_address[address] for address in addresses]
+        item.store[field.name] = field.decode(field_words, scale_exponent)
 
 
 async def _bulk_read_coils(
@@ -541,10 +652,18 @@ class Component:
     # -- update --------------------------------------------------------------
 
     def register_items(self) -> list[RegisterItem]:
-        """This component's register read targets (absolute address, field, store)."""
-        return [
-            (self._address(f), f, self._values) for f in self._register_fields.values()
-        ]
+        """This component's register read targets, scale registers resolved."""
+        items = []
+        for field in self._register_fields.values():
+            scale_address = None
+            if field.scale_register is not None:
+                scale_address = field.scale_register + field.scale_register_stride * (
+                    self._index - 1
+                )
+            items.append(
+                RegisterItem(self._address(field), field, self._values, scale_address)
+            )
+        return items
 
     def coil_items(self) -> list[CoilItem]:
         """This component's coil read targets (absolute address, field, store)."""

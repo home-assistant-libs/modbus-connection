@@ -16,7 +16,6 @@ from typing import Any, Literal
 from pymodbus import FramerType
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
 from pymodbus.client.base import ModbusBaseClient
-from pymodbus.client.mixin import ModbusClientMixin
 from pymodbus.exceptions import (
     ConnectionException,
     ModbusException,
@@ -26,15 +25,12 @@ from pymodbus.pdu import ExceptionResponse, ModbusPDU
 from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
-from .._types import WordOrder
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
     ModbusTimeoutError,
 )
-
-DATATYPE = ModbusClientMixin.DATATYPE
 
 Framing = Literal["socket", "rtu"]
 
@@ -208,51 +204,6 @@ class PymodbusUnit:
     @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
         _check(await self._client.write_coils(address, values, device_id=self._unit_id))
-
-    # -- typed reads / writes -------------------------------------------------
-
-    async def read_uint16(self, address: int) -> int:
-        registers = await self.read_holding_registers(address, 1)
-        return int(ModbusClientMixin.convert_from_registers(registers, DATATYPE.UINT16))
-
-    async def read_int16(self, address: int) -> int:
-        registers = await self.read_holding_registers(address, 1)
-        return int(ModbusClientMixin.convert_from_registers(registers, DATATYPE.INT16))
-
-    async def read_uint32(self, address: int, *, word_order: WordOrder = "big") -> int:
-        registers = await self.read_holding_registers(address, 2)
-        return int(
-            ModbusClientMixin.convert_from_registers(
-                registers, DATATYPE.UINT32, word_order=word_order
-            )
-        )
-
-    async def read_float32(
-        self, address: int, *, word_order: WordOrder = "big"
-    ) -> float:
-        registers = await self.read_holding_registers(address, 2)
-        return float(
-            ModbusClientMixin.convert_from_registers(
-                registers, DATATYPE.FLOAT32, word_order=word_order
-            )
-        )
-
-    async def read_string(self, address: int, length: int) -> str:
-        registers = await self.read_holding_registers(address, length)
-        value = ModbusClientMixin.convert_from_registers(registers, DATATYPE.STRING)
-        return str(value).rstrip("\x00")
-
-    async def write_uint16(self, address: int, value: int) -> None:
-        registers = ModbusClientMixin.convert_to_registers(value, DATATYPE.UINT16)
-        await self.write_registers(address, registers)
-
-    async def write_float32(
-        self, address: int, value: float, *, word_order: WordOrder = "big"
-    ) -> None:
-        registers = ModbusClientMixin.convert_to_registers(
-            value, DATATYPE.FLOAT32, word_order=word_order
-        )
-        await self.write_registers(address, registers)
 
     # -- full function-code surface -------------------------------------------
 

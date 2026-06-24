@@ -16,6 +16,7 @@ from modbus_connection.model import (
     int32,
     integer,
     raw_register,
+    scaled_sum,
     uint32,
 )
 from modbus_connection.model import _plan_blocks as plan_blocks
@@ -82,6 +83,54 @@ async def test_word_order_little() -> None:
     le = LE(unit)
     await le.async_update()
     assert le.value == 100000
+
+
+async def test_scaled_sum_adds_magnitudes() -> None:
+    class Energy(Component):
+        total = scaled_sum(0, (1, 1000, 1_000_000))  # Wh, kWh, MWh
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 3, 1: 2, 2: 1})  # 3 Wh + 2 kWh + 1 MWh
+    energy = Energy(unit)
+    await energy.async_update()
+    assert energy.total == 1_002_003
+
+
+async def test_dynamic_scale_register() -> None:
+    class Scaled(Component):
+        current = gauge(0, 1.0, signed=False, scale_register=1)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1234, 1: (-2) & 0xFFFF})  # 1234 * 10**-2
+    scaled = Scaled(unit)
+    await scaled.async_update()
+    assert scaled.current == pytest.approx(12.34)
+
+
+async def test_dynamic_scale_register_pooled_in_one_read() -> None:
+    class Scaled(Component):
+        current = gauge(0, 1.0, signed=False, scale_register=2)
+
+    reads: list[tuple[int, int]] = []
+
+    class Counting:
+        def __init__(self, inner: MockModbusUnit) -> None:
+            self._inner = inner
+
+        async def read_holding_registers(self, address: int, count: int) -> list[int]:
+            reads.append((address, count))
+            return await self._inner.read_holding_registers(address, count)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 1234, 2: 0})  # value at 0, scale factor at 2
+    scaled = Scaled(Counting(inner))  # type: ignore[arg-type]
+    await scaled.async_update()
+    # Value (0) and its scale register (2) sit close enough to share one block.
+    assert len(reads) == 1
+    assert scaled.current == pytest.approx(1234.0)
 
 
 # -- writes -------------------------------------------------------------------

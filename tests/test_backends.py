@@ -91,51 +91,6 @@ async def test_write_coils_roundtrip(unit: tuple[str, ModbusUnit, Any]) -> None:
     assert await u.read_coils(72, 3) == [True, False, True]
 
 
-# -- typed reads --------------------------------------------------------------
-
-
-async def test_read_uint16(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    assert await u.read_uint16(0) == 1234
-
-
-async def test_read_int16_negative(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    assert await u.read_int16(1) == -1
-
-
-async def test_read_uint32_big(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    assert await u.read_uint32(2, word_order="big") == 70000
-
-
-async def test_read_uint32_little(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    # Same registers read little-word-order: words swapped.
-    expected = (HOLDING[3] << 16) | HOLDING[2]
-    assert await u.read_uint32(2, word_order="little") == expected
-
-
-async def test_read_float32_big(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    assert await u.read_float32(4, word_order="big") == pytest.approx(12.5)
-
-
-async def test_read_string(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    assert await u.read_string(6, 4) == "ABCDEF"
-
-
-async def test_typed_write_roundtrip(unit: tuple[str, ModbusUnit, Any]) -> None:
-    _, u, _ = unit
-    await u.write_uint16(80, 4321)
-    assert await u.read_uint16(80) == 4321
-    await u.write_float32(82, 3.5, word_order="big")
-    assert await u.read_float32(82, word_order="big") == pytest.approx(3.5)
-    await u.write_float32(84, -7.25, word_order="little")
-    assert await u.read_float32(84, word_order="little") == pytest.approx(-7.25)
-
-
 # -- error semantics ----------------------------------------------------------
 
 
@@ -182,10 +137,6 @@ async def test_parity_across_backends(modbus_server: tuple[str, int]) -> None:
             u = conn.for_unit(UNIT_ID)
             results[backend] = {
                 "hr": await u.read_holding_registers(0, 6),
-                "uint16": await u.read_uint16(0),
-                "int16": await u.read_int16(1),
-                "uint32_big": await u.read_uint32(2),
-                "float32": round(await u.read_float32(4), 4),
                 "coils": await u.read_coils(0, 3),
                 "discrete": await u.read_discrete_inputs(0, 3),
             }

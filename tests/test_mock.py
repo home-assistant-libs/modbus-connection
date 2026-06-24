@@ -46,9 +46,8 @@ async def test_unset_registers_default_to_zero(
 async def test_list_value_spans_consecutive_addresses(
     mock_modbus_unit: MockModbusUnit,
 ) -> None:
-    mock_modbus_unit.holding[2] = [0x0001, 0x86A0]  # uint32 big = 100000
+    mock_modbus_unit.holding[2] = [0x0001, 0x86A0]
     assert await mock_modbus_unit.read_holding_registers(2, 2) == [0x0001, 0x86A0]
-    assert await mock_modbus_unit.read_uint32(2, word_order="big") == 100000
 
 
 async def test_callable_value_is_evaluated_per_read(
@@ -71,24 +70,6 @@ async def test_callable_may_simulate_device_exception(
     with pytest.raises(ModbusExceptionError) as excinfo:
         await mock_modbus_unit.read_holding_registers(9, 1)
     assert excinfo.value.exception_code == 2
-
-
-# -- typed reads --------------------------------------------------------------
-
-
-async def test_typed_reads(mock_modbus_unit: MockModbusUnit) -> None:
-    mock_modbus_unit.holding[0] = 1234
-    mock_modbus_unit.holding[1] = 0xFFFF
-    assert await mock_modbus_unit.read_uint16(0) == 1234
-    assert await mock_modbus_unit.read_int16(1) == -1
-
-    mock_modbus_unit.holding[4] = [0x4148, 0x0000]  # float32 big = 12.5
-    assert await mock_modbus_unit.read_float32(4, word_order="big") == pytest.approx(
-        12.5
-    )
-
-    mock_modbus_unit.holding[6] = [0x4142, 0x4344, 0x0000]  # "ABCD\x00\x00"
-    assert await mock_modbus_unit.read_string(6, 3) == "ABCD"
 
 
 async def test_input_and_discrete_are_separate_spaces(
@@ -114,15 +95,6 @@ async def test_write_roundtrip(mock_modbus_unit: MockModbusUnit) -> None:
 
     await mock_modbus_unit.write_coils(70, [True, False, True])
     assert await mock_modbus_unit.read_coils(70, 3) == [True, False, True]
-
-
-async def test_typed_write_roundtrip(mock_modbus_unit: MockModbusUnit) -> None:
-    await mock_modbus_unit.write_uint16(80, 4321)
-    assert await mock_modbus_unit.read_uint16(80) == 4321
-    await mock_modbus_unit.write_float32(82, -7.25, word_order="little")
-    assert await mock_modbus_unit.read_float32(
-        82, word_order="little"
-    ) == pytest.approx(-7.25)
 
 
 async def test_mask_write_register(mock_modbus_unit: MockModbusUnit) -> None:

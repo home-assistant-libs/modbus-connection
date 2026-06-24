@@ -9,8 +9,6 @@ ignorant of which backend produced them.
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
-from ._types import WordOrder
-
 
 @runtime_checkable
 class ModbusUnit(Protocol):
@@ -37,20 +35,9 @@ class ModbusUnit(Protocol):
     async def write_coil(self, address: int, value: bool) -> None: ...
     async def write_coils(self, address: int, values: list[bool]) -> None: ...
 
-    # typed reads/writes — the package owns datatypes + word/byte ordering
-    async def read_uint16(self, address: int) -> int: ...
-    async def read_uint32(
-        self, address: int, *, word_order: WordOrder = "big"
-    ) -> int: ...
-    async def read_int16(self, address: int) -> int: ...
-    async def read_float32(
-        self, address: int, *, word_order: WordOrder = "big"
-    ) -> float: ...
-    async def read_string(self, address: int, length: int) -> str: ...
-    async def write_uint16(self, address: int, value: int) -> None: ...
-    async def write_float32(
-        self, address: int, value: float, *, word_order: WordOrder = "big"
-    ) -> None: ...
+    # Typed reads/writes and device modelling live above this protocol: feed the
+    # raw register words to modbus_connection.decode / .encode, or use
+    # modbus_connection.model. The connection only moves registers and coils.
 
     # The full Modbus function-code set (complete spec). A backend that doesn't
     # implement a given code raises NotImplementedError.
