@@ -19,8 +19,8 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-pymodbus = ["pymodbus[serial]>=3.11,<3.12"]
-tmodbus = ["tmodbus>=0.3", "serialx>=0.1"]
+pymodbus = ["pymodbus[serial]>=3.11"]
+tmodbus = ["tmodbus[async-serial]>=0.3"]
 
 [project.entry-points.pytest11]
 modbus_connection = "modbus_connection.pytest_plugin"
@@ -32,9 +32,8 @@ Homepage = "https://github.com/home-assistant-libs/modbus-connection"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
-    "pymodbus[serial]>=3.11,<3.12",
-    "tmodbus>=0.3",
-    "serialx>=0.1",
+    "pymodbus[serial]>=3.11",
+    "tmodbus[async-serial]>=0.3",
 ]
 
 [tool.hatch.build.targets.wheel]
