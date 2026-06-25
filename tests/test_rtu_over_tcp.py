@@ -31,9 +31,11 @@ def _free_port() -> int:
 async def rtu_server() -> AsyncIterator[tuple[str, int]]:
     """A server that frames RTU-over-TCP, like a serial-to-Ethernet gateway."""
     values = [0] * 10
-    values[0 + 1] = 5579  # pymodbus datastore is 1-based; protocol addr 0 -> model
-    device = ModbusDeviceContext(hr=ModbusSequentialDataBlock(0, values))
-    context = ModbusServerContext(devices={UNIT_ID: device}, single=False)
+    values[0] = 5579  # protocol holding addr 0 -> register 0
+    # pymodbus 3.13: block address is 1-based, FC03 (holding) is served from the
+    # `ir` slot, and the device must be passed directly (not a {id: device} dict).
+    device = ModbusDeviceContext(ir=ModbusSequentialDataBlock(1, values))
+    context = ModbusServerContext(devices=device)
     host, port = "127.0.0.1", _free_port()
     server = ModbusTcpServer(context, framer=FramerType.RTU, address=(host, port))
     task = asyncio.create_task(server.serve_forever())

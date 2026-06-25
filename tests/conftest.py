@@ -39,13 +39,16 @@ DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
 def _block_from(
     mapping: dict[int, int | bool], size: int = 2200
 ) -> ModbusSequentialDataBlock:
-    # pymodbus' datastore is 1-based: a protocol read of address N hits block
-    # index N+1. Shift values right by one so protocol address N returns the
-    # value we mapped to N.
+    # ModbusSequentialDataBlock(address, values) stores values starting at the
+    # 1-based `address` (internally SimData(address - 1)), so block address 1 maps
+    # protocol register N to values[N]. Its datatype packs each word as a *signed*
+    # 16-bit int, so store the two's-complement equivalent (same bytes on the wire,
+    # so unsigned reads round-trip unchanged); coil 0/1 values are unaffected.
     values = [0] * (size + 1)
     for address, value in mapping.items():
-        values[address + 1] = int(value)
-    return ModbusSequentialDataBlock(0, values)
+        word = int(value) & 0xFFFF
+        values[address] = word - 0x10000 if word >= 0x8000 else word
+    return ModbusSequentialDataBlock(1, values)
 
 
 def _free_port() -> int:
@@ -57,13 +60,19 @@ def _free_port() -> int:
 @pytest.fixture
 async def modbus_server() -> AsyncIterator[tuple[str, int]]:
     """Start a Modbus TCP server with the known datastore; yield (host, port)."""
+    # pymodbus 3.13's deprecated ModbusDeviceContext crosses input and holding:
+    # FC03 (holding) is served from the `ir` slot and FC04 (input) from `hr`, so
+    # pass the blocks swapped to land each on the right function code.
     device = ModbusDeviceContext(
         di=_block_from(DISCRETE),
         co=_block_from(COILS),
-        ir=_block_from(INPUT),
-        hr=_block_from(HOLDING),
+        ir=_block_from(HOLDING),
+        hr=_block_from(INPUT),
     )
-    context = ModbusServerContext(devices={UNIT_ID: device}, single=False)
+    # Pass the device directly (not a {id: device} dict): the dict path of the
+    # deprecated ModbusServerContext mis-wires SimCore in pymodbus 3.13. A single
+    # device is registered at id 0 and served for any unit id (incl. UNIT_ID).
+    context = ModbusServerContext(devices=device)
     host, port = "127.0.0.1", _free_port()
     server = ModbusTcpServer(context, address=(host, port))
     task = asyncio.create_task(server.serve_forever())
