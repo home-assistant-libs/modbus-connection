@@ -39,10 +39,14 @@ makes that sharing possible while keeping the backend swappable: the
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
   stateless per-unit handle with no lifecycle methods. Every method **raises** on
   failure — it never returns `None`.
-- The full 19-function-code Modbus surface is exposed as raw register/coil I/O. A
-  backend that cannot implement a code raises `NotImplementedError`. Datatype and
-  word/byte-order decoding lives one layer up, in `modbus_connection.decode` /
-  `.encode` and the `modbus_connection.model` device framework.
+- The full 19-function-code Modbus surface is exposed — the register/coil reads
+  and writes plus the diagnostic and identification codes (exception status,
+  diagnostics, comm-event counter/log, report-server-id, FIFO queue, file
+  records, device identification). A backend that cannot implement a code raises
+  `NotImplementedError` (tmodbus does, for diagnostics and the comm-event codes).
+  Datatype and word/byte-order decoding lives one layer up, in
+  `modbus_connection.decode` / `.encode` and the `modbus_connection.model` device
+  framework.
 
 ## Install
 
