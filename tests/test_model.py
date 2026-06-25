@@ -20,7 +20,6 @@ from modbus_connection.model import (
     int32,
     integer,
     raw_register,
-    scaled_sum,
     string,
     uint32,
     uint64,
@@ -28,7 +27,7 @@ from modbus_connection.model import (
 from modbus_connection.model._planning import _plan_blocks as plan_blocks
 from modbus_connection.model.fields import (
     FloatField,
-    MagnitudeField,
+    IPv4Field,
     NumberField,
     RawField,
 )
@@ -126,17 +125,6 @@ async def test_plan_is_built_once_across_polls() -> None:
     assert meter._coil_blocks is coil_blocks
 
 
-async def test_scaled_sum_adds_magnitudes() -> None:
-    class Energy(Component):
-        total = scaled_sum(0, (1, 1000, 1_000_000))  # Wh, kWh, MWh
-
-    unit = MockModbusConnection().for_unit(1)
-    unit.holding.update({0: 3, 1: 2, 2: 1})  # 3 Wh + 2 kWh + 1 MWh
-    energy = Energy(unit)
-    await energy.async_update()
-    assert energy.total == 1_002_003
-
-
 async def test_dynamic_scale_register() -> None:
     class Scaled(Component):
         current = gauge(0, 1.0, signed=False, scale_register=1)
@@ -184,12 +172,11 @@ def test_factories_return_concrete_field_types() -> None:
     assert isinstance(int32(0), NumberField)
     assert isinstance(float32(0), FloatField)
     assert isinstance(raw_register(0), RawField)
-    assert isinstance(scaled_sum(0), MagnitudeField)
 
 
 def test_read_only_field_encode_raises() -> None:
     with pytest.raises(NotImplementedError):
-        scaled_sum(0).encode(5)  # MagnitudeField is read-only
+        IPv4Field(0, count=2).encode(5)  # an address field is read-only
 
 
 def test_unbound_field_unknown_enum_decodes_to_none() -> None:
@@ -287,36 +274,6 @@ async def test_write_rejects_readonly() -> None:
     meter = _meter({})
     with pytest.raises(AttributeError):
         await meter.write("temperature", 20.0)
-
-
-async def test_write_unlock_coil() -> None:
-    class Locked(Component):
-        mode = integer(10, writable=True, level_coil=88)
-
-    unit = MockModbusConnection().for_unit(1)
-    await unit.write_coil(88, True)  # start locked
-    locked = Locked(unit)
-    await locked.write("mode", 3)
-    # The unlock coil was released to False, then the value written.
-    assert (await unit.read_coils(88, 1))[0] is False
-    assert (await unit.read_holding_registers(10, 1))[0] == 3
-
-
-async def test_write_enum_with_level_coil() -> None:
-    class Mode(IntEnum):
-        AUTO = 0
-        BOOST = 4
-
-    class Heater(Component):
-        mode = enum(10, Mode, writable=True, level_coil=88)
-
-    unit = MockModbusConnection().for_unit(1)
-    await unit.write_coil(88, True)  # start locked
-    heater = Heater(unit)
-    await heater.write("mode", Mode.BOOST)
-    # Unlock coil released, then the enum member written as its int value.
-    assert (await unit.read_coils(88, 1))[0] is False
-    assert (await unit.read_holding_registers(10, 1))[0] == 4
 
 
 # -- listeners + independent update ------------------------------------------

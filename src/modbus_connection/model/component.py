@@ -41,6 +41,13 @@ class Component:
     the default) or input (FC04). Set :attr:`register_space` to ``"input"`` for a
     read-only input-register sub-system. Input registers cannot be written.
 
+    For a device with repeated identical sub-units (e.g. heating circuits), model
+    the sub-unit once and pass ``index`` (1-based) per instance; each field's
+    ``stride`` is the address step between sub-units for that register, so the
+    absolute address is ``field.address + field.stride * (index - 1)``. Fields
+    often carry different strides, as devices group registers by type rather than
+    by sub-unit.
+
     The read plan (which blocks to fetch) is derived from the static field layout
     and cached on first :meth:`async_update`, so each subsequent poll reuses it
     rather than re-planning. The fields and ``register_ranges`` / ``coil_ranges``
@@ -166,8 +173,8 @@ class Component:
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
 
-        If the field has a ``level_coil`` (a write-unlock/override coil), it is
-        first set to ``False`` so the device accepts the write.
+        Override :meth:`write` in a subclass for any device-specific write
+        sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
@@ -178,7 +185,6 @@ class Component:
                     f"{field} is in the {self.register_space} register space, "
                     "which is read-only"
                 )
-            await self._unlock(register)
             address = self._address(register)
             words = register.encode(value)
             if len(words) == 1:
@@ -189,14 +195,6 @@ class Component:
             coil_field = self._coil_fields[field]
             if not coil_field.writable:
                 raise AttributeError(f"{field} is read-only")
-            await self._unlock(coil_field)
             await self._unit.write_coil(self._address(coil_field), bool(value))
         else:
             raise AttributeError(f"unknown field {field!r}")
-
-    async def _unlock(self, field: RegisterField[Any] | CoilField) -> None:
-        """Release the field's write-unlock coil (set it to False)."""
-        if field.level_coil is None:
-            return
-        address = field.level_coil + field.level_coil_stride * (self._index - 1)
-        await self._unit.write_coil(address, False)

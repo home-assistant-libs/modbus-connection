@@ -4,7 +4,7 @@ A field is a descriptor placed on a :class:`~modbus_connection.model.Component`
 subclass; it owns the codec (how raw register words become a Python value) but
 holds no per-read state. ``RegisterField`` is the abstract base — one concrete
 subclass per codec (``NumberField``, ``FloatField``, ``StringField``,
-``MagnitudeField``, ``RawField``, the address types). Prefer the factories
+``RawField``, the address types). Prefer the factories
 (``gauge``, ``integer``, ...) over constructing a subclass directly; they are the
 named presets (width, sign, sentinel, scale) over that small set of codecs.
 """
@@ -27,7 +27,6 @@ from ..decode import (
     decode_int,
     decode_ipaddr,
     decode_ipv6addr,
-    decode_scaled_sum,
     decode_string,
 )
 from ..encode import encode_float32, encode_float64, encode_int, encode_string
@@ -38,7 +37,6 @@ __all__ = [
     "FloatField",
     "IPv4Field",
     "IPv6Field",
-    "MagnitudeField",
     "NumberField",
     "RawField",
     "RegisterField",
@@ -53,7 +51,6 @@ __all__ = [
     "int64",
     "integer",
     "raw_register",
-    "scaled_sum",
     "string",
     "uint32",
     "uint64",
@@ -96,8 +93,6 @@ class RegisterField[T](ABC):
         writable: bool = False,
         stride: int = 0,
         unit: str | None = None,
-        level_coil: int | None = None,
-        level_coil_stride: int = 0,
         scale_register: int | None = None,
         scale_register_stride: int = 0,
     ) -> None:
@@ -112,9 +107,6 @@ class RegisterField[T](ABC):
             stride: Per-index address increment for a repeated block of identical
                 sub-units; ``0`` means the field is at a fixed address.
             unit: Unit-of-measure label carried as metadata; not used in decoding.
-            level_coil: Address of a write-unlock/override coil set to ``False``
-                immediately before a write to this field; ``None`` if not needed.
-            level_coil_stride: Per-index increment for ``level_coil``.
             scale_register: Address of a SunSpec ``sunssf`` register (a signed
                 int16 exponent) read alongside this field and applied as
                 ``value * 10**sf``; ``None`` for a static scale only.
@@ -125,10 +117,6 @@ class RegisterField[T](ABC):
         self.writable = writable
         self.stride = stride
         self.unit = unit
-        # A coil set to False before writing this field, for devices with a
-        # write-unlock/override coil; None if no such coil is needed.
-        self.level_coil = level_coil
-        self.level_coil_stride = level_coil_stride
         # Address of a sunssf register whose 10**sf scales this field; None for a
         # static scale. Read by the planner for every field.
         self.scale_register = scale_register
@@ -300,19 +288,6 @@ class StringField(RegisterField[str]):
         return encode_string(value, length=self.count)
 
 
-class MagnitudeField(_ScaledField[int]):
-    """Consecutive registers summed by per-register weight (read-only)."""
-
-    def __init__(
-        self, address: int, magnitudes: tuple[int, ...], **kwargs: Any
-    ) -> None:
-        super().__init__(address, count=len(magnitudes), **kwargs)
-        self.magnitudes = magnitudes
-
-    def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
-        return self._scale(decode_scaled_sum(words, self.magnitudes), scale_exponent)
-
-
 class IPv4Field(RegisterField[IPv4Address]):
     """An IPv4 address over two registers (read-only)."""
 
@@ -349,14 +324,10 @@ class CoilField:
         *,
         writable: bool = False,
         stride: int = 0,
-        level_coil: int | None = None,
-        level_coil_stride: int = 0,
     ) -> None:
         self.address = address
         self.writable = writable
         self.stride = stride
-        self.level_coil = level_coil
-        self.level_coil_stride = level_coil_stride
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -386,8 +357,6 @@ def gauge(
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
-    level_coil: int | None = None,
-    level_coil_stride: int = 0,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -404,8 +373,6 @@ def gauge(
         nan=nan,
         stride=stride,
         writable=writable,
-        level_coil=level_coil,
-        level_coil_stride=level_coil_stride,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
@@ -419,8 +386,6 @@ def integer(
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
-    level_coil: int | None = None,
-    level_coil_stride: int = 0,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -436,8 +401,6 @@ def integer(
         nan=nan,
         stride=stride,
         writable=writable,
-        level_coil=level_coil,
-        level_coil_stride=level_coil_stride,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
@@ -512,24 +475,6 @@ def float32(
         writable=writable,
         unit=unit,
     )
-
-
-def scaled_sum(
-    address: int,
-    magnitudes: tuple[int, ...] = (1, 1000, 1_000_000),
-    *,
-    scale: float = 1.0,
-    stride: int = 0,
-    unit: str | None = None,
-) -> MagnitudeField:
-    """Consecutive registers summed by weight (read-only).
-
-    For devices that spread a counter across registers of rising magnitude — e.g.
-    Stiebel Eltron energy meters expose Wh, kWh and MWh in three consecutive
-    registers that you add up: ``scaled_sum(addr, (1, 1000, 1_000_000))`` reads
-    all three and returns the total in Wh.
-    """
-    return MagnitudeField(address, magnitudes, scale=scale, stride=stride, unit=unit)
 
 
 def uint64(
@@ -614,16 +559,13 @@ def enum[E: IntEnum](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
-    level_coil: int | None = None,
-    level_coil_stride: int = 0,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
     A code with no member decodes to ``None`` (warned once per value). ``nan`` is
     an optional raw sentinel that also decodes to ``None``. ``signed`` interprets
     the code as two's-complement for devices with negative enum codes (e.g. -1
-    sent as 0xFFFF); the default is unsigned. ``level_coil`` names a write-unlock
-    coil released before a write (for writable mode registers).
+    sent as 0xFFFF); the default is unsigned.
     """
     return NumberField(
         address,
@@ -634,8 +576,6 @@ def enum[E: IntEnum](
         nan=nan,
         stride=stride,
         writable=writable,
-        level_coil=level_coil,
-        level_coil_stride=level_coil_stride,
     )
 
 
@@ -649,13 +589,10 @@ def flags[F: IntFlag](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
-    level_coil: int | None = None,
-    level_coil_stride: int = 0,
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
-    ``signed`` interprets the raw word as two's-complement before mapping;
-    ``level_coil`` names a write-unlock coil released before a write.
+    ``signed`` interprets the raw word as two's-complement before mapping.
     """
     return NumberField(
         address,
@@ -666,8 +603,6 @@ def flags[F: IntFlag](
         nan=nan,
         stride=stride,
         writable=writable,
-        level_coil=level_coil,
-        level_coil_stride=level_coil_stride,
     )
 
 
@@ -676,14 +611,10 @@ def coil(
     *,
     writable: bool = False,
     stride: int = 0,
-    level_coil: int | None = None,
-    level_coil_stride: int = 0,
 ) -> CoilField:
     """A coil."""
     return CoilField(
         address,
         writable=writable,
         stride=stride,
-        level_coil=level_coil,
-        level_coil_stride=level_coil_stride,
     )
