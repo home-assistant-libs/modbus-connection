@@ -7,6 +7,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from ._planning import (
+    _MAX_GAP,
+    _MAX_SPAN,
     CoilItem,
     Range,
     RegisterItem,
@@ -65,6 +67,14 @@ class Component:
     # this component's own register space.
     register_ranges: tuple[Range, ...] | None = None
     coil_ranges: tuple[Range, ...] | None = None
+
+    # Block-planning limits, overridable per device. ``max_gap`` only applies to
+    # gap-based planning (no ranges): spans within this many addresses merge into
+    # one read — higher means fewer reads but more over-reading. ``max_span`` caps
+    # a single block's width (125 is the Modbus per-request ceiling; lower it for
+    # a gateway that caps reads shorter).
+    max_gap: int = _MAX_GAP
+    max_span: int = _MAX_SPAN
 
     # The register space this component's fields are read from (FC03 / FC04).
     register_space: RegisterSpace = "holding"
@@ -141,13 +151,18 @@ class Component:
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
         return _plan_register_blocks(
-            self.register_items, {self.register_space: self.register_ranges}
+            self.register_items,
+            {self.register_space: self.register_ranges},
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
 
     @cached_property
     def _coil_blocks(self) -> list[tuple[int, int]]:
         spans = ((address, 1) for address, _, _ in self.coil_items)
-        return _plan_blocks(spans, self.coil_ranges)
+        return _plan_blocks(
+            spans, self.coil_ranges, max_gap=self.max_gap, max_span=self.max_span
+        )
 
     def notify(self) -> None:
         """Fire every registered update listener."""

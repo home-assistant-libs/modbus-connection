@@ -7,6 +7,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from ._planning import (
+    _MAX_GAP,
+    _MAX_SPAN,
     CoilItem,
     Range,
     RegisterItem,
@@ -41,7 +43,9 @@ class ComponentGroup:
     ``register_ranges`` applies per register space, so components sharing a space
     must declare the same :attr:`Component.register_ranges` (a device's input and
     holding ranges may differ); every component must share
-    :attr:`Component.coil_ranges`. A mismatch raises ``ValueError``.
+    :attr:`Component.coil_ranges`, :attr:`Component.max_gap` and
+    :attr:`Component.max_span` (they describe one device). A mismatch raises
+    ``ValueError``.
 
     The component list, their fields, and the ranges are read once and cached;
     mutating any of them after the first update is not supported — build a new
@@ -56,7 +60,9 @@ class ComponentGroup:
         self._unit = unit
         self._components = list(components)
         self._register_ranges_by_space = self._ranges_by_space()
-        self._coil_ranges = self._shared_ranges("coil_ranges")
+        self._coil_ranges = self._shared("coil_ranges", None)
+        self._max_gap = self._shared("max_gap", _MAX_GAP)
+        self._max_span = self._shared("max_span", _MAX_SPAN)
 
     def _ranges_by_space(self) -> dict[RegisterSpace, tuple[Range, ...] | None]:
         """Per-space register ranges; components sharing a space must agree."""
@@ -74,15 +80,15 @@ class ComponentGroup:
             ranges[space] = next(iter(distinct), None)
         return ranges
 
-    def _shared_ranges(self, attr: str) -> tuple[Range, ...] | None:
-        """The ranges shared by every component, or raise if they disagree."""
+    def _shared[V](self, attr: str, default: V) -> V:
+        """The value of ``attr`` shared by every component, or raise if they differ."""
         distinct = {getattr(c, attr) for c in self._components}
         if len(distinct) > 1:
             raise ValueError(
                 f"every component in a ComponentGroup must share {attr}, "
                 f"but got differing values: {distinct}"
             )
-        return next(iter(distinct), None)
+        return next(iter(distinct), default)
 
     @cached_property
     def _register_items(self) -> list[RegisterItem]:
@@ -95,13 +101,18 @@ class ComponentGroup:
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
         return _plan_register_blocks(
-            self._register_items, self._register_ranges_by_space
+            self._register_items,
+            self._register_ranges_by_space,
+            max_gap=self._max_gap,
+            max_span=self._max_span,
         )
 
     @cached_property
     def _coil_blocks(self) -> list[tuple[int, int]]:
         spans = ((address, 1) for address, _, _ in self._coil_items)
-        return _plan_blocks(spans, self._coil_ranges)
+        return _plan_blocks(
+            spans, self._coil_ranges, max_gap=self._max_gap, max_span=self._max_span
+        )
 
     async def async_update(self) -> None:
         """Refresh every component in one pooled set of reads, then notify each.

@@ -188,6 +188,16 @@ await group.async_update()
 Leave them as the default `None` for devices with a contiguous map (plain
 gap-based planning).
 
+Two planning limits are tunable as `Component` class attributes (and validated
+to agree across a `ComponentGroup`):
+
+- **`max_gap`** (default `16`) — only used in gap-based planning (no ranges):
+  fields within this many addresses share one read. Higher means fewer requests
+  but more over-reading; lower is safer for devices that reject reads of unmapped
+  registers. (With `register_ranges` declared, `max_gap` is ignored.)
+- **`max_span`** (default `125`, the Modbus per-request ceiling) — the widest a
+  single block read may be. Lower it for a gateway that caps reads shorter.
+
 ### Repeated sub-units (`stride` / `index`)
 
 Devices that expose several identical sub-units — heating circuits, channels,

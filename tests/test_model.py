@@ -325,6 +325,48 @@ def test_plan_blocks_range_aware_never_crosses_gap() -> None:
     assert (9, 4) in blocks
 
 
+def test_plan_blocks_configurable_max_gap() -> None:
+    spans = [(0, 1), (10, 1)]  # 10 apart
+    assert plan_blocks(spans, max_gap=8) == [(0, 1), (10, 1)]  # gap too wide -> split
+    assert plan_blocks(spans, max_gap=16) == [(0, 11)]  # within gap -> one read
+
+
+def test_plan_blocks_configurable_max_span() -> None:
+    # With the gap allowing a merge, max_span decides whether the block is too wide.
+    spans = [(0, 1), (40, 1)]
+    assert plan_blocks(spans, max_gap=50, max_span=30) == [(0, 1), (40, 1)]  # 41 > 30
+    assert plan_blocks(spans, max_gap=50, max_span=60) == [(0, 41)]  # 41 <= 60
+
+
+async def test_component_max_gap_override_changes_plan() -> None:
+    class Wide(Component):
+        max_gap = 20
+        a = integer(0)
+        b = integer(10)  # 10 away from a
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 10: 2})
+    comp = Wide(unit)
+    await comp.async_update()
+    # With max_gap=20 the two fields merge into one block read (0..10).
+    assert comp._register_blocks["holding"] == [(0, 11)]
+    assert comp.a == 1 and comp.b == 2
+
+
+async def test_group_rejects_mismatched_max_gap() -> None:
+    class A(Component):
+        max_gap = 8
+        x = integer(0)
+
+    class B(Component):
+        max_gap = 16
+        y = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="max_gap"):
+        ComponentGroup(unit, [A(unit), B(unit)])
+
+
 # -- device-level pooling -----------------------------------------------------
 
 
