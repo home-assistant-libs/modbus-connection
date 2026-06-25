@@ -19,7 +19,6 @@ from modbus_connection.decode import (
     decode_int64,
     decode_ipaddr,
     decode_ipv6addr,
-    decode_scaled_sum,
     decode_string,
     decode_uint16,
     decode_uint32,
@@ -67,11 +66,6 @@ def test_float_word_order_little() -> None:
 
 def test_string_strips_null_padding() -> None:
     assert decode_string([0x4142, 0x4344, 0x0000]) == "ABCD"
-
-
-def test_scaled_sum_adds_by_magnitude() -> None:
-    # 3 Wh + 2 kWh + 1 MWh = 1_002_003 Wh
-    assert decode_scaled_sum([3, 2, 1], (1, 1000, 1_000_000)) == 1_002_003
 
 
 def test_address_formats() -> None:

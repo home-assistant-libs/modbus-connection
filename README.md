@@ -114,9 +114,9 @@ await meter.write("relay", True)
 ```
 
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
-`int32` / `uint64` / `int64`, `float32` / `float64`, `string`, `scaled_sum`,
+`int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel, `word_order`, and a `level_coil` write-unlock). The SunSpec
+`nan` sentinel and `word_order`). The SunSpec
 module `modbus_connection.model.sunspec` adds the same types pre-wired with their
 "unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
 `eui48`).
@@ -183,6 +183,29 @@ await group.async_update()
 
 Leave them as the default `None` for devices with a contiguous map (plain
 gap-based planning).
+
+### Repeated sub-units (`stride` / `index`)
+
+Devices that expose several identical sub-units — heating circuits, channels,
+phases — repeat the same registers at a fixed step. Model the sub-unit once and
+instantiate it per index: pass `index` (1-based) to `Component(...)`, and give
+each field a `stride` (the address step between sub-units for *that* register).
+The absolute address read is `field.address + field.stride * (index - 1)`.
+
+Each field carries its own `stride` because devices usually group registers by
+type, not by sub-unit — so one logical sub-unit's fields are interleaved across
+the map at different steps:
+
+```python
+class Circuit(Component):
+    flow_temp = gauge(12, 0.1, stride=1)          # circuits 1–3 at 12, 13, 14
+    control_signal = integer(106, stride=2)       # ...        at 106, 108, 110
+    flow_setpoint = gauge(999, 0.1, stride=200)   # ...        at 999, 1199, 1399
+
+circuits = [Circuit(unit, index=n) for n in (1, 2, 3)]
+```
+
+A field with the default `stride=0` is at a fixed address shared by every index.
 
 ### Register spaces (holding vs input)
 

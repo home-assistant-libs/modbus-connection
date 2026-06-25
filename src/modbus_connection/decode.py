@@ -31,7 +31,6 @@ __all__ = [
     "decode_int64",
     "decode_ipaddr",
     "decode_ipv6addr",
-    "decode_scaled_sum",
     "decode_string",
     "decode_uint16",
     "decode_uint32",
@@ -106,16 +105,6 @@ def decode_string(words: list[int]) -> str:
     """Decode registers as a null-padded ASCII string (two characters per word)."""
     raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in words)
     return raw.decode("ascii", errors="ignore").rstrip("\x00")
-
-
-def decode_scaled_sum(words: list[int], magnitudes: tuple[int, ...]) -> int:
-    """Sum consecutive registers, each weighted by a magnitude.
-
-    For counters a device spreads across registers of rising magnitude — e.g. a
-    meter exposing Wh, kWh and MWh in three consecutive registers you add up:
-    ``decode_scaled_sum(words, (1, 1000, 1_000_000))`` returns the total in Wh.
-    """
-    return sum((w & 0xFFFF) * m for w, m in zip(words, magnitudes, strict=True))
 
 
 def decode_ipaddr(words: list[int]) -> ipaddress.IPv4Address:

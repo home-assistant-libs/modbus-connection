@@ -21,8 +21,8 @@ A ``Component`` is a sub-system whose attributes are ``RegisterField`` /
     meter.voltage            # float | None
 
 Generic field types ship here: scaled / unscaled integers (16/32/64-bit), raw
-words, ``float32`` / ``float64``, strings, the ``scaled_sum`` magnitude counter,
-and ``enum`` / ``flags`` fields that map natively to an ``IntEnum`` / ``IntFlag``.
+words, ``float32`` / ``float64``, strings, and ``enum`` / ``flags`` fields that
+map natively to an ``IntEnum`` / ``IntFlag``.
 The SunSpec module :mod:`modbus_connection.model.sunspec` adds the same types
 pre-wired with their per-point "unimplemented" sentinels, plus the address types
 (``ipaddr`` / ``ipv6addr`` / ``eui48``).
@@ -73,7 +73,6 @@ from .fields import (
     int64,
     integer,
     raw_register,
-    scaled_sum,
     string,
     uint32,
     uint64,
@@ -97,7 +96,6 @@ __all__ = [
     "int64",
     "integer",
     "raw_register",
-    "scaled_sum",
     "string",
     "uint32",
     "uint64",
