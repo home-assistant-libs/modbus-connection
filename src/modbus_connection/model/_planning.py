@@ -17,9 +17,10 @@ from .fields import CoilField, RegisterField
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
-_MAX_GAP = 8  # merge registers/coils less than this many addresses apart
-# Never read a block wider than this. 125 is the Modbus per-request ceiling for
-# read-holding (FC03) and read-input (FC04) registers (0x7D).
+# Defaults for Component.max_gap / Component.max_span (overridable per device).
+_MAX_GAP = 16  # gap-based planning: merge spans within this many addresses
+# Default block-width cap. 125 is the Modbus per-request ceiling for read-holding
+# (FC03) / read-input (FC04); a device whose gateway caps lower can override it.
 _MAX_SPAN = 125
 
 Range = tuple[int, int]  # an inclusive (low, high) readable address range
@@ -56,26 +57,29 @@ def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
 def _plan_blocks(
     spans: Iterable[tuple[int, int]],
     ranges: tuple[Range, ...] | None = None,
+    *,
+    max_gap: int = _MAX_GAP,
+    max_span: int = _MAX_SPAN,
 ) -> list[tuple[int, int]]:
     """Group ``(start_address, width)`` spans into ``(start, count)`` read blocks.
 
     A multi-register value is never split across blocks (each span is placed
-    whole) and a block never grows past ``_MAX_SPAN`` registers.
+    whole) and a block never grows past ``max_span`` registers.
 
-    Without ``ranges`` (the generic default), spans no more than ``_MAX_GAP``
-    apart share a block. With ``ranges`` — the device's readable address ranges —
-    spans merge only when they sit in the *same* range (the gap between them is
-    then readable too), and never across a range boundary; reads are still clipped
-    to the addresses actually used.
+    Without ``ranges`` (the generic default), spans no more than ``max_gap`` apart
+    share a block. With ``ranges`` — the device's readable address ranges — spans
+    merge only when they sit in the *same* range (the gap between them is then
+    readable too), and never across a range boundary; reads are still clipped to
+    the addresses actually used.
     """
     ordered = sorted(set(spans))
     if not ordered:
         return []
     for _, width in ordered:
-        if width > _MAX_SPAN:
+        if width > max_span:
             raise ValueError(
                 f"a field spanning {width} registers exceeds the "
-                f"{_MAX_SPAN}-register Modbus read limit"
+                f"{max_span}-register read limit"
             )
     blocks: list[tuple[int, int]] = []
     block_start, width = ordered[0]
@@ -84,11 +88,11 @@ def _plan_blocks(
     for address, width in ordered[1:]:
         end = address + width - 1
         if ranges is None:
-            mergeable = address - block_end <= _MAX_GAP
+            mergeable = address - block_end <= max_gap
         else:
             address_range = _range_of(address, ranges)
             mergeable = address_range is not None and address_range == block_range
-        if mergeable and end - block_start + 1 <= _MAX_SPAN:
+        if mergeable and end - block_start + 1 <= max_span:
             block_end = max(block_end, end)
         else:
             blocks.append((block_start, block_end - block_start + 1))
@@ -111,6 +115,9 @@ def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
 def _plan_register_blocks(
     items: list[RegisterItem],
     ranges_by_space: dict[RegisterSpace, tuple[Range, ...] | None],
+    *,
+    max_gap: int = _MAX_GAP,
+    max_span: int = _MAX_SPAN,
 ) -> dict[RegisterSpace, list[tuple[int, int]]]:
     """Plan read blocks separately per register space; spaces never merge.
 
@@ -123,7 +130,12 @@ def _plan_register_blocks(
     for item in items:
         by_space.setdefault(item.space, []).append(item)
     return {
-        space: _plan_blocks(_register_spans(space_items), ranges_by_space.get(space))
+        space: _plan_blocks(
+            _register_spans(space_items),
+            ranges_by_space.get(space),
+            max_gap=max_gap,
+            max_span=max_span,
+        )
         for space, space_items in by_space.items()
     }
 
