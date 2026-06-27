@@ -18,7 +18,7 @@ from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, overload
 
-from .._types import WordOrder
+from .._types import WordOrder, WriteMode
 from ..decode import (
     combine_words,
     decode_eui48,
@@ -95,6 +95,8 @@ class RegisterField[T](ABC):
         unit: str | None = None,
         scale_register: int | None = None,
         scale_register_stride: int = 0,
+        write_mode: WriteMode = "auto",
+        write_mask: int | None = None,
     ) -> None:
         """Initialise the shared part of a field.
 
@@ -111,7 +113,23 @@ class RegisterField[T](ABC):
                 int16 exponent) read alongside this field and applied as
                 ``value * 10**sf``; ``None`` for a static scale only.
             scale_register_stride: Per-index increment for ``scale_register``.
+            write_mode: Which function code :meth:`Component.write` uses — see
+                :data:`~modbus_connection._types.WriteMode`. ``"single"`` is only
+                valid for a one-word field.
+            write_mask: When set, :meth:`Component.write` issues a masked write
+                (FC22) that updates only these bits of the (single) register and
+                leaves the rest untouched. The value must encode to a word whose
+                set bits all fall inside the mask (typically an ``IntFlag`` or a
+                pre-positioned raw value). Only valid for a one-word field, and
+                mutually exclusive with a non-``"auto"`` ``write_mode``.
         """
+        if write_mask is not None:
+            if write_mask == 0 or not 0 <= write_mask <= 0xFFFF:
+                raise ValueError("write_mask must be a non-zero 16-bit mask")
+            if count != 1:
+                raise ValueError("write_mask is only valid for a single register")
+            if write_mode != "auto":
+                raise ValueError("write_mask cannot be combined with write_mode")
         self.address = address
         self.count = count
         self.writable = writable
@@ -121,6 +139,25 @@ class RegisterField[T](ABC):
         # static scale. Read by the planner for every field.
         self.scale_register = scale_register
         self.scale_register_stride = scale_register_stride
+        self.write_mode = write_mode
+        self.write_mask = write_mask
+
+    def or_mask_for(self, words: list[int]) -> int:
+        """The FC22 OR-mask for ``words`` under this field's ``write_mask``.
+
+        The encoded word's bits are written only where they fall inside the mask;
+        a value with bits set outside the mask raises ``OverflowError`` rather
+        than silently dropping them.
+        """
+        assert self.write_mask is not None
+        if len(words) != 1:
+            raise ValueError("a masked-write field must encode to a single register")
+        word = words[0]
+        if word & ~self.write_mask:
+            raise OverflowError(
+                f"value {word:#06x} sets bits outside write_mask {self.write_mask:#06x}"
+            )
+        return word
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -360,6 +397,8 @@ def gauge(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
+    write_mask: int | None = None,
 ) -> NumberField[float]:
     """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
 
@@ -376,6 +415,8 @@ def gauge(
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
+        write_mode=write_mode,
+        write_mask=write_mask,
     )
 
 
@@ -389,6 +430,8 @@ def integer(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
+    write_mask: int | None = None,
 ) -> NumberField[int]:
     """An unscaled integer register (counts, percentages, addresses).
 
@@ -404,12 +447,31 @@ def integer(
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
+        write_mode=write_mode,
+        write_mask=write_mask,
     )
 
 
-def raw_register(address: int, *, stride: int = 0, writable: bool = False) -> RawField:
-    """A raw register word (no scaling or sign handling)."""
-    return RawField(address, stride=stride, writable=writable)
+def raw_register(
+    address: int,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+    write_mode: WriteMode = "auto",
+    write_mask: int | None = None,
+) -> RawField:
+    """A raw register word (no scaling or sign handling).
+
+    Pass ``write_mask`` to write only specific bits of the register with a masked
+    write (FC22) — the common way to flip a control bit in a shared register.
+    """
+    return RawField(
+        address,
+        stride=stride,
+        writable=writable,
+        write_mode=write_mode,
+        write_mask=write_mask,
+    )
 
 
 def uint32(
@@ -420,6 +482,7 @@ def uint32(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
     """An unsigned 32-bit value over two consecutive registers."""
     return NumberField(
@@ -431,6 +494,7 @@ def uint32(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
@@ -442,6 +506,7 @@ def int32(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
     """A signed 32-bit value over two consecutive registers."""
     return NumberField(
@@ -453,6 +518,7 @@ def int32(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
@@ -464,6 +530,7 @@ def float32(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> FloatField:
     """An IEEE-754 single-precision float over two consecutive registers."""
     return FloatField(
@@ -474,6 +541,7 @@ def float32(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
@@ -485,6 +553,7 @@ def uint64(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
     """An unsigned 64-bit value over four consecutive registers."""
     return NumberField(
@@ -496,6 +565,7 @@ def uint64(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
@@ -507,6 +577,7 @@ def int64(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
     """A signed 64-bit value over four consecutive registers."""
     return NumberField(
@@ -518,6 +589,7 @@ def int64(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
@@ -529,6 +601,7 @@ def float64(
     stride: int = 0,
     writable: bool = False,
     unit: str | None = None,
+    write_mode: WriteMode = "auto",
 ) -> FloatField:
     """An IEEE-754 double-precision float over four consecutive registers."""
     return FloatField(
@@ -539,14 +612,26 @@ def float64(
         stride=stride,
         writable=writable,
         unit=unit,
+        write_mode=write_mode,
     )
 
 
 def string(
-    address: int, length: int, *, stride: int = 0, writable: bool = False
+    address: int,
+    length: int,
+    *,
+    stride: int = 0,
+    writable: bool = False,
+    write_mode: WriteMode = "auto",
 ) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
-    return StringField(address, count=length, stride=stride, writable=writable)
+    return StringField(
+        address,
+        count=length,
+        stride=stride,
+        writable=writable,
+        write_mode=write_mode,
+    )
 
 
 def enum[E: IntEnum](
@@ -559,6 +644,8 @@ def enum[E: IntEnum](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
+    write_mode: WriteMode = "auto",
+    write_mask: int | None = None,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
@@ -576,6 +663,8 @@ def enum[E: IntEnum](
         nan=nan,
         stride=stride,
         writable=writable,
+        write_mode=write_mode,
+        write_mask=write_mask,
     )
 
 
@@ -589,10 +678,14 @@ def flags[F: IntFlag](
     nan: int | None = None,
     stride: int = 0,
     writable: bool = False,
+    write_mode: WriteMode = "auto",
+    write_mask: int | None = None,
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
-    ``signed`` interprets the raw word as two's-complement before mapping.
+    ``signed`` interprets the raw word as two's-complement before mapping. Pass
+    ``write_mask`` to update only this field's bits with a masked write (FC22),
+    leaving the other bits of a shared register untouched.
     """
     return NumberField(
         address,
@@ -603,6 +696,8 @@ def flags[F: IntFlag](
         nan=nan,
         stride=stride,
         writable=writable,
+        write_mode=write_mode,
+        write_mask=write_mask,
     )
 
 

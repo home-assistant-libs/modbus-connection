@@ -142,6 +142,32 @@ class Controller(Component):
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
+### Writing registers
+
+`Component.write(field, value)` writes a writable register or coil by attribute
+name. For registers it picks the function code by payload width — FC06
+(write-single-register) for a one-word value, FC16 (write-multiple-registers)
+otherwise. Some devices contradict that heuristic, so a field can override it:
+
+```python
+from modbus_connection.model import Component, integer, raw_register, flags
+
+class Inverter(Component):
+    # A device that rejects multi-register writes — always use FC06.
+    setpoint = integer(0, writable=True, write_mode="single")
+    # A device that honours only FC16, even for a single register.
+    limit = integer(1, writable=True, write_mode="multiple")
+    # Flip one control bit in a shared register with a masked write (FC22),
+    # leaving the other bits untouched.
+    grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008)
+```
+
+`write_mode="single"` forces FC06 (and is only valid for a one-word field);
+`write_mode="multiple"` forces FC16. `write_mask` switches to a masked write
+(FC22) that updates only the masked bits of a single register — the value must
+encode to a word whose set bits all fall inside the mask. Override `write()` in a
+subclass for any device-specific write sequencing.
+
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a
 unit in one consolidated set of reads, group them in a `ComponentGroup` and call

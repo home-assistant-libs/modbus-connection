@@ -188,8 +188,11 @@ class Component:
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
 
-        Override :meth:`write` in a subclass for any device-specific write
-        sequencing.
+        A register field is written with FC06 (single) or FC16 (multiple) chosen
+        by payload width, unless the field overrides it: ``write_mode`` forces
+        FC06/FC16 for a device that contradicts the heuristic, and ``write_mask``
+        switches to a masked write (FC22) into specific bits. Override
+        :meth:`write` in a subclass for any device-specific write sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
@@ -202,7 +205,21 @@ class Component:
                 )
             address = self._address(register)
             words = register.encode(value)
-            if len(words) == 1:
+            if register.write_mask is not None:
+                and_mask = ~register.write_mask & 0xFFFF
+                await self._unit.mask_write_register(
+                    address, and_mask, register.or_mask_for(words)
+                )
+            elif register.write_mode == "single":
+                if len(words) != 1:
+                    raise ValueError(
+                        f"{field} encodes to {len(words)} registers; "
+                        "write_mode='single' (FC06) writes only one"
+                    )
+                await self._unit.write_register(address, words[0])
+            elif register.write_mode == "multiple":
+                await self._unit.write_registers(address, words)
+            elif len(words) == 1:
                 await self._unit.write_register(address, words[0])
             else:
                 await self._unit.write_registers(address, words)

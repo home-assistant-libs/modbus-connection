@@ -276,6 +276,107 @@ async def test_write_rejects_readonly() -> None:
         await meter.write("temperature", 20.0)
 
 
+def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
+    """A mock unit that records each register-write call as ``(fc, *args)``."""
+    unit = MockModbusConnection().for_unit(1)
+    calls: list[tuple] = []
+    real_single = unit.write_register
+    real_multi = unit.write_registers
+    real_mask = unit.mask_write_register
+
+    async def write_register(address: int, value: int) -> None:
+        calls.append(("single", address, value))
+        await real_single(address, value)
+
+    async def write_registers(address: int, values: list[int]) -> None:
+        calls.append(("multiple", address, values))
+        await real_multi(address, values)
+
+    async def mask_write_register(address: int, and_mask: int, or_mask: int) -> None:
+        calls.append(("mask", address, and_mask, or_mask))
+        await real_mask(address, and_mask, or_mask)
+
+    unit.write_register = write_register  # type: ignore[method-assign]
+    unit.write_registers = write_registers  # type: ignore[method-assign]
+    unit.mask_write_register = mask_write_register  # type: ignore[method-assign]
+    return unit, calls
+
+
+async def test_write_mode_forces_single() -> None:
+    """``write_mode="single"`` uses FC06 even where auto would pick FC16."""
+
+    class Dev(Component):
+        # A single-register value that a GivEnergy-style FC06-only device needs.
+        setpoint = integer(0, signed=False, writable=True, write_mode="single")
+
+    unit, calls = _calls_recording_unit()
+    await Dev(unit).write("setpoint", 1234)
+    assert calls == [("single", 0, 1234)]
+    assert unit.holding[0] == 1234
+
+
+async def test_write_mode_forces_multiple_for_single_register() -> None:
+    """``write_mode="multiple"`` uses FC16 for a one-register field (solax/sunsynk)."""
+
+    class Dev(Component):
+        setpoint = integer(0, signed=False, writable=True, write_mode="multiple")
+
+    unit, calls = _calls_recording_unit()
+    await Dev(unit).write("setpoint", 7)
+    assert calls == [("multiple", 0, [7])]
+    assert unit.holding[0] == 7
+
+
+async def test_write_mode_single_rejects_multi_register_value() -> None:
+    """FC06 cannot carry a multi-word value, so forcing it on uint32 raises."""
+
+    class Dev(Component):
+        energy = uint32(0, writable=True, write_mode="single")
+
+    unit, _ = _calls_recording_unit()
+    with pytest.raises(ValueError, match="FC06"):
+        await Dev(unit).write("energy", 100000)
+
+
+async def test_masked_write_sets_only_its_bits() -> None:
+    """A ``write_mask`` field updates its bits with FC22 and preserves the rest."""
+
+    class Charge(IntFlag):
+        GRID = 0x0008
+
+    class Dev(Component):
+        grid_charge = flags(5, Charge, writable=True, write_mask=0x0008)
+
+    unit, calls = _calls_recording_unit()
+    unit.holding[5] = 0xFF07  # other bits set; ours (bit 3) currently clear
+    dev = Dev(unit)
+
+    await dev.write("grid_charge", Charge.GRID)
+    assert calls == [("mask", 5, 0xFFF7, 0x0008)]
+    assert unit.holding[5] == 0xFF0F  # bit 3 set, the rest untouched
+
+    await dev.write("grid_charge", Charge(0))  # clear it again
+    assert unit.holding[5] == 0xFF07
+
+
+async def test_masked_write_rejects_value_outside_mask() -> None:
+    class Dev(Component):
+        bits = raw_register(0, writable=True, write_mask=0x000F)
+
+    unit, _ = _calls_recording_unit()
+    with pytest.raises(OverflowError, match="write_mask"):
+        await Dev(unit).write("bits", 0x0010)  # sets a bit outside the mask
+
+
+def test_write_mask_misconfiguration_raises() -> None:
+    with pytest.raises(ValueError, match="single register"):
+        NumberField(0, count=2, writable=True, write_mask=0x000F)  # multi-register
+    with pytest.raises(ValueError, match="write_mode"):
+        raw_register(0, writable=True, write_mode="single", write_mask=0x000F)
+    with pytest.raises(ValueError, match="16-bit mask"):
+        raw_register(0, writable=True, write_mask=0)
+
+
 # -- listeners + independent update ------------------------------------------
 
 
