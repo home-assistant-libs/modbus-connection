@@ -34,11 +34,14 @@ makes that sharing possible while keeping the backend swappable: the
   this wrapper: pymodbus's transaction manager and tmodbus's smart transport
   each hold a lock for the full request/response cycle, so concurrent unit calls
   on one connection can't interleave.
-- A connection can enforce a minimum **interval between messages** for devices
-  that need a pause between frames. Pass `message_spacing` (seconds) to a connect
-  function and consecutive requests — from any unit sharing the link — are kept at
-  least that far apart. It is the *spacing between* requests only; to delay the
-  *first* request, the owner sleeps before issuing it. Default `0` disables it.
+- A connection can enforce a minimum **gap between messages** for devices that
+  need a pause between frames. Pass `message_spacing` (seconds) to a connect
+  function and each request — from any unit sharing the link — waits until that
+  gap has elapsed since the previous one finished. tmodbus enforces it through
+  its native `wait_between_requests`; pymodbus has no such knob, so the package
+  applies the same gap itself. It is the *spacing between* requests only; to
+  delay the *first* request, the owner sleeps before issuing it. Default `0`
+  disables it.
 - The connection does **not** self-reconnect. On a drop it fires
   `on_connection_lost` (best-effort) and stops; recreating it is the owner's job.
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a

@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import time
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from contextlib import asynccontextmanager
 from typing import Any, Concatenate, Literal
 
 from pymodbus import FramerType
@@ -56,8 +57,8 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            await self._conn._pace()
-            return await func(self, *args, **kwargs)
+            async with self._conn._paced():
+                return await func(self, *args, **kwargs)
         except ConnectionException as err:
             raise ModbusConnectionError(str(err)) from err
         except ModbusIOException as err:
@@ -105,8 +106,11 @@ class PymodbusConnection:
     pymodbus's job: its transaction manager already holds a per-client lock for
     the full request/response cycle, so this wrapper adds none of its own.
 
-    When ``message_spacing`` is set, ``_pace`` keeps consecutive requests at least
-    that many seconds apart (across every unit on the link).
+    Inter-request spacing is the exception: pymodbus has no native
+    ``wait_between_requests`` (tmodbus does), so when ``message_spacing`` is set
+    ``_paced`` reproduces it here, mirroring how tmodbus enforces it internally —
+    a lock makes the wait atomic across every unit on the link, and the gap is
+    measured from each request finishing.
     """
 
     def __init__(self, client: ModbusBaseClient, message_spacing: float = 0.0) -> None:
@@ -114,24 +118,29 @@ class PymodbusConnection:
             raise ValueError("message_spacing must be non-negative")
         self._client = client
         self._message_spacing = message_spacing
-        self._next_request = 0.0
+        self._request_lock = asyncio.Lock()
+        self._last_request_finished_at = 0.0
         self._lost_callbacks: list[Callable[[], None]] = []
 
-    async def _pace(self) -> None:
-        """Sleep so consecutive requests stay ``message_spacing`` seconds apart.
+    @asynccontextmanager
+    async def _paced(self) -> AsyncIterator[None]:
+        """Hold each request until ``message_spacing`` has elapsed since the last
+        one finished, serializing so the gap holds across every unit on the link.
 
-        Lock-free: each caller reserves the next slot synchronously — there is no
-        ``await`` between reading and bumping ``_next_request`` — so concurrent
-        callers from different units still line up correctly. No-op when spacing
-        is disabled (``0``).
+        No-op when spacing is disabled (``0``).
         """
         if not self._message_spacing:
+            yield
             return
-        now = time.monotonic()
-        slot = max(now, self._next_request)
-        self._next_request = slot + self._message_spacing
-        if slot > now:
-            await asyncio.sleep(slot - now)
+        async with self._request_lock:
+            elapsed = time.monotonic() - self._last_request_finished_at
+            wait = self._message_spacing - elapsed
+            if wait > 0:
+                await asyncio.sleep(wait)
+            try:
+                yield
+            finally:
+                self._last_request_finished_at = time.monotonic()
 
     # -- spec surface ---------------------------------------------------------
 
