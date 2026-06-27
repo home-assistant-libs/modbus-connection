@@ -86,6 +86,7 @@ from .fields import (
     uint64,
 )
 from .manual import ManualComponent
+from .repeating import RepeatingGroup
 
 __all__ = [
     "BitSpace",
@@ -97,6 +98,7 @@ __all__ = [
     "Range",
     "RegisterField",
     "RegisterSpace",
+    "RepeatingGroup",
     "UpdateListener",
     "WriteValidator",
     "coil",

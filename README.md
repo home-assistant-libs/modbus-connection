@@ -384,6 +384,46 @@ ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
 ```
 
+### Repeated sub-blocks counted at poll time (`RepeatingGroup`)
+
+`stride` / `index` repeat a sub-unit whose **count is known when you write the
+code**. Some devices instead advertise the count in a register, read at poll
+time — a SunSpec multiple-MPPT model (160) carries an `N` point saying how many
+modules follow, a multi-string meter reports its channel count. The number of
+repeats isn't known until the device is polled, and it can change.
+
+A `RepeatingGroup` reads the count on every poll and grows or shrinks the
+instances it reads to match. Give it the count source (a register field, or a
+fixed `int`), the per-instance `block` template (fields with a base address and a
+per-instance `stride`), and optional fixed `header` fields:
+
+```python
+from modbus_connection.model import RepeatingGroup
+from modbus_connection.model import sunspec as ss
+
+group = RepeatingGroup(
+    unit,
+    count=ss.uint16(8),                                   # model 160 "N" point
+    block={
+        "dc_w": ss.uint16(11, scale_register=2, stride=20),
+        "dc_v": ss.uint16(10, scale_register=1, stride=20),
+    },
+)
+data = await group.async_update()
+# {"count": 2, "instances": [{"dc_w": 95.0, "dc_v": 48.2}, {"dc_w": 90.0, ...}]}
+group.count          # 2
+group.instance(1)    # {"dc_w": 95.0, "dc_v": 48.2}  (1-based)
+```
+
+It's built on `ManualComponent`, so the count, header and every instance are
+pooled into as few reads as possible, and a `sunssf` scale register is strided
+per instance (each scales off its own factor). The instance set is re-planned
+only when the count changes, so a steady count costs a single set of reads; the
+first poll, and any poll where the count changes, costs one extra round trip —
+the count must be read before the instances it sizes can be planned. An
+unimplemented or unreadable count reads as `0` instances. The group is read-only
+(drive writes through a `ManualComponent` or `Component`).
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an
