@@ -1,132 +1,66 @@
 """Tests for inter-request spacing (``message_spacing``).
 
-The ``MessagePacer`` tests drive a fake monotonic clock so the spacing logic is
-asserted deterministically; the backend tests use real (small) timing to prove
-the connect functions actually route every request through the pacer.
+The slot-math test drives a fake monotonic clock for a deterministic assertion;
+the rest use real (small) timing to prove the backends pace concurrent requests
+across units and that the connect functions wire the parameter through.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
 
 import pytest
 
-from modbus_connection import _pacing
-from modbus_connection._pacing import MessagePacer, make_pacer
+from modbus_connection import pymodbus
+from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import UNIT_ID
 
-# -- make_pacer ---------------------------------------------------------------
 
-
-def test_make_pacer_zero_is_disabled() -> None:
-    assert make_pacer(0.0) is None
-
-
-def test_make_pacer_positive_builds_pacer() -> None:
-    assert isinstance(make_pacer(0.25), MessagePacer)
-
-
-def test_make_pacer_negative_raises() -> None:
+def test_negative_spacing_raises() -> None:
     with pytest.raises(ValueError):
-        make_pacer(-0.1)
+        PymodbusConnection(None, message_spacing=-0.1)  # type: ignore[arg-type]
 
 
-# -- MessagePacer spacing logic (deterministic, fake clock) -------------------
+async def test_pace_is_noop_when_disabled() -> None:
+    conn = PymodbusConnection(None, message_spacing=0.0)  # type: ignore[arg-type]
+    start = time.monotonic()
+    for _ in range(5):
+        await conn._pace()
+    assert time.monotonic() - start < 0.05  # never slept
 
 
-@dataclass
-class FakeClock:
-    """A virtual monotonic clock; ``advance`` moves "now" forward by hand."""
-
-    now: float = 0.0
-    sleeps: list[float] = field(default_factory=list)
-
-    def advance(self, delta: float) -> None:
-        self.now += delta
-
-
-@pytest.fixture
-def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
-    """Replace the pacer's ``time.monotonic`` / ``asyncio.sleep`` with a fake clock.
-
-    ``asyncio.sleep`` advances the clock instead of waiting and records each
-    requested delay on ``clock.sleeps``, so spacing is asserted deterministically.
-    """
-    fake = FakeClock()
+async def test_pace_reserves_evenly_spaced_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    sleeps: list[float] = []
 
     async def fake_sleep(delay: float) -> None:
-        fake.sleeps.append(delay)
-        fake.advance(delay)
+        nonlocal now
+        sleeps.append(delay)
+        now += delay
 
-    monkeypatch.setattr(_pacing.time, "monotonic", lambda: fake.now)
-    monkeypatch.setattr(_pacing.asyncio, "sleep", fake_sleep)
-    return fake
+    monkeypatch.setattr(pymodbus.time, "monotonic", lambda: now)
+    monkeypatch.setattr(pymodbus.asyncio, "sleep", fake_sleep)
 
-
-async def test_first_request_never_waits(clock: FakeClock) -> None:
-    pacer = MessagePacer(0.25)
-    async with pacer:
-        pass
-    assert clock.sleeps == []
-
-
-async def test_gap_measured_from_completion_to_start(clock: FakeClock) -> None:
-    pacer = MessagePacer(0.25)
-    async with pacer:
-        clock.advance(0.10)  # the request occupies the wire for 100 ms
-    async with pacer:  # nothing idle since it finished -> wait the full gap
-        pass
-    assert clock.sleeps == [pytest.approx(0.25)]
+    conn = PymodbusConnection(None, message_spacing=0.25)  # type: ignore[arg-type]
+    for _ in range(3):
+        await conn._pace()
+    # First request runs immediately; each later one waits a full interval.
+    assert sleeps == [pytest.approx(0.25), pytest.approx(0.25)]
 
 
-async def test_no_wait_when_gap_already_elapsed(clock: FakeClock) -> None:
-    pacer = MessagePacer(0.25)
-    async with pacer:
-        pass
-    clock.advance(0.50)  # caller idled longer than the spacing on its own
-    async with pacer:
-        pass
-    assert clock.sleeps == []
-
-
-async def test_spacing_stamped_even_when_request_raises(clock: FakeClock) -> None:
-    pacer = MessagePacer(0.25)
-    with pytest.raises(RuntimeError):
-        async with pacer:
-            clock.advance(0.05)
-            raise RuntimeError("boom")
-    async with pacer:  # the failed frame still occupied the wire -> still spaced
-        pass
-    assert clock.sleeps == [pytest.approx(0.25)]
-
-
-# -- serialization ------------------------------------------------------------
-
-
-async def test_pacer_serializes_concurrent_requests() -> None:
-    """Only one request rides the connection at a time, even under concurrency."""
-    pacer = MessagePacer(0.0)
-    active = 0
-    max_active = 0
-
-    async def worker() -> None:
-        nonlocal active, max_active
-        async with pacer:
-            active += 1
-            max_active = max(max_active, active)
-            await asyncio.sleep(0)  # hand control to the other tasks
-            active -= 1
-
-    await asyncio.gather(*(worker() for _ in range(5)))
-    assert max_active == 1
-
-
-# -- end-to-end: the backends honor message_spacing ---------------------------
+async def test_pace_serializes_concurrent_callers() -> None:
+    """Concurrent callers (the shared-connection case) still line up in order."""
+    conn = PymodbusConnection(None, message_spacing=0.02)  # type: ignore[arg-type]
+    start = time.monotonic()
+    await asyncio.gather(*(conn._pace() for _ in range(5)))
+    # Five slots 0.02 apart -> the last waits ~0.08s.
+    assert time.monotonic() - start >= 0.02 * 4
 
 
 @pytest.mark.parametrize("backend", ["pymodbus", "tmodbus"])
@@ -149,5 +83,5 @@ async def test_backend_paces_requests(
         elapsed = time.monotonic() - start
     finally:
         await conn.close()
-    # Four requests means three inter-request gaps of at least `spacing` each.
+    # Four requests means three intervals of at least `spacing` each.
     assert elapsed >= spacing * 3
