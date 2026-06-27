@@ -35,6 +35,7 @@ from tmodbus.pdu import (
     WriteFileRecordPDU,
 )
 
+from .._pacing import MessagePacer, make_pacer
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
@@ -55,8 +56,11 @@ __all__ = [
 class TmodbusConnection:
     """A live tmodbus connection."""
 
-    def __init__(self, client: AsyncModbusClient) -> None:
+    def __init__(
+        self, client: AsyncModbusClient, pacer: MessagePacer | None = None
+    ) -> None:
         self._client = client
+        self._pacer = pacer
         self._lost_callbacks: list[Callable[[], None]] = []
 
     @property
@@ -91,12 +95,18 @@ def _map_errors[**P, R](
     """Map tmodbus exceptions onto the neutral hierarchy.
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client
-    directly; a connection-lost error also fires the owner's lost callbacks.
+    directly; a connection-lost error also fires the owner's lost callbacks. Also
+    routes the request through the connection's pacer (when one is set) so a
+    configured inter-request gap is honored across every unit on the link.
     """
 
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
+            pacer = self._conn._pacer
+            if pacer is not None:
+                async with pacer:
+                    return await func(self, *args, **kwargs)
             return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
             self._conn._notify_lost()
@@ -239,12 +249,19 @@ async def connect_tcp(
     timeout: float = 3,
     unit_id: int = 1,
     framer: Framing = "socket",
+    message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak.
+
+    ``message_spacing`` is the minimum quiet gap, in seconds, enforced between
+    consecutive requests on this connection — measured from one request finishing
+    to the next starting, and applied across every unit sharing the link. Use it
+    for devices that need recovery time between frames; ``0`` (the default)
+    disables pacing and leaves serialization entirely to tmodbus.
 
     ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
@@ -263,7 +280,7 @@ async def connect_tcp(
         await client.connect()
     except (TimeoutError, TModbusConnectionError, OSError) as err:
         raise ModbusConnectionError(f"could not connect to {host}:{port}") from err
-    return TmodbusConnection(client)
+    return TmodbusConnection(client, make_pacer(message_spacing))
 
 
 async def connect_serial(
@@ -274,8 +291,13 @@ async def connect_serial(
     parity: str = "N",
     stopbits: int = 1,
     unit_id: int = 1,
+    message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Open a Modbus serial (RTU) connection over tmodbus and return a live handle.
+
+    ``message_spacing`` is the minimum quiet gap, in seconds, enforced between
+    consecutive requests on this connection (see ``connect_tcp``); ``0`` (the
+    default) disables pacing.
 
     ``auto_reconnect`` is disabled. Raises ``ModbusConnectionError`` on failure.
     """
@@ -292,4 +314,4 @@ async def connect_serial(
         await client.connect()
     except (TimeoutError, TModbusConnectionError, OSError) as err:
         raise ModbusConnectionError(f"could not open serial port {port}") from err
-    return TmodbusConnection(client)
+    return TmodbusConnection(client, make_pacer(message_spacing))
