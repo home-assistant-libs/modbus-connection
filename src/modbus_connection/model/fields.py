@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, overload
@@ -41,6 +42,7 @@ __all__ = [
     "RawField",
     "RegisterField",
     "StringField",
+    "WriteValidator",
     "coil",
     "enum",
     "flags",
@@ -57,6 +59,13 @@ __all__ = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+
+# A ``writable`` value may be a validator: a callable invoked with the requested
+# value before it is encoded, returning the value to actually write. Passing one
+# marks the field writable (a callable is truthy) and lets the validator vet or
+# coerce the value — raise to reject it. ``writable=True`` writes the value as-is
+# with no validation.
+WriteValidator = Callable[[Any], Any]
 
 # (enum class, raw value) pairs we have already warned about, so an unrecognized
 # enum code is logged only once per distinct value rather than on every poll.
@@ -90,7 +99,7 @@ class RegisterField[T](ABC):
         address: int,
         *,
         count: int = 1,
-        writable: bool = False,
+        writable: bool | WriteValidator = False,
         stride: int = 0,
         unit: str | None = None,
         scale_register: int | None = None,
@@ -104,6 +113,9 @@ class RegisterField[T](ABC):
                 ``address + stride * (index - 1)``.
             count: Number of 16-bit registers the value spans.
             writable: Whether :meth:`Component.write` may write this field.
+                ``True`` writes the value as-is; a :data:`WriteValidator` callable
+                also marks the field writable and is called with the value before
+                each write, returning the value to write (or raising to reject it).
             stride: Per-index address increment for a repeated block of identical
                 sub-units; ``0`` means the field is at a fixed address.
             unit: Unit-of-measure label carried as metadata; not used in decoding.
@@ -322,7 +334,7 @@ class CoilField:
         self,
         address: int,
         *,
-        writable: bool = False,
+        writable: bool | WriteValidator = False,
         stride: int = 0,
     ) -> None:
         self.address = address
@@ -356,7 +368,7 @@ def gauge(
     signed: bool = True,
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -385,7 +397,7 @@ def integer(
     signed: bool = True,
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -407,7 +419,9 @@ def integer(
     )
 
 
-def raw_register(address: int, *, stride: int = 0, writable: bool = False) -> RawField:
+def raw_register(
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
+) -> RawField:
     """A raw register word (no scaling or sign handling)."""
     return RawField(address, stride=stride, writable=writable)
 
@@ -418,7 +432,7 @@ def uint32(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[int]:
     """An unsigned 32-bit value over two consecutive registers."""
@@ -440,7 +454,7 @@ def int32(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[int]:
     """A signed 32-bit value over two consecutive registers."""
@@ -462,7 +476,7 @@ def float32(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> FloatField:
     """An IEEE-754 single-precision float over two consecutive registers."""
@@ -483,7 +497,7 @@ def uint64(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[int]:
     """An unsigned 64-bit value over four consecutive registers."""
@@ -505,7 +519,7 @@ def int64(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[int]:
     """A signed 64-bit value over four consecutive registers."""
@@ -527,7 +541,7 @@ def float64(
     scale: float = 1.0,
     word_order: WordOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> FloatField:
     """An IEEE-754 double-precision float over four consecutive registers."""
@@ -543,7 +557,11 @@ def float64(
 
 
 def string(
-    address: int, length: int, *, stride: int = 0, writable: bool = False
+    address: int,
+    length: int,
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
     return StringField(address, count=length, stride=stride, writable=writable)
@@ -558,7 +576,7 @@ def enum[E: IntEnum](
     word_order: WordOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
@@ -588,7 +606,7 @@ def flags[F: IntFlag](
     word_order: WordOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
@@ -609,7 +627,7 @@ def flags[F: IntFlag](
 def coil(
     address: int,
     *,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     stride: int = 0,
 ) -> CoilField:
     """A coil."""

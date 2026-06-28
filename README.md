@@ -120,10 +120,29 @@ await meter.write("relay", True)
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel and `word_order`). The SunSpec
-module `modbus_connection.model.sunspec` adds the same types pre-wired with their
-"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
-`eui48`).
+`nan` sentinel and `word_order`).
+
+`writable=True` lets `write()` send a field. Pass a validator callable instead to
+both mark the field writable and vet the value before each write — it is called
+with the requested value and returns the value to actually write (vetted or
+coerced), or raises to reject it, before anything reaches the device:
+
+```python
+def in_range(value: int) -> int:
+    if not 0 <= value <= 100:
+        raise ValueError(f"{value} out of range")
+    return value
+
+class Boiler(Component):
+    setpoint = integer(0, writable=in_range)
+```
+
+We don't ship validators of our own; for ready-made ones, reach for
+[probatio](https://github.com/frenck/probatio).
+
+The SunSpec module `modbus_connection.model.sunspec` adds the same types pre-wired
+with their "unimplemented" sentinels, plus the address types (`ipaddr` /
+`ipv6addr` / `eui48`).
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times — is left to the consumer via a private field + a `@property`, so
@@ -141,9 +160,6 @@ class Controller(Component):
         firmware = self._firmware
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
-
-Validating values before a write is likewise left to the consumer. If you want
-ready-made validators, we recommend [probatio](https://github.com/frenck/probatio).
 
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a

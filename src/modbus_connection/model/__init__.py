@@ -63,6 +63,7 @@ from .component_group import ComponentGroup
 from .fields import (
     CoilField,
     RegisterField,
+    WriteValidator,
     coil,
     enum,
     flags,
@@ -86,6 +87,7 @@ __all__ = [
     "RegisterField",
     "RegisterSpace",
     "UpdateListener",
+    "WriteValidator",
     "coil",
     "enum",
     "flags",

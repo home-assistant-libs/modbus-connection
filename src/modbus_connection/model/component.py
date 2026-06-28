@@ -188,6 +188,11 @@ class Component:
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
 
+        A field declared with a :data:`~modbus_connection.model.fields.WriteValidator`
+        callable for ``writable`` has that validator run against ``value`` first; it
+        returns the value to actually write (vetted or coerced), or raises to reject
+        it before anything is sent to the device.
+
         Override :meth:`write` in a subclass for any device-specific write
         sequencing.
         """
@@ -200,6 +205,10 @@ class Component:
                     f"{field} is in the {self.register_space} register space, "
                     "which is read-only"
                 )
+            if callable(register.writable):
+                # The validator vets/coerces the value and returns what to write,
+                # or raises to reject it.
+                value = register.writable(value)
             address = self._address(register)
             words = register.encode(value)
             if len(words) == 1:
@@ -210,6 +219,10 @@ class Component:
             coil_field = self._coil_fields[field]
             if not coil_field.writable:
                 raise AttributeError(f"{field} is read-only")
+            if callable(coil_field.writable):
+                # The validator vets/coerces the value and returns what to write,
+                # or raises to reject it.
+                value = coil_field.writable(value)
             await self._unit.write_coil(self._address(coil_field), bool(value))
         else:
             raise AttributeError(f"unknown field {field!r}")
