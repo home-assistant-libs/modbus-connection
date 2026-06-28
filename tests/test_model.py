@@ -138,6 +138,20 @@ async def test_affine_offset_round_trips_on_write() -> None:
     assert dev.temp == pytest.approx(50.0)
 
 
+async def test_scaled_float_round_trips_on_write() -> None:
+    """A writable scaled float inverts its scale on write (no offset)."""
+
+    class Dev(Component):
+        value = float32(0, scale=0.1, writable=True)  # raw -> raw * 0.1
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("value", 5.0)  # 5.0 / 0.1 = 50.0 stored, not 5.0
+    assert decode_float32([unit.holding[0], unit.holding[1]]) == pytest.approx(50.0)
+    await dev.async_update()
+    assert dev.value == pytest.approx(5.0)
+
+
 async def test_float_offset_round_trips_on_write() -> None:
     """A writable float field inverts both scale and offset on write."""
 
