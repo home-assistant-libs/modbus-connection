@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Callable
 from enum import IntEnum, IntFlag
+from typing import Any
 
 import pytest
 
@@ -274,6 +276,73 @@ async def test_write_rejects_readonly() -> None:
     meter = _meter({})
     with pytest.raises(AttributeError):
         await meter.write("temperature", 20.0)
+
+
+def _bounded(low: int, high: int) -> Callable[[Any], int]:
+    """A WriteValidator that rejects values outside ``[low, high]``."""
+
+    def validate(value: int) -> int:
+        if not low <= value <= high:
+            raise ValueError(f"{value} out of range [{low}, {high}]")
+        return value
+
+    return validate
+
+
+async def test_validator_makes_field_writable() -> None:
+    class Dev(Component):
+        setpoint = integer(0, writable=_bounded(0, 100))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("setpoint", 42)  # in range -> written
+    await dev.async_update()
+    assert dev.setpoint == 42
+
+
+async def test_validator_rejects_value_before_writing() -> None:
+    class Dev(Component):
+        setpoint = integer(0, writable=_bounded(0, 100))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    with pytest.raises(ValueError, match="out of range"):
+        await dev.write("setpoint", 250)
+    assert 0 not in unit.holding  # nothing reached the device
+
+
+async def test_validator_can_coerce_the_written_value() -> None:
+    class Dev(Component):
+        # Clamp into range instead of rejecting.
+        setpoint = integer(0, writable=lambda v: max(0, min(100, v)))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("setpoint", 250)
+    await dev.async_update()
+    assert dev.setpoint == 100  # the coerced value was written
+
+
+async def test_coil_validator_rejects_value() -> None:
+    locked = False
+
+    def reject_when_locked(value: bool) -> bool:
+        if locked:
+            raise ValueError("relay is locked")
+        return value
+
+    class Dev(Component):
+        relay = coil(0, writable=reject_when_locked)
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("relay", True)  # not locked -> written
+    await dev.async_update()
+    assert dev.relay is True
+
+    locked = True
+    with pytest.raises(ValueError, match="locked"):
+        await dev.write("relay", False)
 
 
 # -- listeners + independent update ------------------------------------------
