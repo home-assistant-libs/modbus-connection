@@ -120,10 +120,7 @@ await meter.write("relay", True)
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel and `word_order`). The SunSpec
-module `modbus_connection.model.sunspec` adds the same types pre-wired with their
-"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
-`eui48`).
+`nan` sentinel and `word_order`).
 
 `writable=True` lets `write()` send a field. Pass a validator callable instead to
 both mark the field writable and vet the value before each write — it is called
@@ -143,6 +140,10 @@ class Boiler(Component):
 
 We don't ship validators of our own; for ready-made ones, reach for
 [probatio](https://github.com/frenck/probatio).
+
+The SunSpec module `modbus_connection.model.sunspec` adds the same types pre-wired
+with their "unimplemented" sentinels, plus the address types (`ipaddr` /
+`ipv6addr` / `eui48`).
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times — is left to the consumer via a private field + a `@property`, so
