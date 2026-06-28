@@ -125,8 +125,7 @@ Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `writable=True` lets `write()` send a field. Pass a validator callable instead to
 both mark the field writable and vet the value before each write — it is called
 with the requested value and returns the value to actually write (vetted or
-coerced), or raises (e.g. `ValueError`) to reject it, before anything reaches the
-device:
+coerced), or raises to reject it, before anything reaches the device:
 
 ```python
 def in_range(value: int) -> int:

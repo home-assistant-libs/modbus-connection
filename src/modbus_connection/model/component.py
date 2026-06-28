@@ -190,8 +190,8 @@ class Component:
 
         A field declared with a :data:`~modbus_connection.model.fields.WriteValidator`
         callable for ``writable`` has that validator run against ``value`` first; it
-        returns the value to actually write (vetted or coerced), or raises (typically
-        ``ValueError``) to reject it before anything is sent to the device.
+        returns the value to actually write (vetted or coerced), or raises to reject
+        it before anything is sent to the device.
 
         Override :meth:`write` in a subclass for any device-specific write
         sequencing.

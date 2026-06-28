@@ -63,8 +63,8 @@ _LOGGER = logging.getLogger(__name__)
 # A ``writable`` value may be a validator: a callable invoked with the requested
 # value before it is encoded, returning the value to actually write. Passing one
 # marks the field writable (a callable is truthy) and lets the validator vet or
-# coerce the value — raise (typically ``ValueError``) to reject it. ``writable=True``
-# writes the value as-is with no validation.
+# coerce the value — raise to reject it. ``writable=True`` writes the value as-is
+# with no validation.
 WriteValidator = Callable[[Any], Any]
 
 # (enum class, raw value) pairs we have already warned about, so an unrecognized
