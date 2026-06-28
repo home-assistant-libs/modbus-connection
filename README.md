@@ -142,6 +142,9 @@ class Controller(Component):
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
+Validating values before a write is likewise left to the consumer. If you want
+ready-made validators, we recommend [probatio](https://github.com/frenck/probatio).
+
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a
 unit in one consolidated set of reads, group them in a `ComponentGroup` and call
