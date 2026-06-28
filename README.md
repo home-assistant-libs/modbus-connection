@@ -168,6 +168,36 @@ class Inverter(Component):
 encode to a word whose set bits all fall inside the mask. Override `write()` in a
 subclass for any device-specific write sequencing.
 
+A masked write changes only the field's own bits and leaves the rest of the
+shared register as the device had them — no read-modify-write round-trip, so no
+race with the device touching the other bits. From the caller's side you just
+write the field's value; the model derives the FC22 masks and the device applies
+`new = (current & ~write_mask) | (value & write_mask)`:
+
+```python
+from enum import IntFlag
+
+class ChargeFlags(IntFlag):
+    GRID_CHARGE = 0x0008          # this field owns bit 3 of register 2
+
+class Inverter(Component):
+    grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008)
+
+# Suppose register 2 currently holds 0xA5 (0b1010_0101) — several unrelated
+# control bits the device set, with our bit 3 clear.
+
+await inverter.write("grid_charge", ChargeFlags.GRID_CHARGE)
+#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0008)
+#   0xA5 (1010_0101) -> 0xAD (1010_1101)   only bit 3 flipped on
+
+await inverter.write("grid_charge", ChargeFlags(0))
+#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0000)
+#   0xAD (1010_1101) -> 0xA5 (1010_0101)   only bit 3 flipped off
+```
+
+Writing a value with bits set outside `write_mask` (e.g. `0x0010` for the field
+above) raises `OverflowError` rather than silently dropping them.
+
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a
 unit in one consolidated set of reads, group them in a `ComponentGroup` and call
