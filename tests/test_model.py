@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from modbus_connection.decode import decode_float32
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
@@ -81,6 +82,87 @@ async def test_fractional_scale_above_one_rounds_not_truncates() -> None:
     dev = Dev(unit)
     await dev.async_update()
     assert dev.value == pytest.approx(7.5)
+
+
+async def test_affine_offset_decode() -> None:
+    """A scaled field decodes as ``raw * scale + offset`` (affine read)."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100.0)  # 1500 * 0.1 - 100 = 50.0
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 1500
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.temp == pytest.approx(50.0)
+
+
+async def test_integer_offset_stays_integral() -> None:
+    """An offset on an unscaled integer shifts the value but keeps it an int."""
+
+    class Dev(Component):
+        shifted = integer(0, offset=-100)  # 105 - 100 = 5
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 105
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.shifted == 5
+    assert isinstance(dev.shifted, int)
+
+
+async def test_offset_keeps_scale_decimals() -> None:
+    """A whole-number offset must not coarsen a fractional scale's rounding."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100)  # 1234 * 0.1 - 100 = 23.4, keep the .4
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 1234
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.temp == pytest.approx(23.4)
+
+
+async def test_affine_offset_round_trips_on_write() -> None:
+    """Writing inverts the affine map as ``(value - offset) / scale``."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100.0, writable=True)
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("temp", 50.0)  # (50 - -100) / 0.1 = 1500
+    assert unit.holding[0] == 1500
+    await dev.async_update()
+    assert dev.temp == pytest.approx(50.0)
+
+
+async def test_float_offset_round_trips_on_write() -> None:
+    """A writable float field inverts both scale and offset on write."""
+
+    class Dev(Component):
+        value = float32(0, scale=2.0, offset=1.0, writable=True)  # raw -> raw*2 + 1
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("value", 11.0)  # (11 - 1) / 2 = 5.0 stored
+    await dev.async_update()
+    assert dev.value == pytest.approx(11.0)
+    assert decode_float32([unit.holding[0], unit.holding[1]]) == pytest.approx(5.0)
+
+
+async def test_dynamic_scale_register_with_offset() -> None:
+    """An offset adds on top of a dynamic ``10**sf`` scale factor."""
+
+    class Scaled(Component):
+        current = gauge(0, 1.0, offset=5.0, signed=False, scale_register=1)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1234, 1: (-2) & 0xFFFF})  # 1234 * 10**-2 + 5
+    scaled = Scaled(unit)
+    await scaled.async_update()
+    assert scaled.current == pytest.approx(17.34)
 
 
 async def test_write_out_of_range_raises() -> None:

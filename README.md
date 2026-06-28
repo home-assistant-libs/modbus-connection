@@ -122,6 +122,11 @@ Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
 `nan` sentinel and `word_order`).
 
+Numeric fields decode affinely as `raw * scale + offset`. Pass `offset` for a
+device that reports a shifted value (e.g. `gauge(0, 0.1, offset=-100)` for a
+temperature stored as `raw * 0.1 - 100`); writable fields invert it as
+`(value - offset) / scale`. Anything more exotic is a `RegisterField` subclass.
+
 `writable=True` lets `write()` send a field. Pass a validator callable instead to
 both mark the field writable and vet the value before each write — it is called
 with the requested value and returns the value to actually write (vetted or
