@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Callable
 from enum import IntEnum, IntFlag
+from typing import Any
 
 import pytest
 
+from modbus_connection.decode import decode_float32
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
@@ -81,6 +84,101 @@ async def test_fractional_scale_above_one_rounds_not_truncates() -> None:
     assert dev.value == pytest.approx(7.5)
 
 
+async def test_affine_offset_decode() -> None:
+    """A scaled field decodes as ``raw * scale + offset`` (affine read)."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100.0)  # 1500 * 0.1 - 100 = 50.0
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 1500
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.temp == pytest.approx(50.0)
+
+
+async def test_integer_offset_stays_integral() -> None:
+    """An offset on an unscaled integer shifts the value but keeps it an int."""
+
+    class Dev(Component):
+        shifted = integer(0, offset=-100)  # 105 - 100 = 5
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 105
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.shifted == 5
+    assert isinstance(dev.shifted, int)
+
+
+async def test_offset_keeps_scale_decimals() -> None:
+    """A whole-number offset must not coarsen a fractional scale's rounding."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100)  # 1234 * 0.1 - 100 = 23.4, keep the .4
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 1234
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.temp == pytest.approx(23.4)
+
+
+async def test_affine_offset_round_trips_on_write() -> None:
+    """Writing inverts the affine map as ``(value - offset) / scale``."""
+
+    class Dev(Component):
+        temp = gauge(0, 0.1, offset=-100.0, writable=True)
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("temp", 50.0)  # (50 - -100) / 0.1 = 1500
+    assert unit.holding[0] == 1500
+    await dev.async_update()
+    assert dev.temp == pytest.approx(50.0)
+
+
+async def test_scaled_float_round_trips_on_write() -> None:
+    """A writable scaled float inverts its scale on write (no offset)."""
+
+    class Dev(Component):
+        value = float32(0, scale=0.1, writable=True)  # raw -> raw * 0.1
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("value", 5.0)  # 5.0 / 0.1 = 50.0 stored, not 5.0
+    assert decode_float32([unit.holding[0], unit.holding[1]]) == pytest.approx(50.0)
+    await dev.async_update()
+    assert dev.value == pytest.approx(5.0)
+
+
+async def test_float_offset_round_trips_on_write() -> None:
+    """A writable float field inverts both scale and offset on write."""
+
+    class Dev(Component):
+        value = float32(0, scale=2.0, offset=1.0, writable=True)  # raw -> raw*2 + 1
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("value", 11.0)  # (11 - 1) / 2 = 5.0 stored
+    await dev.async_update()
+    assert dev.value == pytest.approx(11.0)
+    assert decode_float32([unit.holding[0], unit.holding[1]]) == pytest.approx(5.0)
+
+
+async def test_dynamic_scale_register_with_offset() -> None:
+    """An offset adds on top of a dynamic ``10**sf`` scale factor."""
+
+    class Scaled(Component):
+        current = gauge(0, 1.0, offset=5.0, signed=False, scale_register=1)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1234, 1: (-2) & 0xFFFF})  # 1234 * 10**-2 + 5
+    scaled = Scaled(unit)
+    await scaled.async_update()
+    assert scaled.current == pytest.approx(17.34)
+
+
 async def test_write_out_of_range_raises() -> None:
     meter = _meter({})
     with pytest.raises(OverflowError):
@@ -111,6 +209,24 @@ async def test_word_order_little() -> None:
     le = LE(unit)
     await le.async_update()
     assert le.value == 100000
+
+
+async def test_byte_order_little() -> None:
+    class Swapped(Component):
+        reg16 = integer(0, signed=False, byte_order="little", writable=True)
+        reg32 = uint32(1, byte_order="little")
+
+    unit = MockModbusConnection().for_unit(1)
+    # Bytes swapped within each register: 0x3412 -> 0x1234, 0x3412/0x7856 -> 0x12345678
+    unit.holding.update({0: 0x3412, 1: 0x3412, 2: 0x7856})
+    dev = Swapped(unit)
+    await dev.async_update()
+    assert dev.reg16 == 0x1234
+    assert dev.reg32 == 0x12345678
+
+    # A write byte-swaps on the way back out.
+    await dev.write("reg16", 0x1234)
+    assert unit.holding[0] == 0x3412
 
 
 async def test_plan_is_built_once_across_polls() -> None:
@@ -330,6 +446,73 @@ async def test_write_mode_single_rejects_multi_register_value() -> None:
     unit, _ = _calls_recording_unit()
     with pytest.raises(ValueError, match="FC06"):
         await Dev(unit).write("energy", 100000)
+
+
+def _bounded(low: int, high: int) -> Callable[[Any], int]:
+    """A WriteValidator that rejects values outside ``[low, high]``."""
+
+    def validate(value: int) -> int:
+        if not low <= value <= high:
+            raise ValueError(f"{value} out of range [{low}, {high}]")
+        return value
+
+    return validate
+
+
+async def test_validator_makes_field_writable() -> None:
+    class Dev(Component):
+        setpoint = integer(0, writable=_bounded(0, 100))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("setpoint", 42)  # in range -> written
+    await dev.async_update()
+    assert dev.setpoint == 42
+
+
+async def test_validator_rejects_value_before_writing() -> None:
+    class Dev(Component):
+        setpoint = integer(0, writable=_bounded(0, 100))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    with pytest.raises(ValueError, match="out of range"):
+        await dev.write("setpoint", 250)
+    assert 0 not in unit.holding  # nothing reached the device
+
+
+async def test_validator_can_coerce_the_written_value() -> None:
+    class Dev(Component):
+        # Clamp into range instead of rejecting.
+        setpoint = integer(0, writable=lambda v: max(0, min(100, v)))
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("setpoint", 250)
+    await dev.async_update()
+    assert dev.setpoint == 100  # the coerced value was written
+
+
+async def test_coil_validator_rejects_value() -> None:
+    locked = False
+
+    def reject_when_locked(value: bool) -> bool:
+        if locked:
+            raise ValueError("relay is locked")
+        return value
+
+    class Dev(Component):
+        relay = coil(0, writable=reject_when_locked)
+
+    unit = MockModbusConnection().for_unit(1)
+    dev = Dev(unit)
+    await dev.write("relay", True)  # not locked -> written
+    await dev.async_update()
+    assert dev.relay is True
+
+    locked = True
+    with pytest.raises(ValueError, match="locked"):
+        await dev.write("relay", False)
 
 
 # -- listeners + independent update ------------------------------------------

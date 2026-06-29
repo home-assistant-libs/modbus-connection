@@ -2,17 +2,19 @@
 
 The top-level package is the pure interface: the ``ModbusConnection`` /
 ``ModbusUnit`` Protocols, the shared ``WordOrder`` type, and the exception
-hierarchy. It imports no Modbus backend and no Home Assistant.
+hierarchy. It imports no Modbus backend.
 
 Pick a backend to actually talk to a device:
 
-- ``modbus_connection.pymodbus`` — ``connect_tcp`` / ``connect_serial`` over
-  pymodbus (install the ``[pymodbus]`` extra).
-- ``modbus_connection.tmodbus`` — the same over tmodbus (the ``[tmodbus]`` extra).
+- ``modbus_connection.pymodbus`` — ``connect_tcp`` / ``connect_udp`` /
+  ``connect_tls`` / ``connect_serial`` over pymodbus (install the ``[pymodbus]``
+  extra).
+- ``modbus_connection.tmodbus`` — the same over tmodbus (the ``[tmodbus]``
+  extra), except UDP and TLS, which tmodbus has no transport for.
 """
 
 from ._protocol import ModbusConnection, ModbusUnit
-from ._types import WordOrder
+from ._types import ByteOrder, WordOrder
 from .exceptions import (
     ModbusConnectionError,
     ModbusError,
@@ -21,6 +23,7 @@ from .exceptions import (
 )
 
 __all__ = [
+    "ByteOrder",
     "ModbusConnection",
     "ModbusConnectionError",
     "ModbusError",

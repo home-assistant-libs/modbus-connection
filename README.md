@@ -5,8 +5,8 @@ A small, **backend-neutral** Modbus connection abstraction.
 The top-level `modbus_connection` package is a pure interface — the
 `ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html),
 the shared `WordOrder` type, and a tiny exception hierarchy. It imports **no**
-Modbus library and **no** Home Assistant, so consumers can type against it
-without committing to a backend.
+Modbus library, so consumers can type against it without committing to a
+backend.
 
 Two interchangeable backends implement that interface:
 
@@ -34,6 +34,14 @@ makes that sharing possible while keeping the backend swappable: the
   this wrapper: pymodbus's transaction manager and tmodbus's smart transport
   each hold a lock for the full request/response cycle, so concurrent unit calls
   on one connection can't interleave.
+- A connection can enforce a minimum **gap between messages** for devices that
+  need a pause between frames. Pass `message_spacing` (seconds) to a connect
+  function and each request — from any unit sharing the link — waits until that
+  gap has elapsed since the previous one finished. tmodbus enforces it through
+  its native `wait_between_requests`; pymodbus has no such knob, so the package
+  applies the same gap itself. It is the *spacing between* requests only; to
+  delay the *first* request, the owner sleeps before issuing it. Default `0`
+  disables it.
 - The connection does **not** self-reconnect. On a drop it fires
   `on_connection_lost` (best-effort) and stops; recreating it is the owner's job.
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
@@ -85,6 +93,39 @@ Swapping to tmodbus is a one-line import change:
 from modbus_connection.tmodbus import connect_tcp
 ```
 
+## Transports
+
+Each backend ships a set of connect functions, one per wire transport:
+
+| Function | Transport | `framer` options |
+| --- | --- | --- |
+| `connect_tcp(host, *, port=502, framer="socket")` | Modbus TCP, or RTU-/ASCII-over-TCP (transparent serial-to-Ethernet gateways) | `socket` / `rtu` / `ascii` |
+| `connect_udp(host, *, port=502, framer="socket")` | Modbus UDP (MBAP, RTU, or ASCII framing over UDP) | `socket` / `rtu` / `ascii` |
+| `connect_serial(port, *, framer="rtu", baudrate=…, bytesize=…, parity=…, stopbits=…)` | Modbus serial — binary RTU or ASCII transmission mode | `rtu` / `ascii` |
+| `connect_tls(host, *, port=802, sslctx=None, certfile=None, keyfile=None, password=None)` | Modbus/TLS (Modbus Security) | — (always TLS framing) |
+
+`framer` names the wire framing across every transport (its value set differs by
+transport: `socket`/`rtu`/`ascii` for TCP/UDP, `rtu`/`ascii` for serial; TLS is
+fixed).
+
+```python
+from modbus_connection.pymodbus import connect_udp, connect_serial, connect_tls
+
+udp = await connect_udp("192.168.1.50", port=502)
+ascii_serial = await connect_serial("/dev/ttyUSB0", framer="ascii", baudrate=9600)
+tls = await connect_tls("192.168.1.50", certfile="client.crt", keyfile="client.key")
+```
+
+For `connect_tls`, pass a fully-configured `ssl.SSLContext` as `sslctx` to control
+server verification and trust; otherwise one is built from the optional client
+`certfile` / `keyfile` / `password` (the default context does not verify the
+server certificate).
+
+tmodbus exposes the same functions, except `connect_udp`, `connect_tls`, and
+`connect_tcp(framer="ascii")` — tmodbus has no UDP, TLS, or ASCII-over-TCP
+transport, so those raise `NotImplementedError`; use the pymodbus backend for
+them.
+
 ## Exceptions
 
 Both backends raise the same neutral types:
@@ -120,10 +161,41 @@ await meter.write("relay", True)
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel and `word_order`). The SunSpec
-module `modbus_connection.model.sunspec` adds the same types pre-wired with their
-"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
-`eui48`).
+`nan` sentinel, `word_order` and `byte_order`).
+
+Numeric fields decode affinely as `raw * scale + offset`. Pass `offset` for a
+device that reports a shifted value (e.g. `gauge(0, 0.1, offset=-100)` for a
+temperature stored as `raw * 0.1 - 100`); writable fields invert it as
+`(value - offset) / scale`. Anything more exotic is a `RegisterField` subclass.
+
+`writable=True` lets `write()` send a field. Pass a validator callable instead to
+both mark the field writable and vet the value before each write — it is called
+with the requested value and returns the value to actually write (vetted or
+coerced), or raises to reject it, before anything reaches the device:
+
+```python
+def in_range(value: int) -> int:
+    if not 0 <= value <= 100:
+        raise ValueError(f"{value} out of range")
+    return value
+
+class Boiler(Component):
+    setpoint = integer(0, writable=in_range)
+```
+
+We don't ship validators of our own; for ready-made ones, reach for
+[probatio](https://github.com/frenck/probatio).
+
+The SunSpec module `modbus_connection.model.sunspec` adds the same types pre-wired
+with their "unimplemented" sentinels, plus the address types (`ipaddr` /
+`ipv6addr` / `eui48`).
+
+`word_order` selects the order of the 16-bit registers in a multi-register value
+and `byte_order` the order of the two bytes within each register; both default to
+`"big"` (the Modbus convention). Together they spell out all four byte
+arrangements real devices use — ABCD, CDAB, BADC and DCBA for a two-register
+value — so a device that byte-swaps within a register decodes correctly with
+`byte_order="little"`.
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times — is left to the consumer via a private field + a `@property`, so
@@ -163,9 +235,9 @@ class Inverter(Component):
 `write_mode="multiple"` forces FC16. Override `write()` in a subclass for any
 device-specific write sequencing.
 
-Each component can refresh independently and has its own update listeners (one
-Home Assistant entity per component). To refresh several components that share a
-unit in one consolidated set of reads, group them in a `ComponentGroup` and call
+Each component can refresh independently and has its own update listeners. To
+refresh several components that share a unit in one consolidated set of reads,
+group them in a `ComponentGroup` and call
 `async_update()` on it:
 
 ```python

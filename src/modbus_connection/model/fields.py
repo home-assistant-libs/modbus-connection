@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, overload
 
-from .._types import WordOrder, WriteMode
+from .._types import ByteOrder, WordOrder, WriteMode
 from ..decode import (
     combine_words,
     decode_eui48,
@@ -41,6 +42,7 @@ __all__ = [
     "RawField",
     "RegisterField",
     "StringField",
+    "WriteValidator",
     "coil",
     "enum",
     "flags",
@@ -57,6 +59,13 @@ __all__ = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+
+# A ``writable`` value may be a validator: a callable invoked with the requested
+# value before it is encoded, returning the value to actually write. Passing one
+# marks the field writable (a callable is truthy) and lets the validator vet or
+# coerce the value — raise to reject it. ``writable=True`` writes the value as-is
+# with no validation.
+WriteValidator = Callable[[Any], Any]
 
 # (enum class, raw value) pairs we have already warned about, so an unrecognized
 # enum code is logged only once per distinct value rather than on every poll.
@@ -90,7 +99,7 @@ class RegisterField[T](ABC):
         address: int,
         *,
         count: int = 1,
-        writable: bool = False,
+        writable: bool | WriteValidator = False,
         stride: int = 0,
         unit: str | None = None,
         scale_register: int | None = None,
@@ -105,6 +114,9 @@ class RegisterField[T](ABC):
                 ``address + stride * (index - 1)``.
             count: Number of 16-bit registers the value spans.
             writable: Whether :meth:`Component.write` may write this field.
+                ``True`` writes the value as-is; a :data:`WriteValidator` callable
+                also marks the field writable and is called with the value before
+                each write, returning the value to write (or raising to reject it).
             stride: Per-index address increment for a repeated block of identical
                 sub-units; ``0`` means the field is at a fixed address.
             unit: Unit-of-measure label carried as metadata; not used in decoding.
@@ -157,27 +169,49 @@ class RegisterField[T](ABC):
 
 
 class _ScaledField[T](RegisterField[T]):
-    """A field with a static ``scale``, optional ``nan`` sentinel and rounding."""
+    """An affine-scaled field with optional ``nan`` sentinel and rounding.
+
+    The decoded number is mapped as ``value * scale + offset``; ``offset`` is the
+    additive term real devices need on top of multiplication (e.g. a temperature
+    reported as ``raw * 0.1 - 100``). Writes invert it as ``(value - offset) /
+    scale``.
+    """
 
     def __init__(
-        self, address: int, *, scale: float = 1.0, nan: int | None = None, **kwargs: Any
+        self,
+        address: int,
+        *,
+        scale: float = 1.0,
+        offset: float = 0.0,
+        nan: int | None = None,
+        **kwargs: Any,
     ) -> None:
-        """``scale`` multiplies the decoded number; ``nan`` decodes to ``None``."""
+        """``scale``/``offset`` map the number affinely; ``nan`` decodes to ``None``."""
         super().__init__(address, **kwargs)
         self.scale = scale
+        self.offset = offset
         self.nan = nan
-        self._decimals = _decimals(scale)
+        # Rounding precision: the finer of what scale and offset each imply, so an
+        # integer offset on a 0.1 scale still keeps the scale's decimal.
+        self._decimals = max(_decimals(scale), _decimals(offset))
 
     def _scale(self, value: float, scale_exponent: int | None) -> Any:
-        """Apply this field's static scale and optional 10**sf, then round."""
+        """Apply this field's scale (incl. optional 10**sf) and offset, then round."""
         factor = self.scale
         if scale_exponent is not None:
             factor *= 10.0**scale_exponent
-        if factor == 1.0:
+        if factor == 1.0 and self.offset == 0.0:
             return value  # keep ints integral when there is nothing to scale
-        scaled = value * factor
-        decimals = self._decimals if scale_exponent is None else _decimals(factor)
+        scaled = value * factor + self.offset
+        if scale_exponent is None:
+            decimals = self._decimals
+        else:
+            decimals = max(_decimals(factor), _decimals(self.offset))
         return int(scaled) if decimals == 0 else round(scaled, decimals)
+
+    def _unscale(self, value: float) -> float:
+        """Invert :meth:`_scale` for writes: ``(value - offset) / scale``."""
+        return (value - self.offset) / self.scale
 
 
 class NumberField[T](_ScaledField[T]):
@@ -195,6 +229,7 @@ class NumberField[T](_ScaledField[T]):
         signed: bool = True,
         enum_type: type[Enum] | None = None,
         word_order: WordOrder = "big",
+        byte_order: ByteOrder = "big",
         **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
@@ -202,18 +237,31 @@ class NumberField[T](_ScaledField[T]):
         # IntEnum / IntFlag to map the raw value through; None returns the raw int.
         self.enum_type = enum_type
         self.word_order = word_order
+        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
-        raw = combine_words(words, word_order=self.word_order)
+        raw = combine_words(
+            words, word_order=self.word_order, byte_order=self.byte_order
+        )
         if self.nan is not None and raw == self.nan:
             return None
         if self.enum_type is not None:
             # Map the signed or unsigned code, per the field's `signed` flag; the
             # nan check above still matches the raw (unsigned) sentinel pattern.
             return self._to_enum(
-                decode_int(words, signed=self.signed, word_order=self.word_order)
+                decode_int(
+                    words,
+                    signed=self.signed,
+                    word_order=self.word_order,
+                    byte_order=self.byte_order,
+                )
             )
-        value = decode_int(words, signed=self.signed, word_order=self.word_order)
+        value = decode_int(
+            words,
+            signed=self.signed,
+            word_order=self.word_order,
+            byte_order=self.byte_order,
+        )
         return self._scale(value, scale_exponent)
 
     def _to_enum(self, raw: int) -> Any:
@@ -238,38 +286,65 @@ class NumberField[T](_ScaledField[T]):
             raise NotImplementedError(
                 "writing a dynamically-scaled field is unsupported"
             )
-        raw = round(value / self.scale) if self.scale != 1.0 else int(value)
-        return encode_int(raw, count=self.count, word_order=self.word_order)
+        if self.scale == 1.0 and self.offset == 0.0:
+            raw = int(value)  # no transform: keep the value exact
+        else:
+            raw = round(self._unscale(value))
+        return encode_int(
+            raw,
+            count=self.count,
+            word_order=self.word_order,
+            byte_order=self.byte_order,
+        )
 
 
 class RawField(RegisterField[int]):
     """A raw register word (no scaling, sign handling or sentinel)."""
 
     def __init__(
-        self, address: int, *, word_order: WordOrder = "big", **kwargs: Any
+        self,
+        address: int,
+        *,
+        word_order: WordOrder = "big",
+        byte_order: ByteOrder = "big",
+        **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
         self.word_order = word_order
+        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> int:
-        return combine_words(words, word_order=self.word_order)
+        return combine_words(
+            words, word_order=self.word_order, byte_order=self.byte_order
+        )
 
     def encode(self, value: Any) -> list[int]:
-        return encode_int(int(value), count=self.count, word_order=self.word_order)
+        return encode_int(
+            int(value),
+            count=self.count,
+            word_order=self.word_order,
+            byte_order=self.byte_order,
+        )
 
 
 class FloatField(_ScaledField[float]):
     """An IEEE-754 float over two (``float32``) or four (``float64``) registers."""
 
     def __init__(
-        self, address: int, *, word_order: WordOrder = "big", **kwargs: Any
+        self,
+        address: int,
+        *,
+        word_order: WordOrder = "big",
+        byte_order: ByteOrder = "big",
+        **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
         self.word_order = word_order
+        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         decoder = decode_float64 if self.count == 4 else decode_float32
-        value = decoder(words, word_order=self.word_order)
+        value = decoder(words, word_order=self.word_order, byte_order=self.byte_order)
         if self.nan is not None and math.isnan(value):
             return None
         return self._scale(value, scale_exponent)
@@ -279,18 +354,26 @@ class FloatField(_ScaledField[float]):
             raise NotImplementedError(
                 "writing a dynamically-scaled field is unsupported"
             )
+        if self.scale != 1.0 or self.offset != 0.0:
+            value = self._unscale(value)  # invert the affine transform decode applies
         encoder = encode_float64 if self.count == 4 else encode_float32
-        return encoder(value, word_order=self.word_order)
+        return encoder(value, word_order=self.word_order, byte_order=self.byte_order)
 
 
 class StringField(RegisterField[str]):
     """A fixed-length null-padded ASCII string over ``count`` registers."""
 
+    def __init__(
+        self, address: int, *, byte_order: ByteOrder = "big", **kwargs: Any
+    ) -> None:
+        super().__init__(address, **kwargs)
+        self.byte_order = byte_order
+
     def decode(self, words: list[int], scale_exponent: int | None = None) -> str:
-        return decode_string(words)
+        return decode_string(words, byte_order=self.byte_order)
 
     def encode(self, value: Any) -> list[int]:
-        return encode_string(value, length=self.count)
+        return encode_string(value, length=self.count, byte_order=self.byte_order)
 
 
 class IPv4Field(RegisterField[IPv4Address]):
@@ -327,7 +410,7 @@ class CoilField:
         self,
         address: int,
         *,
-        writable: bool = False,
+        writable: bool | WriteValidator = False,
         stride: int = 0,
     ) -> None:
         self.address = address
@@ -358,10 +441,12 @@ def gauge(
     address: int,
     scale: float,
     *,
+    offset: float = 0.0,
     signed: bool = True,
+    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -369,13 +454,20 @@ def gauge(
 ) -> NumberField[float]:
     """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
 
+    Decodes as ``raw * scale + offset``; pass ``offset`` for a device that reports
+    an affine value (e.g. ``scale=0.1, offset=-100`` for a temperature). Writes
+    invert it as ``(value - offset) / scale``.
+
     Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``).
+    register (read as a signed int16 and applied as ``10**sf``). Set
+    ``byte_order="little"`` for a device that byte-swaps within the register.
     """
     return NumberField(
         address,
         scale=scale,
+        offset=offset,
         signed=signed,
+        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -389,10 +481,12 @@ def gauge(
 def integer(
     address: int,
     *,
+    offset: float = 0.0,
     signed: bool = True,
+    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
@@ -400,12 +494,19 @@ def integer(
 ) -> NumberField[int]:
     """An unscaled integer register (counts, percentages, addresses).
 
+    Pass ``offset`` for a device that reports a value shifted by a constant (e.g.
+    ``offset=-100`` for a temperature stored as ``raw - 100``); it is added on
+    read and inverted on write.
+
     Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``).
+    register (read as a signed int16 and applied as ``10**sf``). Set
+    ``byte_order="little"`` for a device that byte-swaps within the register.
     """
     return NumberField(
         address,
+        offset=offset,
         signed=signed,
+        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -419,13 +520,15 @@ def integer(
 def raw_register(
     address: int,
     *,
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     write_mode: WriteMode = "auto",
 ) -> RawField:
     """A raw register word (no scaling or sign handling)."""
     return RawField(
         address,
+        byte_order=byte_order,
         stride=stride,
         writable=writable,
         write_mode=write_mode,
@@ -436,9 +539,11 @@ def uint32(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
@@ -447,7 +552,9 @@ def uint32(
         address,
         count=2,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         signed=False,
         stride=stride,
         writable=writable,
@@ -460,9 +567,11 @@ def int32(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
@@ -471,7 +580,9 @@ def int32(
         address,
         count=2,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         signed=True,
         stride=stride,
         writable=writable,
@@ -484,9 +595,11 @@ def float32(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> FloatField:
@@ -495,7 +608,9 @@ def float32(
         address,
         count=2,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -507,9 +622,11 @@ def uint64(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
@@ -518,7 +635,9 @@ def uint64(
         address,
         count=4,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         signed=False,
         stride=stride,
         writable=writable,
@@ -531,9 +650,11 @@ def int64(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> NumberField[int]:
@@ -542,7 +663,9 @@ def int64(
         address,
         count=4,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         signed=True,
         stride=stride,
         writable=writable,
@@ -555,9 +678,11 @@ def float64(
     address: int,
     *,
     scale: float = 1.0,
+    offset: float = 0.0,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
     write_mode: WriteMode = "auto",
 ) -> FloatField:
@@ -566,7 +691,9 @@ def float64(
         address,
         count=4,
         word_order=word_order,
+        byte_order=byte_order,
         scale=scale,
+        offset=offset,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -578,14 +705,16 @@ def string(
     address: int,
     length: int,
     *,
+    byte_order: ByteOrder = "big",
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     write_mode: WriteMode = "auto",
 ) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
     return StringField(
         address,
         count=length,
+        byte_order=byte_order,
         stride=stride,
         writable=writable,
         write_mode=write_mode,
@@ -599,9 +728,10 @@ def enum[E: IntEnum](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     write_mode: WriteMode = "auto",
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
@@ -617,6 +747,7 @@ def enum[E: IntEnum](
         signed=signed,
         enum_type=enum_type,
         word_order=word_order,
+        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -631,9 +762,10 @@ def flags[F: IntFlag](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
+    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     write_mode: WriteMode = "auto",
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
@@ -646,6 +778,7 @@ def flags[F: IntFlag](
         signed=signed,
         enum_type=flag_type,
         word_order=word_order,
+        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -656,7 +789,7 @@ def flags[F: IntFlag](
 def coil(
     address: int,
     *,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     stride: int = 0,
 ) -> CoilField:
     """A coil."""
