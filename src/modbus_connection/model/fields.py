@@ -97,6 +97,7 @@ class RegisterField[T](ABC):
         scale_register_stride: int = 0,
         write_mode: WriteMode = "auto",
         write_mask: int | None = None,
+        mask_write_fc22: bool = False,
     ) -> None:
         """Initialise the shared part of a field.
 
@@ -115,21 +116,32 @@ class RegisterField[T](ABC):
             scale_register_stride: Per-index increment for ``scale_register``.
             write_mode: Which function code :meth:`Component.write` uses — see
                 :data:`~modbus_connection._types.WriteMode`. ``"single"`` is only
-                valid for a one-word field.
-            write_mask: When set, :meth:`Component.write` issues a masked write
-                (FC22) that updates only these bits of the (single) register and
-                leaves the rest untouched. The value must encode to a word whose
-                set bits all fall inside the mask (typically an ``IntFlag`` or a
-                pre-positioned raw value). Only valid for a one-word field, and
-                mutually exclusive with a non-``"auto"`` ``write_mode``.
+                valid for a one-word field. For a masked field it selects the
+                function code of the write-back leg (see ``write_mask``).
+            write_mask: When set, :meth:`Component.write` updates only these bits
+                of the (single) register and leaves the rest untouched. By default
+                this is a read-modify-write: the register is re-read, the masked
+                bits are replaced, and the whole word is written back with the
+                field's ``write_mode`` function code (FC06/FC16) — which is what
+                most bit-packed devices need, since few support a true masked
+                write. The value must encode to a word whose set bits all fall
+                inside the mask (typically an ``IntFlag`` or a pre-positioned raw
+                value). Only valid for a one-word field.
+            mask_write_fc22: Opt into an atomic masked write (FC22,
+                ``mask_write_register``) instead of the read-modify-write, for the
+                few devices that support it — no read leg, the device applies the
+                mask itself. Requires ``write_mask`` and a default ``write_mode``
+                (FC22 is its own function code).
         """
         if write_mask is not None:
             if write_mask == 0 or not 0 <= write_mask <= 0xFFFF:
                 raise ValueError("write_mask must be a non-zero 16-bit mask")
             if count != 1:
                 raise ValueError("write_mask is only valid for a single register")
-            if write_mode != "auto":
-                raise ValueError("write_mask cannot be combined with write_mode")
+            if mask_write_fc22 and write_mode != "auto":
+                raise ValueError("mask_write_fc22 cannot be combined with write_mode")
+        elif mask_write_fc22:
+            raise ValueError("mask_write_fc22 requires write_mask")
         self.address = address
         self.count = count
         self.writable = writable
@@ -141,13 +153,14 @@ class RegisterField[T](ABC):
         self.scale_register_stride = scale_register_stride
         self.write_mode = write_mode
         self.write_mask = write_mask
+        self.mask_write_fc22 = mask_write_fc22
 
-    def or_mask_for(self, words: list[int]) -> int:
-        """The FC22 OR-mask for ``words`` under this field's ``write_mask``.
+    def masked_bits(self, words: list[int]) -> int:
+        """The in-mask bits of ``words`` to OR into the register (FC22 or RMW).
 
-        The encoded word's bits are written only where they fall inside the mask;
-        a value with bits set outside the mask raises ``OverflowError`` rather
-        than silently dropping them.
+        The encoded word's bits are written only where they fall inside
+        ``write_mask``; a value with bits set outside it raises ``OverflowError``
+        rather than silently dropping them.
         """
         assert self.write_mask is not None
         if len(words) != 1:
@@ -399,6 +412,7 @@ def gauge(
     unit: str | None = None,
     write_mode: WriteMode = "auto",
     write_mask: int | None = None,
+    mask_write_fc22: bool = False,
 ) -> NumberField[float]:
     """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
 
@@ -417,6 +431,7 @@ def gauge(
         unit=unit,
         write_mode=write_mode,
         write_mask=write_mask,
+        mask_write_fc22=mask_write_fc22,
     )
 
 
@@ -432,6 +447,7 @@ def integer(
     unit: str | None = None,
     write_mode: WriteMode = "auto",
     write_mask: int | None = None,
+    mask_write_fc22: bool = False,
 ) -> NumberField[int]:
     """An unscaled integer register (counts, percentages, addresses).
 
@@ -449,6 +465,7 @@ def integer(
         unit=unit,
         write_mode=write_mode,
         write_mask=write_mask,
+        mask_write_fc22=mask_write_fc22,
     )
 
 
@@ -459,11 +476,14 @@ def raw_register(
     writable: bool = False,
     write_mode: WriteMode = "auto",
     write_mask: int | None = None,
+    mask_write_fc22: bool = False,
 ) -> RawField:
     """A raw register word (no scaling or sign handling).
 
-    Pass ``write_mask`` to write only specific bits of the register with a masked
-    write (FC22) — the common way to flip a control bit in a shared register.
+    Pass ``write_mask`` to write only specific bits of the register — the common
+    way to flip a control bit in a shared register. This is a read-modify-write by
+    default; set ``mask_write_fc22`` for a device that supports an atomic masked
+    write (FC22).
     """
     return RawField(
         address,
@@ -471,6 +491,7 @@ def raw_register(
         writable=writable,
         write_mode=write_mode,
         write_mask=write_mask,
+        mask_write_fc22=mask_write_fc22,
     )
 
 
@@ -646,6 +667,7 @@ def enum[E: IntEnum](
     writable: bool = False,
     write_mode: WriteMode = "auto",
     write_mask: int | None = None,
+    mask_write_fc22: bool = False,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
@@ -665,6 +687,7 @@ def enum[E: IntEnum](
         writable=writable,
         write_mode=write_mode,
         write_mask=write_mask,
+        mask_write_fc22=mask_write_fc22,
     )
 
 
@@ -680,12 +703,14 @@ def flags[F: IntFlag](
     writable: bool = False,
     write_mode: WriteMode = "auto",
     write_mask: int | None = None,
+    mask_write_fc22: bool = False,
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
     ``signed`` interprets the raw word as two's-complement before mapping. Pass
-    ``write_mask`` to update only this field's bits with a masked write (FC22),
-    leaving the other bits of a shared register untouched.
+    ``write_mask`` to update only this field's bits and leave the other bits of a
+    shared register untouched (a read-modify-write by default; set
+    ``mask_write_fc22`` for a device that supports an atomic FC22 masked write).
     """
     return NumberField(
         address,
@@ -698,6 +723,7 @@ def flags[F: IntFlag](
         writable=writable,
         write_mode=write_mode,
         write_mask=write_mask,
+        mask_write_fc22=mask_write_fc22,
     )
 
 

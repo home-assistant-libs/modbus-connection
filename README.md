@@ -150,29 +150,34 @@ name. For registers it picks the function code by payload width — FC06
 otherwise. Some devices contradict that heuristic, so a field can override it:
 
 ```python
-from modbus_connection.model import Component, integer, raw_register, flags
+from modbus_connection.model import Component, integer, flags
 
 class Inverter(Component):
     # A device that rejects multi-register writes — always use FC06.
     setpoint = integer(0, writable=True, write_mode="single")
     # A device that honours only FC16, even for a single register.
     limit = integer(1, writable=True, write_mode="multiple")
-    # Flip one control bit in a shared register with a masked write (FC22),
-    # leaving the other bits untouched.
+    # Update only this field's bits of a shared register, leaving the rest.
     grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008)
 ```
 
 `write_mode="single"` forces FC06 (and is only valid for a one-word field);
-`write_mode="multiple"` forces FC16. `write_mask` switches to a masked write
-(FC22) that updates only the masked bits of a single register — the value must
-encode to a word whose set bits all fall inside the mask. Override `write()` in a
-subclass for any device-specific write sequencing.
+`write_mode="multiple"` forces FC16. Override `write()` in a subclass for any
+device-specific write sequencing.
 
-A masked write changes only the field's own bits and leaves the rest of the
-shared register as the device had them — no read-modify-write round-trip, so no
-race with the device touching the other bits. From the caller's side you just
-write the field's value; the model derives the FC22 masks and the device applies
-`new = (current & ~write_mask) | (value & write_mask)`:
+#### Masked (bit-level) writes
+
+`write_mask` makes a field own only some bits of a single register; writing it
+updates those bits and leaves the rest as the device had them. The value must
+encode to a word whose set bits all fall inside the mask (writing bits outside it
+raises `OverflowError` rather than silently dropping them).
+
+By default this is a **read-modify-write**: the model re-reads the register,
+replaces the masked bits, and writes the whole word back with the field's normal
+function code (`write_mode`). Most bit-packed devices need exactly this — few
+support a true masked write, so they read-modify-write over FC06 or FC16. The
+re-read happens at write time (not from the last poll), so a bit the device
+flipped in between is preserved.
 
 ```python
 from enum import IntFlag
@@ -187,16 +192,28 @@ class Inverter(Component):
 # control bits the device set, with our bit 3 clear.
 
 await inverter.write("grid_charge", ChargeFlags.GRID_CHARGE)
-#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0008)
+#   wire: read_holding_registers(2, 1) -> [0xA5]
+#         write_register(2, 0xAD)        # (0xA5 & ~0x0008) | 0x0008
 #   0xA5 (1010_0101) -> 0xAD (1010_1101)   only bit 3 flipped on
 
 await inverter.write("grid_charge", ChargeFlags(0))
-#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0000)
+#   wire: read_holding_registers(2, 1) -> [0xAD]
+#         write_register(2, 0xA5)        # (0xAD & ~0x0008) | 0x0000
 #   0xAD (1010_1101) -> 0xA5 (1010_0101)   only bit 3 flipped off
 ```
 
-Writing a value with bits set outside `write_mask` (e.g. `0x0010` for the field
-above) raises `OverflowError` rather than silently dropping them.
+The write-back follows `write_mode`, so a device that read-modify-writes over
+FC16 takes `write_mask=..., write_mode="multiple"`. For the few devices that do
+support an atomic masked write (FC22), set `mask_write_fc22=True` to skip the read
+leg and let the device apply `new = (current & ~write_mask) | (value & write_mask)`
+itself:
+
+```python
+# artisan-style hardware that supports FC22
+grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008,
+                    mask_write_fc22=True)
+#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0008)
+```
 
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a

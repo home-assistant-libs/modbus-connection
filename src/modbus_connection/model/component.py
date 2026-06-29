@@ -191,7 +191,9 @@ class Component:
         A register field is written with FC06 (single) or FC16 (multiple) chosen
         by payload width, unless the field overrides it: ``write_mode`` forces
         FC06/FC16 for a device that contradicts the heuristic, and ``write_mask``
-        switches to a masked write (FC22) into specific bits. Override
+        updates only specific bits — by read-modify-write (re-read, replace the
+        masked bits, write the word back with the field's function code) or, if
+        ``mask_write_fc22`` is set, by an atomic FC22 masked write. Override
         :meth:`write` in a subclass for any device-specific write sequencing.
         """
         if field in self._register_fields:
@@ -206,10 +208,20 @@ class Component:
             address = self._address(register)
             words = register.encode(value)
             if register.write_mask is not None:
-                and_mask = ~register.write_mask & 0xFFFF
-                await self._unit.mask_write_register(
-                    address, and_mask, register.or_mask_for(words)
-                )
+                or_bits = register.masked_bits(words)
+                if register.mask_write_fc22:
+                    and_mask = ~register.write_mask & 0xFFFF
+                    await self._unit.mask_write_register(address, and_mask, or_bits)
+                else:
+                    # Read-modify-write: re-read so we don't clobber bits the
+                    # device changed since the last poll, then write the whole
+                    # word back with the field's own function code.
+                    current = (await self._unit.read_holding_registers(address, 1))[0]
+                    word = (current & ~register.write_mask & 0xFFFF) | or_bits
+                    if register.write_mode == "multiple":
+                        await self._unit.write_registers(address, [word])
+                    else:
+                        await self._unit.write_register(address, word)
             elif register.write_mode == "single":
                 if len(words) != 1:
                     raise ValueError(
