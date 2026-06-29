@@ -127,8 +127,10 @@ class RegisterField[T](ABC):
             force_fc16: Write this field with FC16 (write-multiple-registers) even
                 when it is a single register, for a device that honours only FC16.
                 A multi-register field already uses FC16, so this only matters for
-                a one-word field.
+                a one-word field. Requires ``writable``.
         """
+        if force_fc16 and not writable:
+            raise ValueError("force_fc16 requires writable")
         self.address = address
         self.count = count
         self.writable = writable

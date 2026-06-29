@@ -436,6 +436,12 @@ async def test_force_fc16_uses_multiple_for_single_register() -> None:
     assert unit.holding[0] == 7
 
 
+def test_force_fc16_requires_writable() -> None:
+    """force_fc16 only affects writes, so it's a misconfig on a read-only field."""
+    with pytest.raises(ValueError, match="force_fc16 requires writable"):
+        integer(0, force_fc16=True)
+
+
 def _bounded(low: int, high: int) -> Callable[[Any], int]:
     """A WriteValidator that rejects values outside ``[low, high]``."""
 
