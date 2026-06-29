@@ -34,6 +34,14 @@ makes that sharing possible while keeping the backend swappable: the
   this wrapper: pymodbus's transaction manager and tmodbus's smart transport
   each hold a lock for the full request/response cycle, so concurrent unit calls
   on one connection can't interleave.
+- A connection can enforce a minimum **gap between messages** for devices that
+  need a pause between frames. Pass `message_spacing` (seconds) to a connect
+  function and each request — from any unit sharing the link — waits until that
+  gap has elapsed since the previous one finished. tmodbus enforces it through
+  its native `wait_between_requests`; pymodbus has no such knob, so the package
+  applies the same gap itself. It is the *spacing between* requests only; to
+  delay the *first* request, the owner sleeps before issuing it. Default `0`
+  disables it.
 - The connection does **not** self-reconnect. On a drop it fires
   `on_connection_lost` (best-effort) and stops; recreating it is the owner's job.
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
@@ -120,10 +128,34 @@ await meter.write("relay", True)
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel, `word_order` and `byte_order`). The SunSpec
-module `modbus_connection.model.sunspec` adds the same types pre-wired with their
-"unimplemented" sentinels, plus the address types (`ipaddr` / `ipv6addr` /
-`eui48`).
+`nan` sentinel, `word_order` and `byte_order`).
+
+Numeric fields decode affinely as `raw * scale + offset`. Pass `offset` for a
+device that reports a shifted value (e.g. `gauge(0, 0.1, offset=-100)` for a
+temperature stored as `raw * 0.1 - 100`); writable fields invert it as
+`(value - offset) / scale`. Anything more exotic is a `RegisterField` subclass.
+
+`writable=True` lets `write()` send a field. Pass a validator callable instead to
+both mark the field writable and vet the value before each write — it is called
+with the requested value and returns the value to actually write (vetted or
+coerced), or raises to reject it, before anything reaches the device:
+
+```python
+def in_range(value: int) -> int:
+    if not 0 <= value <= 100:
+        raise ValueError(f"{value} out of range")
+    return value
+
+class Boiler(Component):
+    setpoint = integer(0, writable=in_range)
+```
+
+We don't ship validators of our own; for ready-made ones, reach for
+[probatio](https://github.com/frenck/probatio).
+
+The SunSpec module `modbus_connection.model.sunspec` adds the same types pre-wired
+with their "unimplemented" sentinels, plus the address types (`ipaddr` /
+`ipv6addr` / `eui48`).
 
 `word_order` selects the order of the 16-bit registers in a multi-register value
 and `byte_order` the order of the two bytes within each register; both default to

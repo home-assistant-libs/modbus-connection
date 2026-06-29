@@ -9,9 +9,12 @@ Requires the ``[pymodbus]`` extra.
 
 from __future__ import annotations
 
+import asyncio
 import functools
-from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, Literal
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from contextlib import asynccontextmanager
+from typing import Any, Concatenate, Literal
 
 from pymodbus import FramerType
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
@@ -43,14 +46,19 @@ __all__ = [
 
 
 def _map_errors[**P, R](
-    func: Callable[P, Awaitable[R]],
-) -> Callable[P, Coroutine[Any, Any, R]]:
-    """Map pymodbus transport exceptions onto the neutral hierarchy."""
+    func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
+) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
+    """Map pymodbus transport exceptions onto the neutral hierarchy.
+
+    Also paces the request so a configured inter-request gap is honored across
+    every unit on the link.
+    """
 
     @functools.wraps(func)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+    async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            return await func(*args, **kwargs)
+            async with self._conn._paced():
+                return await func(self, *args, **kwargs)
         except ConnectionException as err:
             raise ModbusConnectionError(str(err)) from err
         except ModbusIOException as err:
@@ -97,11 +105,42 @@ class PymodbusConnection:
     by consumers. Owns the ``close()`` lifecycle. Request serialization is
     pymodbus's job: its transaction manager already holds a per-client lock for
     the full request/response cycle, so this wrapper adds none of its own.
+
+    Inter-request spacing is the exception: pymodbus has no native
+    ``wait_between_requests`` (tmodbus does), so when ``message_spacing`` is set
+    ``_paced`` reproduces it here, mirroring how tmodbus enforces it internally —
+    a lock makes the wait atomic across every unit on the link, and the gap is
+    measured from each request finishing.
     """
 
-    def __init__(self, client: ModbusBaseClient) -> None:
+    def __init__(self, client: ModbusBaseClient, message_spacing: float = 0.0) -> None:
+        if message_spacing < 0:
+            raise ValueError("message_spacing must be non-negative")
         self._client = client
+        self._message_spacing = message_spacing
+        self._request_lock = asyncio.Lock()
+        self._last_request_finished_at = 0.0
         self._lost_callbacks: list[Callable[[], None]] = []
+
+    @asynccontextmanager
+    async def _paced(self) -> AsyncIterator[None]:
+        """Hold each request until ``message_spacing`` has elapsed since the last
+        one finished, serializing so the gap holds across every unit on the link.
+
+        No-op when spacing is disabled (``0``).
+        """
+        if not self._message_spacing:
+            yield
+            return
+        async with self._request_lock:
+            elapsed = time.monotonic() - self._last_request_finished_at
+            wait = self._message_spacing - elapsed
+            if wait > 0:
+                await asyncio.sleep(wait)
+            try:
+                yield
+            finally:
+                self._last_request_finished_at = time.monotonic()
 
     # -- spec surface ---------------------------------------------------------
 
@@ -334,12 +373,18 @@ async def connect_tcp(
     timeout: float = 3,
     name: str = "modbus_connection",
     framer: Framing = "socket",
+    message_spacing: float = 0.0,
 ) -> PymodbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection and return a live handle.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak (the bytes on the wire are plain Modbus RTU frames).
+
+    ``message_spacing`` is the minimum interval, in seconds, between consecutive
+    requests on this connection — applied across every unit sharing the link. Use
+    it for devices that need a pause between frames; ``0`` (the default) disables
+    pacing and leaves serialization entirely to pymodbus.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established. The
     connection does not self-reconnect (``reconnect_delay=0``): on loss the owner
@@ -355,7 +400,7 @@ async def connect_tcp(
         framer=FramerType.RTU if framer == "rtu" else FramerType.SOCKET,
         trace_connect=connection._on_trace_connect,
     )
-    PymodbusConnection.__init__(connection, client)
+    PymodbusConnection.__init__(connection, client, message_spacing)
     if not await client.connect() or not client.connected:
         client.close()
         raise ModbusConnectionError(f"could not connect to {host}:{port}")
@@ -371,8 +416,13 @@ async def connect_serial(
     stopbits: int = 1,
     timeout: float = 3,
     name: str = "modbus_connection",
+    message_spacing: float = 0.0,
 ) -> PymodbusConnection:
     """Open a Modbus serial (RTU) connection and return a live handle.
+
+    ``message_spacing`` is the minimum interval, in seconds, between consecutive
+    requests on this connection (see ``connect_tcp``); ``0`` (the default)
+    disables pacing.
 
     Raises ``ModbusConnectionError`` if the port cannot be opened. The connection
     does not self-reconnect (``reconnect_delay=0``).
@@ -389,7 +439,7 @@ async def connect_serial(
         reconnect_delay=0,
         trace_connect=connection._on_trace_connect,
     )
-    PymodbusConnection.__init__(connection, client)
+    PymodbusConnection.__init__(connection, client, message_spacing)
     if not await client.connect() or not client.connected:
         client.close()
         raise ModbusConnectionError(f"could not open serial port {port}")

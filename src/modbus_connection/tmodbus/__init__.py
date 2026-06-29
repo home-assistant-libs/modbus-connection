@@ -53,7 +53,12 @@ __all__ = [
 
 
 class TmodbusConnection:
-    """A live tmodbus connection."""
+    """A live tmodbus connection.
+
+    Inter-request spacing (``message_spacing``) is the transport's own job here:
+    it maps to tmodbus's native ``wait_between_requests``, enforced inside the
+    client's communication lock — so this wrapper carries no pacing state.
+    """
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
@@ -92,6 +97,8 @@ def _map_errors[**P, R](
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client
     directly; a connection-lost error also fires the owner's lost callbacks.
+    Inter-request spacing is handled by the client itself (see
+    ``TmodbusConnection``), so there is nothing to do here.
     """
 
     @functools.wraps(func)
@@ -239,12 +246,18 @@ async def connect_tcp(
     timeout: float = 3,
     unit_id: int = 1,
     framer: Framing = "socket",
+    message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak.
+
+    ``message_spacing`` is the minimum gap, in seconds, left after each request
+    before the next may start — applied across every unit sharing the link, via
+    tmodbus's native ``wait_between_requests``. Use it for devices that need a
+    pause between frames; ``0`` (the default) disables it.
 
     ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
@@ -258,6 +271,7 @@ async def connect_tcp(
         unit_id=unit_id,
         timeout=timeout,
         auto_reconnect=False,
+        wait_between_requests=message_spacing,
     )
     try:
         await client.connect()
@@ -274,8 +288,13 @@ async def connect_serial(
     parity: str = "N",
     stopbits: int = 1,
     unit_id: int = 1,
+    message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Open a Modbus serial (RTU) connection over tmodbus and return a live handle.
+
+    ``message_spacing`` is the minimum gap, in seconds, left after each request
+    before the next may start (see ``connect_tcp``); ``0`` (the default) disables
+    it.
 
     ``auto_reconnect`` is disabled. Raises ``ModbusConnectionError`` on failure.
     """
@@ -287,6 +306,7 @@ async def connect_serial(
         parity=parity,
         stopbits=stopbits,
         auto_reconnect=False,
+        wait_between_requests=message_spacing,
     )
     try:
         await client.connect()

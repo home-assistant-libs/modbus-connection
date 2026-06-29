@@ -36,6 +36,7 @@ from .fields import (
     IPv6Field,
     NumberField,
     StringField,
+    WriteValidator,
 )
 
 __all__ = [
@@ -83,7 +84,7 @@ def _scaled(
     scale_register: int | None,
     scale_register_stride: int,
     stride: int,
-    writable: bool,
+    writable: bool | WriteValidator,
     unit: str | None,
 ) -> NumberField[float]:
     return NumberField(
@@ -107,7 +108,7 @@ def int16(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """A signed 16-bit point (unimplemented 0x8000)."""
@@ -132,7 +133,7 @@ def uint16(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """An unsigned 16-bit point (unimplemented 0xFFFF)."""
@@ -157,7 +158,7 @@ def int32(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """A signed 32-bit point over two registers (unimplemented 0x80000000)."""
@@ -182,7 +183,7 @@ def uint32(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """An unsigned 32-bit point over two registers (unimplemented 0xFFFFFFFF)."""
@@ -207,7 +208,7 @@ def int64(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """A signed 64-bit point over four registers (unimplemented 0x8000…)."""
@@ -232,7 +233,7 @@ def uint64(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
     unit: str | None = None,
 ) -> NumberField[float]:
     """An unsigned 64-bit point over four registers (unimplemented 0xFFFF…)."""
@@ -302,18 +303,22 @@ def sunssf(address: int, *, stride: int = 0) -> NumberField[int]:
 
 @overload
 def enum16(
-    address: int, *, stride: int = 0, writable: bool = False
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
 ) -> NumberField[int]: ...
 @overload
 def enum16[E: IntEnum](
-    address: int, enum: type[E], *, stride: int = 0, writable: bool = False
+    address: int,
+    enum: type[E],
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[E]: ...
 def enum16(
     address: int,
     enum: type[IntEnum] | None = None,
     *,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
     """A 16-bit enumeration (unimplemented 0xFFFF).
 
@@ -332,18 +337,22 @@ def enum16(
 
 @overload
 def enum32(
-    address: int, *, stride: int = 0, writable: bool = False
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
 ) -> NumberField[int]: ...
 @overload
 def enum32[E: IntEnum](
-    address: int, enum: type[E], *, stride: int = 0, writable: bool = False
+    address: int,
+    enum: type[E],
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[E]: ...
 def enum32(
     address: int,
     enum: type[IntEnum] | None = None,
     *,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
     """A 32-bit enumeration over two registers (unimplemented 0xFFFFFFFF).
 
@@ -362,18 +371,22 @@ def enum32(
 
 @overload
 def bitfield16(
-    address: int, *, stride: int = 0, writable: bool = False
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
 ) -> NumberField[int]: ...
 @overload
 def bitfield16[F: IntFlag](
-    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+    address: int,
+    flags: type[F],
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[F]: ...
 def bitfield16(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
     """A 16-bit bitfield (unimplemented 0xFFFF).
 
@@ -392,18 +405,22 @@ def bitfield16(
 
 @overload
 def bitfield32(
-    address: int, *, stride: int = 0, writable: bool = False
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
 ) -> NumberField[int]: ...
 @overload
 def bitfield32[F: IntFlag](
-    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+    address: int,
+    flags: type[F],
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[F]: ...
 def bitfield32(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
     """A 32-bit bitfield over two registers (unimplemented 0xFFFFFFFF).
 
@@ -422,18 +439,22 @@ def bitfield32(
 
 @overload
 def bitfield64(
-    address: int, *, stride: int = 0, writable: bool = False
+    address: int, *, stride: int = 0, writable: bool | WriteValidator = False
 ) -> NumberField[int]: ...
 @overload
 def bitfield64[F: IntFlag](
-    address: int, flags: type[F], *, stride: int = 0, writable: bool = False
+    address: int,
+    flags: type[F],
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[F]: ...
 def bitfield64(
     address: int,
     flags: type[IntFlag] | None = None,
     *,
     stride: int = 0,
-    writable: bool = False,
+    writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
     """A 64-bit bitfield over four registers (unimplemented 0xFFFFFFFFFFFFFFFF).
 
@@ -451,7 +472,11 @@ def bitfield64(
 
 
 def float32(
-    address: int, *, stride: int = 0, writable: bool = False, unit: str | None = None
+    address: int,
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
 ) -> FloatField:
     """An IEEE-754 single-precision point (unimplemented NaN)."""
     return FloatField(
@@ -465,7 +490,11 @@ def float32(
 
 
 def float64(
-    address: int, *, stride: int = 0, writable: bool = False, unit: str | None = None
+    address: int,
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
 ) -> FloatField:
     """An IEEE-754 double-precision point over four registers (unimplemented NaN)."""
     return FloatField(
@@ -479,7 +508,11 @@ def float64(
 
 
 def string(
-    address: int, length: int, *, stride: int = 0, writable: bool = False
+    address: int,
+    length: int,
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
 ) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
     return StringField(address, count=length, stride=stride, writable=writable)
