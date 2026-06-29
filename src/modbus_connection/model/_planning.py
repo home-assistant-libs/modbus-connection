@@ -7,7 +7,7 @@ the results back. Not part of the public API — use :class:`Component` /
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Hashable, Iterable
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from ..decode import decode_int16
@@ -140,6 +140,34 @@ def _plan_register_blocks(
     }
 
 
+async def _read_blocks_by_space[S: Hashable, E](
+    readers: dict[S, Callable[[int, int], Awaitable[list[E]]]],
+    blocks: dict[S, list[tuple[int, int]]],
+) -> tuple[dict[tuple[S, int], E], set[tuple[S, int]]]:
+    """Read every block per space, returning values and the addresses that failed.
+
+    The shared core of the bulk readers: each space's blocks are read with that
+    space's reader and the results are keyed by ``(space, address)`` — distinct
+    spaces share address numbers but are different data, so the space is part of
+    the key. A ``ModbusExceptionError`` on a block marks all of its addresses
+    failed (so the caller stores ``None`` for any field they cover) and reading
+    continues; any other error propagates so the caller can mark the device down.
+    """
+    values: dict[tuple[S, int], E] = {}
+    failed: set[tuple[S, int]] = set()
+    for space, space_blocks in blocks.items():
+        read = readers[space]
+        for start, count in space_blocks:
+            try:
+                got = await read(start, count)
+            except ModbusExceptionError:
+                failed.update((space, start + offset) for offset in range(count))
+                continue
+            for offset in range(count):
+                values[(space, start + offset)] = got[offset]
+    return values, failed
+
+
 async def _bulk_read_registers(
     unit: ModbusUnit,
     items: list[RegisterItem],
@@ -159,24 +187,10 @@ async def _bulk_read_registers(
     """
     if not items:
         return
-    readers: dict[RegisterSpace, Callable[[int, int], Awaitable[list[int]]]] = {
-        "holding": unit.read_holding_registers,
-        "input": unit.read_input_registers,
-    }
-    # Keyed by (space, address): input and holding share the same address numbers
-    # but are distinct registers, so they must not collide here.
-    words: dict[tuple[RegisterSpace, int], int] = {}
-    failed: set[tuple[RegisterSpace, int]] = set()
-    for space, space_blocks in blocks.items():
-        read = readers[space]
-        for start, count in space_blocks:
-            try:
-                got = await read(start, count)
-            except ModbusExceptionError:
-                failed.update((space, start + offset) for offset in range(count))
-                continue
-            for offset in range(count):
-                words[(space, start + offset)] = got[offset]
+    words, failed = await _read_blocks_by_space(
+        {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
+        blocks,
+    )
     for item in items:
         field = item.field
         keys = [(item.space, item.address + offset) for offset in range(field.count)]
@@ -199,21 +213,18 @@ async def _bulk_read_coils(
     items: list[CoilItem],
     blocks: list[tuple[int, int]],
 ) -> None:
-    """Read coil targets over the precomputed ``blocks`` (plan passed in, see above)."""
+    """Read coil targets over the precomputed ``blocks`` (plan passed in, see above).
+
+    Coils are a single address space, so they read through
+    :func:`_read_blocks_by_space` under one ``"coil"`` key. Each field's bool lands
+    in its ``store`` under ``field.name``; a Modbus exception covering a coil sets
+    it to ``None``.
+    """
     if not items:
         return
-    by_address: dict[int, list[tuple[CoilField, dict[str, Any]]]] = {}
+    bits, failed = await _read_blocks_by_space(
+        {"coil": unit.read_coils}, {"coil": blocks}
+    )
     for address, field, store in items:
-        by_address.setdefault(address, []).append((field, store))
-    for start, count in blocks:
-        try:
-            bits = await unit.read_coils(start, count)
-        except ModbusExceptionError:
-            for offset in range(count):
-                for field, store in by_address.get(start + offset, ()):
-                    store[field.name] = None
-            continue
-        for offset in range(count):
-            bit = bool(bits[offset])
-            for field, store in by_address.get(start + offset, ()):
-                store[field.name] = bit
+        key = ("coil", address)
+        store[field.name] = None if key in failed else bool(bits[key])
