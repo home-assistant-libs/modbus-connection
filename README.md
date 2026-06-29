@@ -161,9 +161,9 @@ class Controller(Component):
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
-Each component can refresh independently and has its own update listeners (e.g.
-one consumer-side entity per component). To refresh several components that share
-a unit in one consolidated set of reads, group them in a `ComponentGroup` and call
+Each component can refresh independently and has its own update listeners. To
+refresh several components that share a unit in one consolidated set of reads,
+group them in a `ComponentGroup` and call
 `async_update()` on it:
 
 ```python
