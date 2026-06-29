@@ -150,70 +150,18 @@ name. For registers it picks the function code by payload width — FC06
 otherwise. Some devices contradict that heuristic, so a field can override it:
 
 ```python
-from modbus_connection.model import Component, integer, flags
+from modbus_connection.model import Component, integer
 
 class Inverter(Component):
     # A device that rejects multi-register writes — always use FC06.
     setpoint = integer(0, writable=True, write_mode="single")
     # A device that honours only FC16, even for a single register.
     limit = integer(1, writable=True, write_mode="multiple")
-    # Update only this field's bits of a shared register, leaving the rest.
-    grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008)
 ```
 
 `write_mode="single"` forces FC06 (and is only valid for a one-word field);
 `write_mode="multiple"` forces FC16. Override `write()` in a subclass for any
 device-specific write sequencing.
-
-#### Masked (bit-level) writes
-
-`write_mask` makes a field own only some bits of a single register; writing it
-updates those bits and leaves the rest as the device had them. The value must
-encode to a word whose set bits all fall inside the mask (writing bits outside it
-raises `OverflowError` rather than silently dropping them).
-
-By default this is a **read-modify-write**: the model re-reads the register,
-replaces the masked bits, and writes the whole word back with the field's normal
-function code (`write_mode`). Most bit-packed devices need exactly this — few
-support a true masked write, so they read-modify-write over FC06 or FC16. The
-re-read happens at write time (not from the last poll), so a bit the device
-flipped in between is preserved.
-
-```python
-from enum import IntFlag
-
-class ChargeFlags(IntFlag):
-    GRID_CHARGE = 0x0008          # this field owns bit 3 of register 2
-
-class Inverter(Component):
-    grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008)
-
-# Suppose register 2 currently holds 0xA5 (0b1010_0101) — several unrelated
-# control bits the device set, with our bit 3 clear.
-
-await inverter.write("grid_charge", ChargeFlags.GRID_CHARGE)
-#   wire: read_holding_registers(2, 1) -> [0xA5]
-#         write_register(2, 0xAD)        # (0xA5 & ~0x0008) | 0x0008
-#   0xA5 (1010_0101) -> 0xAD (1010_1101)   only bit 3 flipped on
-
-await inverter.write("grid_charge", ChargeFlags(0))
-#   wire: read_holding_registers(2, 1) -> [0xAD]
-#         write_register(2, 0xA5)        # (0xAD & ~0x0008) | 0x0000
-#   0xAD (1010_1101) -> 0xA5 (1010_0101)   only bit 3 flipped off
-```
-
-The write-back follows `write_mode`, so a device that read-modify-writes over
-FC16 takes `write_mask=..., write_mode="multiple"`. For the few devices that do
-support an atomic masked write (FC22), set `mask_write_fc22=True` to skip the read
-leg and let the device apply `new = (current & ~write_mask) | (value & write_mask)`
-itself:
-
-```python
-# artisan-style hardware that supports FC22
-grid_charge = flags(2, ChargeFlags, writable=True, write_mask=0x0008,
-                    mask_write_fc22=True)
-#   wire: mask_write_register(addr=2, and_mask=0xFFF7, or_mask=0x0008)
-```
 
 Each component can refresh independently and has its own update listeners (one
 Home Assistant entity per component). To refresh several components that share a

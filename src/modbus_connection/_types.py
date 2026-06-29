@@ -18,7 +18,5 @@ WriteMode = Literal["auto", "single", "multiple"]
 otherwise. Some devices contradict that heuristic, so override it per field:
 ``"single"`` always uses FC06 (for a device that rejects multi-register writes;
 only valid for a one-word value), ``"multiple"`` always uses FC16 (for a device
-that honours only FC16, even for a single register). Updating only some bits of a
-register is selected separately, by giving the field a ``write_mask``; the mode
-then picks the function code of the write-back leg.
+that honours only FC16, even for a single register).
 """

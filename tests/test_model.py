@@ -277,17 +277,11 @@ async def test_write_rejects_readonly() -> None:
 
 
 def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
-    """A mock unit that records each register read/write call as ``(op, *args)``."""
+    """A mock unit that records each register-write call as ``(fc, *args)``."""
     unit = MockModbusConnection().for_unit(1)
     calls: list[tuple] = []
-    real_read = unit.read_holding_registers
     real_single = unit.write_register
     real_multi = unit.write_registers
-    real_mask = unit.mask_write_register
-
-    async def read_holding_registers(address: int, count: int) -> list[int]:
-        calls.append(("read", address, count))
-        return await real_read(address, count)
 
     async def write_register(address: int, value: int) -> None:
         calls.append(("single", address, value))
@@ -297,14 +291,8 @@ def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
         calls.append(("multiple", address, values))
         await real_multi(address, values)
 
-    async def mask_write_register(address: int, and_mask: int, or_mask: int) -> None:
-        calls.append(("mask", address, and_mask, or_mask))
-        await real_mask(address, and_mask, or_mask)
-
-    unit.read_holding_registers = read_holding_registers  # type: ignore[method-assign]
     unit.write_register = write_register  # type: ignore[method-assign]
     unit.write_registers = write_registers  # type: ignore[method-assign]
-    unit.mask_write_register = mask_write_register  # type: ignore[method-assign]
     return unit, calls
 
 
@@ -342,87 +330,6 @@ async def test_write_mode_single_rejects_multi_register_value() -> None:
     unit, _ = _calls_recording_unit()
     with pytest.raises(ValueError, match="FC06"):
         await Dev(unit).write("energy", 100000)
-
-
-async def test_masked_write_read_modify_write() -> None:
-    """By default a ``write_mask`` field re-reads, replaces its bits, writes back.
-
-    The write-back uses the field's own function code (FC06 here), which is what
-    devices that don't support FC22 need (e.g. Daikin RMW over FC06).
-    """
-
-    class Charge(IntFlag):
-        GRID = 0x0008
-
-    class Dev(Component):
-        grid_charge = flags(5, Charge, writable=True, write_mask=0x0008)
-
-    unit, calls = _calls_recording_unit()
-    unit.holding[5] = 0xFF07  # other bits set; ours (bit 3) currently clear
-    dev = Dev(unit)
-
-    await dev.write("grid_charge", Charge.GRID)
-    assert calls == [("read", 5, 1), ("single", 5, 0xFF0F)]
-    assert unit.holding[5] == 0xFF0F  # bit 3 set, the rest untouched
-
-    calls.clear()
-    await dev.write("grid_charge", Charge(0))  # clear it again
-    assert calls == [("read", 5, 1), ("single", 5, 0xFF07)]
-    assert unit.holding[5] == 0xFF07
-
-
-async def test_masked_write_read_modify_write_honours_write_mode() -> None:
-    """RMW write-back follows ``write_mode`` — FC16 here (sunsynk RMWs over FC16)."""
-
-    class Dev(Component):
-        bits = raw_register(0, writable=True, write_mask=0x000F, write_mode="multiple")
-
-    unit, calls = _calls_recording_unit()
-    unit.holding[0] = 0xABC0
-    await Dev(unit).write("bits", 0x0005)
-    assert calls == [("read", 0, 1), ("multiple", 0, [0xABC5])]
-    assert unit.holding[0] == 0xABC5
-
-
-async def test_masked_write_fc22_is_opt_in() -> None:
-    """``mask_write_fc22`` uses an atomic FC22 with no read leg (e.g. artisan)."""
-
-    class Dev(Component):
-        bits = raw_register(5, writable=True, write_mask=0x0008, mask_write_fc22=True)
-
-    unit, calls = _calls_recording_unit()
-    unit.holding[5] = 0xFF07
-    await Dev(unit).write("bits", 0x0008)
-    assert calls == [("mask", 5, 0xFFF7, 0x0008)]  # no preceding read
-    assert unit.holding[5] == 0xFF0F
-
-
-async def test_masked_write_rejects_value_outside_mask() -> None:
-    class Dev(Component):
-        bits = raw_register(0, writable=True, write_mask=0x000F)
-
-    unit, calls = _calls_recording_unit()
-    with pytest.raises(OverflowError, match="write_mask"):
-        await Dev(unit).write("bits", 0x0010)  # sets a bit outside the mask
-    assert calls == []  # rejected before any read or write touches the device
-
-
-def test_write_mask_misconfiguration_raises() -> None:
-    with pytest.raises(ValueError, match="single register"):
-        NumberField(0, count=2, writable=True, write_mask=0x000F)  # multi-register
-    with pytest.raises(ValueError, match="16-bit mask"):
-        raw_register(0, writable=True, write_mask=0)
-    with pytest.raises(ValueError, match="write_mode"):
-        # FC22 is its own function code, so a forced write_mode is contradictory.
-        raw_register(
-            0,
-            writable=True,
-            write_mask=0x000F,
-            mask_write_fc22=True,
-            write_mode="multiple",
-        )
-    with pytest.raises(ValueError, match="requires write_mask"):
-        raw_register(0, writable=True, mask_write_fc22=True)
 
 
 # -- listeners + independent update ------------------------------------------
