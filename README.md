@@ -214,6 +214,24 @@ class Controller(Component):
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
+### Writing registers
+
+`Component.write(field, value)` writes a writable register or coil by attribute
+name. For registers it picks the function code by payload width — FC06
+(write-single-register) for a one-word value, FC16 (write-multiple-registers)
+otherwise. Some devices honour only FC16, even for a single register; pass
+`force_fc16=True` on the field to always use FC16:
+
+```python
+from modbus_connection.model import Component, integer
+
+class Inverter(Component):
+    # A device that honours only FC16, even for a single register.
+    limit = integer(0, writable=True, force_fc16=True)
+```
+
+Override `write()` in a subclass for any device-specific write sequencing.
+
 Each component can refresh independently and has its own update listeners. To
 refresh several components that share a unit in one consolidated set of reads,
 group them in a `ComponentGroup` and call

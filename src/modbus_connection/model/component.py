@@ -193,7 +193,10 @@ class Component:
         returns the value to actually write (vetted or coerced), or raises to reject
         it before anything is sent to the device.
 
-        Override :meth:`write` in a subclass for any device-specific write
+        A register field is written with FC06 (single) for a one-word value or
+        FC16 (multiple) for a wider one, unless the field sets ``force_fc16``,
+        which uses FC16 even for a single register (for a device that honours only
+        FC16). Override :meth:`write` in a subclass for any device-specific write
         sequencing.
         """
         if field in self._register_fields:
@@ -211,10 +214,10 @@ class Component:
                 value = register.writable(value)
             address = self._address(register)
             words = register.encode(value)
-            if len(words) == 1:
-                await self._unit.write_register(address, words[0])
-            else:
+            if register.force_fc16 or len(words) > 1:
                 await self._unit.write_registers(address, words)
+            else:
+                await self._unit.write_register(address, words[0])
         elif field in self._coil_fields:
             coil_field = self._coil_fields[field]
             if not coil_field.writable:

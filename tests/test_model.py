@@ -392,6 +392,56 @@ async def test_write_rejects_readonly() -> None:
         await meter.write("temperature", 20.0)
 
 
+def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
+    """A mock unit that records each register-write call as ``(fc, *args)``."""
+    unit = MockModbusConnection().for_unit(1)
+    calls: list[tuple] = []
+    real_single = unit.write_register
+    real_multi = unit.write_registers
+
+    async def write_register(address: int, value: int) -> None:
+        calls.append(("single", address, value))
+        await real_single(address, value)
+
+    async def write_registers(address: int, values: list[int]) -> None:
+        calls.append(("multiple", address, values))
+        await real_multi(address, values)
+
+    unit.write_register = write_register  # type: ignore[method-assign]
+    unit.write_registers = write_registers  # type: ignore[method-assign]
+    return unit, calls
+
+
+async def test_single_register_uses_fc06_by_default() -> None:
+    """A one-word write picks FC06 (write-single-register) by default."""
+
+    class Dev(Component):
+        setpoint = integer(0, signed=False, writable=True)
+
+    unit, calls = _calls_recording_unit()
+    await Dev(unit).write("setpoint", 1234)
+    assert calls == [("single", 0, 1234)]
+    assert unit.holding[0] == 1234
+
+
+async def test_force_fc16_uses_multiple_for_single_register() -> None:
+    """``force_fc16`` writes a one-register field with FC16 (solax/sunsynk)."""
+
+    class Dev(Component):
+        setpoint = integer(0, signed=False, writable=True, force_fc16=True)
+
+    unit, calls = _calls_recording_unit()
+    await Dev(unit).write("setpoint", 7)
+    assert calls == [("multiple", 0, [7])]
+    assert unit.holding[0] == 7
+
+
+def test_force_fc16_requires_writable() -> None:
+    """force_fc16 only affects writes, so it's a misconfig on a read-only field."""
+    with pytest.raises(ValueError, match="force_fc16 requires writable"):
+        integer(0, force_fc16=True)
+
+
 def _bounded(low: int, high: int) -> Callable[[Any], int]:
     """A WriteValidator that rejects values outside ``[low, high]``."""
 
