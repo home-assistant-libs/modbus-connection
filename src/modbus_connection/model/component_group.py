@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
-    CoilItem,
+    BitItem,
+    BitSpace,
     Range,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_coils,
+    _bulk_read_bits,
     _bulk_read_registers,
-    _plan_blocks,
+    _plan_bit_blocks,
     _plan_register_blocks,
 )
 from .component import Component
@@ -35,7 +36,8 @@ class ComponentGroup:
     listeners fire after the update.
 
     Components may mix register spaces — an input (FC04) sub-system and a holding
-    (FC03) sub-system in the same group are read with separate block reads.
+    (FC03) sub-system in the same group are read with separate block reads — and
+    likewise mix bit spaces, coils (FC01) and discrete inputs (FC02).
 
     The pooled plan is built from the components' static layout on the first
     :meth:`async_update` and reused on every later poll. The readable address
@@ -43,9 +45,9 @@ class ComponentGroup:
     ``register_ranges`` applies per register space, so components sharing a space
     must declare the same :attr:`Component.register_ranges` (a device's input and
     holding ranges may differ); every component must share
-    :attr:`Component.coil_ranges`, :attr:`Component.max_gap` and
-    :attr:`Component.max_span` (they describe one device). A mismatch raises
-    ``ValueError``.
+    :attr:`Component.coil_ranges`, :attr:`Component.discrete_ranges`,
+    :attr:`Component.max_gap` and :attr:`Component.max_span` (they describe one
+    device). A mismatch raises ``ValueError``.
 
     The component list, their fields, and the ranges are read once and cached;
     mutating any of them after the first update is not supported — build a new
@@ -61,6 +63,7 @@ class ComponentGroup:
         self._components = list(components)
         self._register_ranges_by_space = self._ranges_by_space()
         self._coil_ranges = self._shared("coil_ranges", None)
+        self._discrete_ranges = self._shared("discrete_ranges", None)
         self._max_gap = self._shared("max_gap", _MAX_GAP)
         self._max_span = self._shared("max_span", _MAX_SPAN)
 
@@ -95,8 +98,8 @@ class ComponentGroup:
         return [item for c in self._components for item in c.register_items]
 
     @cached_property
-    def _coil_items(self) -> list[CoilItem]:
-        return [item for c in self._components for item in c.coil_items]
+    def _bit_items(self) -> list[BitItem]:
+        return [item for c in self._components for item in c.bit_items]
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
@@ -108,10 +111,13 @@ class ComponentGroup:
         )
 
     @cached_property
-    def _coil_blocks(self) -> list[tuple[int, int]]:
-        spans = ((address, 1) for address, _, _ in self._coil_items)
-        return _plan_blocks(
-            spans, self._coil_ranges, max_gap=self._max_gap, max_span=self._max_span
+    def _bit_blocks(self) -> dict[BitSpace, list[tuple[int, int]]]:
+        ranges: dict[BitSpace, tuple[Range, ...] | None] = {
+            "coil": self._coil_ranges,
+            "discrete": self._discrete_ranges,
+        }
+        return _plan_bit_blocks(
+            self._bit_items, ranges, max_gap=self._max_gap, max_span=self._max_span
         )
 
     async def async_update(self) -> None:
@@ -122,6 +128,6 @@ class ComponentGroup:
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks
         )
-        await _bulk_read_coils(self._unit, self._coil_items, self._coil_blocks)
+        await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
         for component in self._components:
             component.notify()

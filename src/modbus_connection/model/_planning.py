@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Hashable, Iterable
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
+from .._types import BitSpace
 from ..decode import decode_int16
 from ..exceptions import ModbusExceptionError
-from .fields import CoilField, RegisterField
+from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -41,7 +42,8 @@ class RegisterItem(NamedTuple):
     space: RegisterSpace  # the register space to read this field from
 
 
-CoilItem = tuple[int, "CoilField", dict[str, Any]]
+# A bit read target (the field carries its own ``space``): address, field, store.
+BitItem = tuple[int, "_BitField", dict[str, Any]]
 
 
 def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
@@ -140,6 +142,25 @@ def _plan_register_blocks(
     }
 
 
+def _plan_bit_blocks(
+    items: list[BitItem],
+    ranges_by_space: dict[BitSpace, tuple[Range, ...] | None],
+    *,
+    max_gap: int = _MAX_GAP,
+    max_span: int = _MAX_SPAN,
+) -> dict[BitSpace, list[tuple[int, int]]]:
+    """Plan bit read blocks per space; coils and discrete inputs never merge."""
+    by_space: dict[BitSpace, list[tuple[int, int]]] = {}
+    for address, field, _store in items:
+        by_space.setdefault(field.space, []).append((address, 1))
+    return {
+        space: _plan_blocks(
+            spans, ranges_by_space.get(space), max_gap=max_gap, max_span=max_span
+        )
+        for space, spans in by_space.items()
+    }
+
+
 async def _read_blocks_by_space[S: Hashable, E](
     readers: dict[S, Callable[[int, int], Awaitable[list[E]]]],
     blocks: dict[S, list[tuple[int, int]]],
@@ -208,23 +229,22 @@ async def _bulk_read_registers(
         item.store[field.name] = field.decode(field_words, scale_exponent)
 
 
-async def _bulk_read_coils(
+async def _bulk_read_bits(
     unit: ModbusUnit,
-    items: list[CoilItem],
-    blocks: list[tuple[int, int]],
+    items: list[BitItem],
+    blocks: dict[BitSpace, list[tuple[int, int]]],
 ) -> None:
-    """Read coil targets over the precomputed ``blocks`` (plan passed in, see above).
+    """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
 
-    Coils are a single address space, so they read through
-    :func:`_read_blocks_by_space` under one ``"coil"`` key. Each field's bool lands
-    in its ``store`` under ``field.name``; a Modbus exception covering a coil sets
-    it to ``None``.
+    The bit counterpart of :func:`_bulk_read_registers`; a Modbus exception
+    covering a bit sets its field to ``None``.
     """
     if not items:
         return
     bits, failed = await _read_blocks_by_space(
-        {"coil": unit.read_coils}, {"coil": blocks}
+        {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
+        blocks,
     )
     for address, field, store in items:
-        key = ("coil", address)
+        key = (field.space, address)
         store[field.name] = None if key in failed else bool(bits[key])

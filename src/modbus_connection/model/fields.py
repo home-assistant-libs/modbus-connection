@@ -17,9 +17,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
-from .._types import ByteOrder, WordOrder
+from .._types import BitSpace, ByteOrder, WordOrder
 from ..decode import (
     combine_words,
     decode_eui48,
@@ -34,6 +34,7 @@ from ..encode import encode_float32, encode_float64, encode_int, encode_string
 
 __all__ = [
     "CoilField",
+    "DiscreteInputField",
     "Eui48Field",
     "FloatField",
     "IPv4Field",
@@ -44,6 +45,7 @@ __all__ = [
     "StringField",
     "WriteValidator",
     "coil",
+    "discrete_input",
     "enum",
     "flags",
     "float32",
@@ -404,20 +406,18 @@ class Eui48Field(RegisterField[str]):
         return decode_eui48(words)
 
 
-class CoilField:
-    """A coil exposed as a ``bool | None`` attribute."""
+class _BitField:
+    """A single-bit field (coil or discrete input) exposed as ``bool | None``.
+
+    Concrete subclasses set :attr:`space`; only coils override ``writable``.
+    """
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
+    space: ClassVar[BitSpace]  # which bit space this field's address lives in
+    writable: bool | WriteValidator = False  # discrete inputs are never writable
 
-    def __init__(
-        self,
-        address: int,
-        *,
-        writable: bool | WriteValidator = False,
-        stride: int = 0,
-    ) -> None:
+    def __init__(self, address: int, *, stride: int = 0) -> None:
         self.address = address
-        self.writable = writable
         self.stride = stride
 
     def __set_name__(self, owner: type, name: str) -> None:
@@ -426,7 +426,7 @@ class CoilField:
     if TYPE_CHECKING:
 
         @overload
-        def __get__(self, obj: None, objtype: Any = ...) -> CoilField: ...
+        def __get__(self, obj: None, objtype: Any = ...) -> Self: ...
 
         @overload
         def __get__(self, obj: object, objtype: Any = ...) -> bool | None: ...
@@ -434,7 +434,33 @@ class CoilField:
     def __get__(self, obj: Any, objtype: Any = None) -> Any:
         if obj is None:
             return self
-        return obj._coils.get(self.name)
+        return obj._bits.get(self.name)
+
+
+class CoilField(_BitField):
+    """A coil (FC01) exposed as a ``bool | None`` attribute; may be writable."""
+
+    space: ClassVar[BitSpace] = "coil"
+
+    def __init__(
+        self,
+        address: int,
+        *,
+        writable: bool | WriteValidator = False,
+        stride: int = 0,
+    ) -> None:
+        super().__init__(address, stride=stride)
+        self.writable = writable
+
+
+class DiscreteInputField(_BitField):
+    """A discrete input (FC02) exposed as a read-only ``bool | None`` attribute.
+
+    Discrete inputs are physically read-only, so this field has no ``writable``
+    option — use :class:`CoilField` for a writable bit.
+    """
+
+    space: ClassVar[BitSpace] = "discrete"
 
 
 # -- typed field factories ----------------------------------------------------
@@ -795,9 +821,14 @@ def coil(
     writable: bool | WriteValidator = False,
     stride: int = 0,
 ) -> CoilField:
-    """A coil."""
+    """A coil (FC01); pass ``writable=True`` to allow writes."""
     return CoilField(
         address,
         writable=writable,
         stride=stride,
     )
+
+
+def discrete_input(address: int, *, stride: int = 0) -> DiscreteInputField:
+    """A discrete input (FC02, read-only)."""
+    return DiscreteInputField(address, stride=stride)
