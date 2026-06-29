@@ -193,10 +193,11 @@ class Component:
         returns the value to actually write (vetted or coerced), or raises to reject
         it before anything is sent to the device.
 
-        A register field is written with FC06 (single) or FC16 (multiple) chosen
-        by payload width, unless the field's ``write_mode`` forces FC06/FC16 for a
-        device that contradicts the heuristic. Override :meth:`write` in a
-        subclass for any device-specific write sequencing.
+        A register field is written with FC06 (single) for a one-word value or
+        FC16 (multiple) for a wider one, unless the field sets ``force_fc16``,
+        which uses FC16 even for a single register (for a device that honours only
+        FC16). Override :meth:`write` in a subclass for any device-specific write
+        sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
@@ -213,19 +214,10 @@ class Component:
                 value = register.writable(value)
             address = self._address(register)
             words = register.encode(value)
-            if register.write_mode == "single":
-                if len(words) != 1:
-                    raise ValueError(
-                        f"{field} encodes to {len(words)} registers; "
-                        "write_mode='single' (FC06) writes only one"
-                    )
-                await self._unit.write_register(address, words[0])
-            elif register.write_mode == "multiple":
+            if register.force_fc16 or len(words) > 1:
                 await self._unit.write_registers(address, words)
-            elif len(words) == 1:
-                await self._unit.write_register(address, words[0])
             else:
-                await self._unit.write_registers(address, words)
+                await self._unit.write_register(address, words[0])
         elif field in self._coil_fields:
             coil_field = self._coil_fields[field]
             if not coil_field.writable:

@@ -219,21 +219,18 @@ class Controller(Component):
 `Component.write(field, value)` writes a writable register or coil by attribute
 name. For registers it picks the function code by payload width — FC06
 (write-single-register) for a one-word value, FC16 (write-multiple-registers)
-otherwise. Some devices contradict that heuristic, so a field can override it:
+otherwise. Some devices honour only FC16, even for a single register; pass
+`force_fc16=True` on the field to always use FC16:
 
 ```python
 from modbus_connection.model import Component, integer
 
 class Inverter(Component):
-    # A device that rejects multi-register writes — always use FC06.
-    setpoint = integer(0, writable=True, write_mode="single")
     # A device that honours only FC16, even for a single register.
-    limit = integer(1, writable=True, write_mode="multiple")
+    limit = integer(0, writable=True, force_fc16=True)
 ```
 
-`write_mode="single"` forces FC06 (and is only valid for a one-word field);
-`write_mode="multiple"` forces FC16. Override `write()` in a subclass for any
-device-specific write sequencing.
+Override `write()` in a subclass for any device-specific write sequencing.
 
 Each component can refresh independently and has its own update listeners. To
 refresh several components that share a unit in one consolidated set of reads,

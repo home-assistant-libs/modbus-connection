@@ -19,7 +19,7 @@ from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, overload
 
-from .._types import ByteOrder, WordOrder, WriteMode
+from .._types import ByteOrder, WordOrder
 from ..decode import (
     combine_words,
     decode_eui48,
@@ -104,7 +104,7 @@ class RegisterField[T](ABC):
         unit: str | None = None,
         scale_register: int | None = None,
         scale_register_stride: int = 0,
-        write_mode: WriteMode = "auto",
+        force_fc16: bool = False,
     ) -> None:
         """Initialise the shared part of a field.
 
@@ -124,9 +124,10 @@ class RegisterField[T](ABC):
                 int16 exponent) read alongside this field and applied as
                 ``value * 10**sf``; ``None`` for a static scale only.
             scale_register_stride: Per-index increment for ``scale_register``.
-            write_mode: Which function code :meth:`Component.write` uses — see
-                :data:`~modbus_connection._types.WriteMode`. ``"single"`` is only
-                valid for a one-word field.
+            force_fc16: Write this field with FC16 (write-multiple-registers) even
+                when it is a single register, for a device that honours only FC16.
+                A multi-register field already uses FC16, so this only matters for
+                a one-word field.
         """
         self.address = address
         self.count = count
@@ -137,7 +138,7 @@ class RegisterField[T](ABC):
         # static scale. Read by the planner for every field.
         self.scale_register = scale_register
         self.scale_register_stride = scale_register_stride
-        self.write_mode = write_mode
+        self.force_fc16 = force_fc16
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -450,7 +451,7 @@ def gauge(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[float]:
     """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
 
@@ -474,7 +475,7 @@ def gauge(
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -490,7 +491,7 @@ def integer(
     scale_register: int | None = None,
     scale_register_stride: int = 0,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[int]:
     """An unscaled integer register (counts, percentages, addresses).
 
@@ -513,7 +514,7 @@ def integer(
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -523,7 +524,7 @@ def raw_register(
     byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> RawField:
     """A raw register word (no scaling or sign handling)."""
     return RawField(
@@ -531,7 +532,7 @@ def raw_register(
         byte_order=byte_order,
         stride=stride,
         writable=writable,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -545,7 +546,7 @@ def uint32(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[int]:
     """An unsigned 32-bit value over two consecutive registers."""
     return NumberField(
@@ -559,7 +560,7 @@ def uint32(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -573,7 +574,7 @@ def int32(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[int]:
     """A signed 32-bit value over two consecutive registers."""
     return NumberField(
@@ -587,7 +588,7 @@ def int32(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -601,7 +602,7 @@ def float32(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> FloatField:
     """An IEEE-754 single-precision float over two consecutive registers."""
     return FloatField(
@@ -614,7 +615,7 @@ def float32(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -628,7 +629,7 @@ def uint64(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[int]:
     """An unsigned 64-bit value over four consecutive registers."""
     return NumberField(
@@ -642,7 +643,7 @@ def uint64(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -656,7 +657,7 @@ def int64(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[int]:
     """A signed 64-bit value over four consecutive registers."""
     return NumberField(
@@ -670,7 +671,7 @@ def int64(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -684,7 +685,7 @@ def float64(
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> FloatField:
     """An IEEE-754 double-precision float over four consecutive registers."""
     return FloatField(
@@ -697,7 +698,7 @@ def float64(
         stride=stride,
         writable=writable,
         unit=unit,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -708,7 +709,7 @@ def string(
     byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> StringField:
     """A fixed-length null-padded ASCII string over ``length`` registers."""
     return StringField(
@@ -717,7 +718,7 @@ def string(
         byte_order=byte_order,
         stride=stride,
         writable=writable,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -732,7 +733,7 @@ def enum[E: IntEnum](
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[E]:
     """An integer register mapped to an ``IntEnum`` member.
 
@@ -751,7 +752,7 @@ def enum[E: IntEnum](
         nan=nan,
         stride=stride,
         writable=writable,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 
@@ -766,7 +767,7 @@ def flags[F: IntFlag](
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
-    write_mode: WriteMode = "auto",
+    force_fc16: bool = False,
 ) -> NumberField[F]:
     """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
 
@@ -782,7 +783,7 @@ def flags[F: IntFlag](
         nan=nan,
         stride=stride,
         writable=writable,
-        write_mode=write_mode,
+        force_fc16=force_fc16,
     )
 
 

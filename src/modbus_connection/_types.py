@@ -18,14 +18,3 @@ with :data:`WordOrder` this spells out all four byte arrangements real devices
 use — ABCD (big/big), CDAB (little/big), BADC (big/little) and DCBA
 (little/little) for a two-register value.
 """
-
-WriteMode = Literal["auto", "single", "multiple"]
-"""How a writable register field is written to the wire.
-
-``"auto"`` (the default) picks the function code by payload width: FC06
-(write-single-register) for a one-word value, FC16 (write-multiple-registers)
-otherwise. Some devices contradict that heuristic, so override it per field:
-``"single"`` always uses FC06 (for a device that rejects multi-register writes;
-only valid for a one-word value), ``"multiple"`` always uses FC16 (for a device
-that honours only FC16, even for a single register).
-"""

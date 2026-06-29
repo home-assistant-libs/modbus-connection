@@ -412,12 +412,11 @@ def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
     return unit, calls
 
 
-async def test_write_mode_forces_single() -> None:
-    """``write_mode="single"`` uses FC06 even where auto would pick FC16."""
+async def test_single_register_uses_fc06_by_default() -> None:
+    """A one-word write picks FC06 (write-single-register) by default."""
 
     class Dev(Component):
-        # A single-register value that a GivEnergy-style FC06-only device needs.
-        setpoint = integer(0, signed=False, writable=True, write_mode="single")
+        setpoint = integer(0, signed=False, writable=True)
 
     unit, calls = _calls_recording_unit()
     await Dev(unit).write("setpoint", 1234)
@@ -425,27 +424,16 @@ async def test_write_mode_forces_single() -> None:
     assert unit.holding[0] == 1234
 
 
-async def test_write_mode_forces_multiple_for_single_register() -> None:
-    """``write_mode="multiple"`` uses FC16 for a one-register field (solax/sunsynk)."""
+async def test_force_fc16_uses_multiple_for_single_register() -> None:
+    """``force_fc16`` writes a one-register field with FC16 (solax/sunsynk)."""
 
     class Dev(Component):
-        setpoint = integer(0, signed=False, writable=True, write_mode="multiple")
+        setpoint = integer(0, signed=False, writable=True, force_fc16=True)
 
     unit, calls = _calls_recording_unit()
     await Dev(unit).write("setpoint", 7)
     assert calls == [("multiple", 0, [7])]
     assert unit.holding[0] == 7
-
-
-async def test_write_mode_single_rejects_multi_register_value() -> None:
-    """FC06 cannot carry a multi-word value, so forcing it on uint32 raises."""
-
-    class Dev(Component):
-        energy = uint32(0, writable=True, write_mode="single")
-
-    unit, _ = _calls_recording_unit()
-    with pytest.raises(ValueError, match="FC06"):
-        await Dev(unit).write("energy", 100000)
 
 
 def _bounded(low: int, high: int) -> Callable[[Any], int]:
