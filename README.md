@@ -5,8 +5,8 @@ A small, **backend-neutral** Modbus connection abstraction.
 The top-level `modbus_connection` package is a pure interface — the
 `ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html),
 the shared `WordOrder` type, and a tiny exception hierarchy. It imports **no**
-Modbus library and **no** Home Assistant, so consumers can type against it
-without committing to a backend.
+Modbus library, so consumers can type against it without committing to a
+backend.
 
 Two interchangeable backends implement that interface:
 
@@ -174,9 +174,9 @@ class Controller(Component):
         return f"TROVIS 5576 ({firmware})" if firmware is not None else None
 ```
 
-Each component can refresh independently and has its own update listeners (one
-Home Assistant entity per component). To refresh several components that share a
-unit in one consolidated set of reads, group them in a `ComponentGroup` and call
+Each component can refresh independently and has its own update listeners. To
+refresh several components that share a unit in one consolidated set of reads,
+group them in a `ComponentGroup` and call
 `async_update()` on it:
 
 ```python

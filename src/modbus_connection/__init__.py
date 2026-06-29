@@ -2,7 +2,7 @@
 
 The top-level package is the pure interface: the ``ModbusConnection`` /
 ``ModbusUnit`` Protocols, the shared ``WordOrder`` type, and the exception
-hierarchy. It imports no Modbus backend and no Home Assistant.
+hierarchy. It imports no Modbus backend.
 
 Pick a backend to actually talk to a device:
 

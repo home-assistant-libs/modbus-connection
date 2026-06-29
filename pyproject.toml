@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "home-assistant-libs" }]
-keywords = ["modbus", "pymodbus", "tmodbus", "home-assistant"]
+keywords = ["modbus", "pymodbus", "tmodbus"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",

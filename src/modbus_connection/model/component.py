@@ -32,7 +32,7 @@ class Component:
     Subclasses declare ``RegisterField`` / ``CoilField`` descriptors (usually via
     the typed factories). Each component reads only its own registers, so it can
     refresh independently; listeners registered via :meth:`add_update_listener`
-    fire after each update (so one entity per component can subscribe).
+    fire after each update (so a consumer can subscribe per component).
 
     A device that pools several components into one update fetches them together;
     declare :attr:`register_ranges` / :attr:`coil_ranges` (e.g. from the device's
