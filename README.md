@@ -93,6 +93,39 @@ Swapping to tmodbus is a one-line import change:
 from modbus_connection.tmodbus import connect_tcp
 ```
 
+## Transports
+
+Each backend ships a set of connect functions, one per wire transport:
+
+| Function | Transport | `framer` options |
+| --- | --- | --- |
+| `connect_tcp(host, *, port=502, framer="socket")` | Modbus TCP, or RTU-/ASCII-over-TCP (transparent serial-to-Ethernet gateways) | `socket` / `rtu` / `ascii` |
+| `connect_udp(host, *, port=502, framer="socket")` | Modbus UDP (MBAP, RTU, or ASCII framing over UDP) | `socket` / `rtu` / `ascii` |
+| `connect_serial(port, *, framer="rtu", baudrate=…, bytesize=…, parity=…, stopbits=…)` | Modbus serial — binary RTU or ASCII transmission mode | `rtu` / `ascii` |
+| `connect_tls(host, *, port=802, sslctx=None, certfile=None, keyfile=None, password=None)` | Modbus/TLS (Modbus Security) | — (always TLS framing) |
+
+`framer` names the wire framing across every transport (its value set differs by
+transport: `socket`/`rtu`/`ascii` for TCP/UDP, `rtu`/`ascii` for serial; TLS is
+fixed).
+
+```python
+from modbus_connection.pymodbus import connect_udp, connect_serial, connect_tls
+
+udp = await connect_udp("192.168.1.50", port=502)
+ascii_serial = await connect_serial("/dev/ttyUSB0", framer="ascii", baudrate=9600)
+tls = await connect_tls("192.168.1.50", certfile="client.crt", keyfile="client.key")
+```
+
+For `connect_tls`, pass a fully-configured `ssl.SSLContext` as `sslctx` to control
+server verification and trust; otherwise one is built from the optional client
+`certfile` / `keyfile` / `password` (the default context does not verify the
+server certificate).
+
+tmodbus exposes the same functions, except `connect_udp`, `connect_tls`, and
+`connect_tcp(framer="ascii")` — tmodbus has no UDP, TLS, or ASCII-over-TCP
+transport, so those raise `NotImplementedError`; use the pymodbus backend for
+them.
+
 ## Exceptions
 
 Both backends raise the same neutral types:

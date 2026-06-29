@@ -5,17 +5,22 @@ have no tmodbus equivalent and raise ``NotImplementedError``: diagnostics (0x08)
 get-comm-event-counter (0x0B), and get-comm-event-log (0x0C). File records
 (0x14/0x15) are issued through tmodbus's ``execute(pdu)`` seam.
 
+tmodbus ships no UDP or TLS transport, so ``connect_udp`` / ``connect_tls`` raise
+``NotImplementedError`` — use the pymodbus backend for those.
+
 Requires the ``[tmodbus]`` extra.
 """
 
 from __future__ import annotations
 
 import functools
+import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate, Literal
 
 from tmodbus import (
     AsyncModbusClient,
+    create_async_ascii_client,
     create_async_rtu_client,
     create_async_rtu_over_tcp_client,
     create_async_tcp_client,
@@ -42,13 +47,16 @@ from ..exceptions import (
     ModbusTimeoutError,
 )
 
-Framing = Literal["socket", "rtu"]
+SocketFraming = Literal["socket", "rtu", "ascii"]
+SerialFraming = Literal["rtu", "ascii"]
 
 __all__ = [
     "TmodbusConnection",
     "TmodbusUnit",
     "connect_serial",
     "connect_tcp",
+    "connect_tls",
+    "connect_udp",
 ]
 
 
@@ -245,14 +253,15 @@ async def connect_tcp(
     port: int = 502,
     timeout: float = 3,
     unit_id: int = 1,
-    framer: Framing = "socket",
+    framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
-    gateways speak.
+    gateways speak. ``"ascii"`` (ASCII-over-TCP) raises ``NotImplementedError``:
+    tmodbus has no ASCII-over-TCP transport — use the pymodbus backend.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start — applied across every unit sharing the link, via
@@ -262,9 +271,18 @@ async def connect_tcp(
     ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    create = (
-        create_async_rtu_over_tcp_client if framer == "rtu" else create_async_tcp_client
-    )
+    if framer == "socket":
+        create = create_async_tcp_client
+    elif framer == "rtu":
+        create = create_async_rtu_over_tcp_client
+    elif framer == "ascii":
+        raise NotImplementedError(
+            "tmodbus has no ASCII-over-TCP transport; use the pymodbus backend"
+        )
+    else:
+        raise ValueError(
+            f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
+        )
     client = create(
         host,
         port,
@@ -280,6 +298,45 @@ async def connect_tcp(
     return TmodbusConnection(client)
 
 
+async def connect_udp(
+    host: str,
+    *,
+    port: int = 502,
+    timeout: float = 3,
+    unit_id: int = 1,
+    framer: SocketFraming = "socket",
+    message_spacing: float = 0.0,
+) -> TmodbusConnection:
+    """Modbus UDP is not available over tmodbus.
+
+    tmodbus ships no UDP transport, so this always raises
+    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_udp`` for
+    Modbus UDP. Kept here so the backend's connect surface mirrors pymodbus's.
+    """
+    raise NotImplementedError("tmodbus has no UDP transport; use the pymodbus backend")
+
+
+async def connect_tls(
+    host: str,
+    *,
+    port: int = 802,
+    sslctx: ssl.SSLContext | None = None,
+    certfile: str | None = None,
+    keyfile: str | None = None,
+    password: str | None = None,
+    timeout: float = 3,
+    unit_id: int = 1,
+    message_spacing: float = 0.0,
+) -> TmodbusConnection:
+    """Modbus/TLS is not available over tmodbus.
+
+    tmodbus ships no TLS transport, so this always raises
+    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_tls`` for
+    Modbus/TLS. Kept here so the backend's connect surface mirrors pymodbus's.
+    """
+    raise NotImplementedError("tmodbus has no TLS transport; use the pymodbus backend")
+
+
 async def connect_serial(
     port: str,
     *,
@@ -288,9 +345,13 @@ async def connect_serial(
     parity: str = "N",
     stopbits: int = 1,
     unit_id: int = 1,
+    framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
-    """Open a Modbus serial (RTU) connection over tmodbus and return a live handle.
+    """Open a Modbus serial connection over tmodbus and return a live handle.
+
+    ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU (the
+    default) or ``"ascii"`` for the ASCII transmission mode.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
@@ -298,7 +359,13 @@ async def connect_serial(
 
     ``auto_reconnect`` is disabled. Raises ``ModbusConnectionError`` on failure.
     """
-    client = create_async_rtu_client(
+    if framer == "rtu":
+        create = create_async_rtu_client
+    elif framer == "ascii":
+        create = create_async_ascii_client
+    else:
+        raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
+    client = create(
         port,
         unit_id=unit_id,
         baudrate=baudrate,
