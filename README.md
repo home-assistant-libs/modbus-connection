@@ -312,6 +312,26 @@ circuits = [Circuit(unit, index=n) for n in (1, 2, 3)]
 
 A field with the default `stride=0` is at a fixed address shared by every index.
 
+When instead *every* field of a sub-unit shares one step — the common case for a
+self-contained, contiguous repeating block (e.g. a SunSpec multiple-MPPT module)
+— pass `base_offset` rather than repeating the same `stride` on each field. It
+shifts every field and bit address by a fixed amount, so you model the block once
+at instance 0's addresses and read instance *i* with `base_offset = i * block_len`:
+
+```python
+class MPPTModule(Component):
+    dc_w = integer(11, scale_register=2)   # one module; addresses are instance 0's
+    dc_v = integer(10, scale_register=1)
+
+modules = [MPPTModule(unit, base_offset=i * 20) for i in range(n)]
+```
+
+`base_offset` composes additively with `index` / `stride` and applies to reads
+and writes alike. Scale-factor registers (`scale_register`) are **not** shifted —
+a SunSpec repeating block's scale factors live in the shared fixed block, so they
+keep their absolute address (a per-instance scale register stays governed by
+`scale_register_stride`).
+
 ### Register spaces (holding vs input)
 
 A component's register fields default to the **holding** space (FC03). For a
