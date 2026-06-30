@@ -231,6 +231,7 @@ class Component:
             return
 
         # Resize each group's instances to the count just read, keeping survivors
+        instances: list[Component] = []
         for name, field in self._repeating_fields.items():
             if isinstance(field.count, int):
                 count = field.count
@@ -239,17 +240,16 @@ class Component:
                 count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
             if len(existing) != count:
-                self._groups[name] = existing[:count] + [
+                existing = existing[:count] + [
                     field.component_class(
                         self._unit, base_offset=self._base_offset + i * field.stride
                     )
                     for i in range(len(existing), count)
                 ]
+                self._groups[name] = existing
                 self._instance_group = None
+            instances.extend(existing)
 
-        # Read every group's instances in one pooled ComponentGroup update, reusing
-        # its cached plan while the counts hold.
-        instances = [c for group in self._groups.values() for c in group]
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
