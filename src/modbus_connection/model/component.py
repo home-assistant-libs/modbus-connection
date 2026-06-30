@@ -76,6 +76,10 @@ class Component:
 
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
+    # repeating_group fields, split by count kind: a fixed ``int`` count is static
+    # (its instances fold into the normal read like ordinary fields), a
+    # ``RegisterField`` count is read at poll time (the two-phase repeating path).
+    _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
     # The device's readable address ranges; None falls back to gap-based planning.
@@ -103,7 +107,8 @@ class Component:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
         bits: dict[str, _BitField] = {}
-        groups: dict[str, RepeatingGroupField[Any]] = {}
+        static_groups: dict[str, RepeatingGroupField[Any]] = {}
+        repeating: dict[str, RepeatingGroupField[Any]] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
@@ -111,10 +116,14 @@ class Component:
                 elif isinstance(value, _BitField):
                     bits[name] = value
                 elif isinstance(value, RepeatingGroupField):
-                    groups[name] = value
+                    target = (
+                        static_groups if isinstance(value.count, int) else repeating
+                    )
+                    target[name] = value
         cls._register_fields = registers
         cls._bit_fields = bits
-        cls._repeating_fields = groups
+        cls._static_groups = static_groups
+        cls._repeating_fields = repeating
 
     def __init__(
         self, unit: ModbusUnit, index: int = 1, *, base_offset: int = 0
@@ -125,23 +134,22 @@ class Component:
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
-        # Repeating-group state, keyed by group-field name: the live sub-component
+        # repeating_group state, keyed by group-field name: the live sub-component
         # instances per group, and the last-read count for register-count groups.
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
-        # Fixed-count groups are static — build them now so their reads fold into
-        # the normal plan (see _static_instances); register-count groups are sized
-        # later, in async_update.
-        for name, field in self._repeating_fields.items():
-            if isinstance(field.count, int):
-                self._groups[name] = [
-                    field.component_class(
-                        self._unit, base_offset=base_offset + i * field.stride
-                    )
-                    for i in range(field.count)
-                ]
+        # Fixed-count groups are static: build their instances now so they fold
+        # into the normal read plan (register_items / bit_items, like ordinary
+        # fields). Register-count groups are sized later, in async_update.
+        for name, field in self._static_groups.items():
+            self._groups[name] = [
+                field.component_class(
+                    self._unit, base_offset=base_offset + i * field.stride
+                )
+                for i in range(field.count)
+            ]
         # The pooled reader for the register-count instances; rebuilt only when an
-        # instance set changes, reused while counts hold.
+        # instance set changes, reused while the counts hold.
         self._instance_group: ComponentGroup | None = None
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
@@ -169,9 +177,9 @@ class Component:
 
         Derived once from the static field layout and cached for the instance's
         life; do not mutate the field set afterwards. Includes each
-        :func:`repeating_group` count register and the registers of any
-        fixed-count group's instances, so the normal read fetches the counts and
-        every statically-sized instance in one pass.
+        :func:`repeating_group` count register and, for fixed-count groups, their
+        instances' registers — so the normal read fetches the counts and every
+        static instance in one pass.
         """
         items = []
         for field in self._register_fields.values():
@@ -189,11 +197,7 @@ class Component:
                     self.register_space,
                 )
             )
-        return (
-            items
-            + self._count_items
-            + [it for inst in self._static_instances for it in inst.register_items]
-        )
+        return items + self._count_items + self._static_items("register_items")
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
@@ -203,17 +207,15 @@ class Component:
         they read in the normal pass alongside this component's own bits.
         """
         own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
-        return own + [it for inst in self._static_instances for it in inst.bit_items]
+        return own + self._static_items("bit_items")
 
-    @cached_property
-    def _static_instances(self) -> list[Component]:
-        """Fixed-count groups' instances — static, so they fold into the normal
-        register / bit read instead of the register-count second pass."""
+    def _static_items(self, attr: str) -> list[Any]:
+        """The ``attr`` read targets of every fixed-count group's instances."""
         return [
-            instance
-            for name, field in self._repeating_fields.items()
-            if isinstance(field.count, int)
+            item
+            for name in self._static_groups
             for instance in self._groups[name]
+            for item in getattr(instance, attr)
         ]
 
     @cached_property
@@ -255,11 +257,10 @@ class Component:
         :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
 
-        :func:`repeating_group` fields with a fixed count are static, so their
-        instances fold into that same read. A register-sourced count needs a
-        second pass: the first read fetches the count (it is part of
-        :attr:`register_items`), then the sized-out instances are read, pooled
-        among themselves into as few reads as possible.
+        A :func:`repeating_group` field needs a second pass: the first read
+        fetches the count (it is part of :attr:`register_items`), then the
+        sized-out instances are read, pooled among themselves into as few reads
+        as possible.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
@@ -269,11 +270,9 @@ class Component:
             self.notify()
             return
 
-        # Register-count groups: size to the count just read, keeping survivors
+        # Size each group to the count just read, keeping survivors
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
-            if isinstance(field.count, int):
-                continue  # static — already read in the pass above
             value = self._counts.get(name)
             count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
@@ -288,8 +287,8 @@ class Component:
                 self._instance_group = None
             instances.extend(existing)
 
-        # Read register-count instances without notifying — self.notify() below
-        # fires every instance (static and register-count) in one place.
+        # Read the instances without notifying — self.notify() below fires every
+        # instance in one place.
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
@@ -298,21 +297,20 @@ class Component:
 
     @cached_property
     def _count_items(self) -> list[RegisterItem]:
-        """Read targets for each group's count register (those that are fields)."""
+        """Read targets for each repeating group's count register."""
         items = []
         for name, field in self._repeating_fields.items():
-            if isinstance(field.count, RegisterField):
-                count_field = field.count
-                count_field.name = name  # the decoded count lands in ``_counts[name]``
-                items.append(
-                    RegisterItem(
-                        count_field.address + self._base_offset,
-                        count_field,
-                        self._counts,
-                        None,
-                        self.register_space,
-                    )
+            count_field = field.count
+            count_field.name = name  # the decoded count lands in ``_counts[name]``
+            items.append(
+                RegisterItem(
+                    count_field.address + self._base_offset,
+                    count_field,
+                    self._counts,
+                    None,
+                    self.register_space,
                 )
+            )
         return items
 
     # -- writes --------------------------------------------------------------
@@ -410,10 +408,12 @@ def repeating_group[C: Component](
         inv.modules              # list[MPPTModule]
         inv.modules[0].dc_w      # typed per-instance access; writes via the instance
 
-    ``count`` is a fixed ``int`` or a :class:`RegisterField` read each poll.
-    ``component_class`` models one instance at instance 0's addresses; instance
-    *i* is read at ``base_offset = i * stride`` (so ``stride`` is the block length).
-    An unimplemented or unreadable count yields no instances.
+    ``count`` is a :class:`RegisterField` read each poll, or a fixed ``int`` —
+    a fixed count is static, so its instances fold into the parent's normal read
+    instead of taking the two-phase path. ``component_class`` models one instance
+    at instance 0's addresses; instance *i* is read at ``base_offset = i * stride``
+    (so ``stride`` is the block length). An unimplemented or unreadable count
+    yields no instances.
     """
     if stride <= 0:
         raise ValueError(f"repeating_group stride must be > 0, got {stride}")
