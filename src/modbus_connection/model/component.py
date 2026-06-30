@@ -20,6 +20,7 @@ from ._planning import (
     _plan_register_blocks,
 )
 from ._writing import write_bit_field, write_register_field
+from .component_group import ComponentGroup
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -128,6 +129,9 @@ class Component:
         # and the last-read count register value per group (keyed by field name).
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
+        # The pooled reader for the current instance set; rebuilt only when an
+        # instance set changes (see ``_sync_groups``), reused while counts hold.
+        self._instance_group: ComponentGroup | None = None
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return field.address + field.stride * (self._index - 1) + self._base_offset
@@ -258,44 +262,42 @@ class Component:
         return items
 
     def _sync_groups(self) -> None:
-        """(Re)build each group's instance list to match its just-read count."""
+        """Resize each group's instance list to match its just-read count.
+
+        Existing instances are kept — preserving their listeners and per-instance
+        cached read plans — and only the delta is built on growth or sliced off on
+        shrink. Instance ``i``'s addresses depend only on ``i`` (``base_offset +
+        i * stride``), so survivors stay correct across a resize. The pooled
+        ``_instance_group`` is invalidated whenever an instance set changes.
+        """
         for name, field in self._repeating_fields.items():
             if isinstance(field.count, int):
                 count = field.count
             else:
                 value = self._counts.get(name)
                 count = max(0, int(value)) if value is not None else 0
-            if len(self._groups.get(name, [])) != count:
-                self._groups[name] = [
+            existing = self._groups.get(name, [])
+            if len(existing) != count:
+                self._groups[name] = existing[:count] + [
                     field.component_class(
                         self._unit, base_offset=self._base_offset + i * field.stride
                     )
-                    for i in range(count)
+                    for i in range(len(existing), count)
                 ]
+                self._instance_group = None
 
     async def _read_instances(self) -> None:
-        """Read every group's instances, pooled among themselves (gap-based)."""
+        """Read every group's instances in one pooled ``ComponentGroup`` update.
+
+        The group is (re)built only when an instance set changes; a steady count
+        reuses its cached read plan. Each instance is notified by the group.
+        """
         instances = [c for group in self._groups.values() for c in group]
         if not instances:
             return
-        register_items = [it for c in instances for it in c.register_items]
-        bit_items = [it for c in instances for it in c.bit_items]
-        await _bulk_read_registers(
-            self._unit,
-            register_items,
-            _plan_register_blocks(
-                register_items, {}, max_gap=self.max_gap, max_span=self.max_span
-            ),
-        )
-        await _bulk_read_bits(
-            self._unit,
-            bit_items,
-            _plan_bit_blocks(
-                bit_items, {}, max_gap=self.max_gap, max_span=self.max_span
-            ),
-        )
-        for instance in instances:
-            instance.notify()
+        if self._instance_group is None:
+            self._instance_group = ComponentGroup(self._unit, instances)
+        await self._instance_group.async_update()
 
     # -- writes --------------------------------------------------------------
 

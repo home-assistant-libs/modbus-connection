@@ -19,10 +19,10 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
-from .component import Component
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+    from .component import Component
 
 
 class ComponentGroup:
