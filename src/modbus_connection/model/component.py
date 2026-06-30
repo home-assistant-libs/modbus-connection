@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from ._planning import (
     _MAX_GAP,
@@ -75,6 +75,7 @@ class Component:
 
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
+    _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
     # The device's readable address ranges; None falls back to gap-based planning.
     # Override on a subclass (or set per instance) to constrain reads to the
@@ -101,14 +102,18 @@ class Component:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
         bits: dict[str, _BitField] = {}
+        groups: dict[str, RepeatingGroupField[Any]] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
                     registers[name] = value
                 elif isinstance(value, _BitField):
                     bits[name] = value
+                elif isinstance(value, RepeatingGroupField):
+                    groups[name] = value
         cls._register_fields = registers
         cls._bit_fields = bits
+        cls._repeating_fields = groups
 
     def __init__(
         self, unit: ModbusUnit, index: int = 1, *, base_offset: int = 0
@@ -119,6 +124,10 @@ class Component:
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
+        # Repeating-group state: the live sub-component instances per group field,
+        # and the last-read count register value per group (keyed by field name).
+        self._groups: dict[str, list[Component]] = {}
+        self._counts: dict[str, int | None] = {}
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return field.address + field.stride * (self._index - 1) + self._base_offset
@@ -200,12 +209,93 @@ class Component:
         A device that owns several components can instead pool their
         :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
+
+        A component with :func:`repeating_group` fields reads in two phases: its
+        own fields and each group's count register first, then — once the counts
+        are known — the sized-out sub-component instances. The instances are pooled
+        among themselves into as few reads as possible.
         """
-        await _bulk_read_registers(
-            self._unit, self.register_items, self._register_blocks
+        if not self._repeating_fields:
+            await _bulk_read_registers(
+                self._unit, self.register_items, self._register_blocks
+            )
+            await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
+            self.notify()
+            return
+
+        # Phase 1: this component's own fields plus each group's count register.
+        static_items = self.register_items + self._count_items
+        static_blocks = _plan_register_blocks(
+            static_items,
+            {self.register_space: self.register_ranges},
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
+        await _bulk_read_registers(self._unit, static_items, static_blocks)
         await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
+        # Phase 2: size the instances to the counts just read, then read them all.
+        self._sync_groups()
+        await self._read_instances()
         self.notify()
+
+    @cached_property
+    def _count_items(self) -> list[RegisterItem]:
+        """Read targets for each group's count register (those that are fields)."""
+        items = []
+        for name, field in self._repeating_fields.items():
+            if isinstance(field.count, RegisterField):
+                count_field = field.count
+                count_field.name = name  # the decoded count lands in ``_counts[name]``
+                items.append(
+                    RegisterItem(
+                        count_field.address + self._base_offset,
+                        count_field,
+                        self._counts,
+                        None,
+                        self.register_space,
+                    )
+                )
+        return items
+
+    def _sync_groups(self) -> None:
+        """(Re)build each group's instance list to match its just-read count."""
+        for name, field in self._repeating_fields.items():
+            if isinstance(field.count, int):
+                count = field.count
+            else:
+                value = self._counts.get(name)
+                count = max(0, int(value)) if value is not None else 0
+            if len(self._groups.get(name, [])) != count:
+                self._groups[name] = [
+                    field.component_class(
+                        self._unit, base_offset=self._base_offset + i * field.stride
+                    )
+                    for i in range(count)
+                ]
+
+    async def _read_instances(self) -> None:
+        """Read every group's instances, pooled among themselves (gap-based)."""
+        instances = [c for group in self._groups.values() for c in group]
+        if not instances:
+            return
+        register_items = [it for c in instances for it in c.register_items]
+        bit_items = [it for c in instances for it in c.bit_items]
+        await _bulk_read_registers(
+            self._unit,
+            register_items,
+            _plan_register_blocks(
+                register_items, {}, max_gap=self.max_gap, max_span=self.max_span
+            ),
+        )
+        await _bulk_read_bits(
+            self._unit,
+            bit_items,
+            _plan_bit_blocks(
+                bit_items, {}, max_gap=self.max_gap, max_span=self.max_span
+            ),
+        )
+        for instance in instances:
+            instance.notify()
 
     # -- writes --------------------------------------------------------------
 
@@ -241,3 +331,74 @@ class Component:
             )
         else:
             raise AttributeError(f"unknown field {field!r}")
+
+
+class RepeatingGroupField[C: Component]:
+    """A list of sub-component instances whose length is read at poll time.
+
+    Built by :func:`repeating_group`. Placed as a descriptor on a parent
+    ``Component``; reading the attribute returns the ``list`` of instances from
+    the last update (empty before the first), each a fully typed ``C``.
+    """
+
+    name: str = ""  # set by __set_name__ when used as a class descriptor
+
+    def __init__(
+        self, count: RegisterField[int] | int, component_class: type[C], *, stride: int
+    ) -> None:
+        self.count = count
+        self.component_class = component_class
+        self.stride = stride
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(self, obj: None, objtype: Any = ...) -> RepeatingGroupField[C]: ...
+
+        @overload
+        def __get__(self, obj: object, objtype: Any = ...) -> list[C]: ...
+
+    def __get__(self, obj: Any, objtype: Any = None) -> Any:
+        if obj is None:
+            return self
+        return obj._groups.get(self.name, [])
+
+
+def repeating_group[C: Component](
+    count: RegisterField[int] | int,
+    component_class: type[C],
+    *,
+    stride: int,
+) -> RepeatingGroupField[C]:
+    """A repeated sub-block whose instance count is read from a register at poll time.
+
+    Declares, on a parent ``Component``, a list of ``component_class`` instances
+    sized at runtime — the runtime-counted counterpart to ``index`` / ``stride``,
+    for a device that advertises its repeat count (a SunSpec multiple-MPPT model's
+    ``N`` point, a meter's channel count) instead of fixing it in the layout::
+
+        class MPPTModule(Component):              # one module, at instance 0
+            dc_w = integer(11, scale_register=2)
+            dc_v = integer(10, scale_register=1)
+
+        class Inverter(Component):
+            modules = repeating_group(uint16(8), MPPTModule, stride=20)
+
+        inv = Inverter(unit)
+        await inv.async_update()
+        inv.modules              # list[MPPTModule]
+        inv.modules[0].dc_w      # typed per-instance access; writes via the instance
+
+    ``count`` is a fixed ``int`` or a :class:`RegisterField` read each poll.
+    ``component_class`` models one instance at instance 0's addresses; instance
+    *i* is read at ``base_offset = i * stride`` (so ``stride`` is the block length).
+    An unimplemented or unreadable count yields no instances.
+    """
+    if stride <= 0:
+        raise ValueError(f"repeating_group stride must be > 0, got {stride}")
+    if isinstance(count, int) and count < 0:
+        raise ValueError(f"a fixed count must be >= 0, got {count}")
+    return RepeatingGroupField(count, component_class, stride=stride)

@@ -332,6 +332,41 @@ a SunSpec repeating block's scale factors live in the shared fixed block, so the
 keep their absolute address (a per-instance scale register stays governed by
 `scale_register_stride`).
 
+### Runtime-counted repeats (`repeating_group`)
+
+`stride` / `base_offset` cover repeats whose **count is known when you write the
+code**. Some devices instead advertise the count in a register, read at poll time
+— a SunSpec multiple-MPPT model (160) carries an `N` point saying how many modules
+follow. `repeating_group` is a field for that: model one instance as a `Component`,
+and the parent reads the count each poll and exposes a `list` of that many
+instances, each fully typed:
+
+```python
+from modbus_connection.model import Component, integer, repeating_group
+from modbus_connection.model.sunspec import uint16
+
+class MPPTModule(Component):                 # one module, at instance 0's addresses
+    dc_w = integer(11, scale_register=2)
+    dc_v = integer(10, scale_register=1)
+
+class Inverter(Component):
+    modules = repeating_group(uint16(8), MPPTModule, stride=20)  # N at register 8
+
+inv = Inverter(unit)
+await inv.async_update()
+inv.modules                # list[MPPTModule]
+inv.modules[0].dc_w        # typed per-instance access
+await inv.modules[2].write("dc_w", ...)   # writes go through the instance
+```
+
+`count` is a `RegisterField` (read each poll) or a fixed `int`; instance *i* is
+read at `base_offset = i * stride`, so `stride` is the block length. The parent
+reads in two phases — its own fields and the count first, then the sized-out
+instances (pooled among themselves) — so a component with a `repeating_group`
+costs two reads per poll. An unimplemented or unreadable count yields no
+instances. A component with a `repeating_group` refreshes on its own; it is not
+pooled into a `ComponentGroup`.
+
 ### Register spaces (holding vs input)
 
 A component's register fields default to the **holding** space (FC03). For a

@@ -63,7 +63,12 @@ from __future__ import annotations
 
 from .._types import BitSpace
 from ._planning import Range, RegisterSpace
-from .component import Component, UpdateListener
+from .component import (
+    Component,
+    RepeatingGroupField,
+    UpdateListener,
+    repeating_group,
+)
 from .component_group import ComponentGroup
 from .fields import (
     CoilField,
@@ -97,6 +102,7 @@ __all__ = [
     "Range",
     "RegisterField",
     "RegisterSpace",
+    "RepeatingGroupField",
     "UpdateListener",
     "WriteValidator",
     "coil",
@@ -110,6 +116,7 @@ __all__ = [
     "int64",
     "integer",
     "raw_register",
+    "repeating_group",
     "string",
     "uint32",
     "uint64",
