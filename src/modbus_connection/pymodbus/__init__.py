@@ -30,6 +30,7 @@ from pymodbus.exceptions import (
     ConnectionException,
     ModbusException,
     ModbusIOException,
+    ParameterException,
 )
 from pymodbus.pdu import ExceptionResponse, ModbusPDU
 from pymodbus.pdu.diag_message import DiagnosticBase
@@ -104,6 +105,19 @@ def _safe_close(client: ModbusBaseClient) -> None:
         pass
 
 
+def _connect_error(err: Exception, error_message: str) -> Exception:
+    """Translate a pymodbus construct/connect failure to the neutral type.
+
+    A ``ParameterException`` means the caller passed bad configuration, not that
+    the link is down — surface it as ``ValueError`` (as the framer guards do)
+    instead of masking a caller bug as a transient connection failure. Every
+    other transport failure becomes ``ModbusConnectionError``.
+    """
+    if isinstance(err, ParameterException):
+        return ValueError(str(err))
+    return ModbusConnectionError(error_message)
+
+
 async def _open(
     make_client: Callable[[Callable[[bool], None]], ModbusBaseClient],
     message_spacing: float,
@@ -112,21 +126,23 @@ async def _open(
     """Construct, connect, and wrap a pymodbus client.
 
     Maps every backend failure — a raising constructor, a raising ``connect()``,
-    or a falsy ``connect()`` — onto ``ModbusConnectionError`` so callers never
-    see a raw pymodbus exception. ``make_client`` receives the connection's
-    trace-connect hook and returns the not-yet-connected client.
+    or a falsy ``connect()`` — onto a neutral exception so callers never see a
+    raw pymodbus type: a bad-configuration ``ParameterException`` becomes
+    ``ValueError``, every other failure ``ModbusConnectionError``.
+    ``make_client`` receives the connection's trace-connect hook and returns the
+    not-yet-connected client.
     """
     connection = PymodbusConnection.__new__(PymodbusConnection)
     try:
         client = make_client(connection._on_trace_connect)
     except (ModbusException, OSError) as err:
-        raise ModbusConnectionError(error_message) from err
+        raise _connect_error(err, error_message) from err
     PymodbusConnection.__init__(connection, client, message_spacing)
     try:
         connected = await client.connect()
     except (ModbusException, OSError) as err:
         _safe_close(client)
-        raise ModbusConnectionError(error_message) from err
+        raise _connect_error(err, error_message) from err
     if not connected or not client.connected:
         _safe_close(client)
         raise ModbusConnectionError(error_message)

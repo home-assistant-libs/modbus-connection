@@ -8,7 +8,7 @@ pymodbus/tmodbus exception leaking through the abstraction.
 from __future__ import annotations
 
 import pytest
-from pymodbus.exceptions import ModbusException
+from pymodbus.exceptions import ModbusException, ParameterException
 from tmodbus.exceptions import TModbusError
 
 import modbus_connection.pymodbus as pymodbus_backend
@@ -43,6 +43,19 @@ async def test_pymodbus_connect_maps_raising_constructor(
 
     monkeypatch.setattr(pymodbus_backend, "AsyncModbusTcpClient", boom)
     with pytest.raises(ModbusConnectionError):
+        await pymodbus_connect_tcp("127.0.0.1", port=502)
+
+
+async def test_pymodbus_connect_maps_parameter_error_to_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A bad-configuration error is a caller bug, not a link failure: it must
+    # surface as ValueError, never be masked as ModbusConnectionError.
+    def boom(*args: object, **kwargs: object) -> object:
+        raise ParameterException("bad config")
+
+    monkeypatch.setattr(pymodbus_backend, "AsyncModbusTcpClient", boom)
+    with pytest.raises(ValueError, match="bad config"):
         await pymodbus_connect_tcp("127.0.0.1", port=502)
 
 
