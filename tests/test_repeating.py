@@ -41,16 +41,9 @@ async def test_count_register_sizes_the_instances() -> None:
         count=uint16(0),
         block={"w": integer(10, stride=5), "v": integer(11, stride=5)},
     )
-    data = await group.async_update()
-    assert data == {
-        "count": 2,
-        "instances": [{"w": 100, "v": 220}, {"w": 95, "v": 210}],
-    }
-    assert group.count == 2
-    assert group.instance(0) == {"w": 100, "v": 220}
-    assert group.instance(1) == {"w": 95, "v": 210}
-    with pytest.raises(KeyError):
-        group.instance(2)
+    instances = await group.async_update()
+    assert instances == [{"w": 100, "v": 220}, {"w": 95, "v": 210}]
+    assert len(instances) == 2  # count is just len()
 
 
 async def test_count_change_regrows_instances() -> None:
@@ -58,33 +51,27 @@ async def test_count_change_regrows_instances() -> None:
     unit.holding.update({0: 1, 10: 1, 15: 2, 20: 3})
     group = RepeatingGroup(unit, count=uint16(0), block={"w": integer(10, stride=5)})
 
-    assert (await group.async_update())["instances"] == [{"w": 1}]
+    assert await group.async_update() == [{"w": 1}]
 
     unit.holding[0] = 3  # device now reports three instances
-    data = await group.async_update()
-    assert data["count"] == 3
-    assert data["instances"] == [{"w": 1}, {"w": 2}, {"w": 3}]
+    assert await group.async_update() == [{"w": 1}, {"w": 2}, {"w": 3}]
 
 
 async def test_count_shrinks_and_drops_old_instances() -> None:
     unit = _unit()
     unit.holding.update({0: 3, 10: 1, 15: 2, 20: 3})
     group = RepeatingGroup(unit, count=uint16(0), block={"w": integer(10, stride=5)})
-    assert len((await group.async_update())["instances"]) == 3
+    assert len(await group.async_update()) == 3
 
     unit.holding[0] = 1
-    data = await group.async_update()
-    assert data["instances"] == [{"w": 1}]
-    with pytest.raises(KeyError):
-        group.instance(1)
+    assert await group.async_update() == [{"w": 1}]
 
 
 async def test_unimplemented_count_yields_no_instances() -> None:
     unit = _unit()
     unit.holding[0] = 0xFFFF  # uint16 unimplemented -> None -> 0 instances
     group = RepeatingGroup(unit, count=uint16(0), block={"w": integer(10, stride=5)})
-    data = await group.async_update()
-    assert data == {"count": 0, "instances": []}  # None normalises to 0 instances
+    assert await group.async_update() == []
 
 
 async def test_fixed_count_reads_in_one_round_trip() -> None:
@@ -93,8 +80,7 @@ async def test_fixed_count_reads_in_one_round_trip() -> None:
     unit = _Spy(inner)
     group = RepeatingGroup(unit, count=2, block={"w": integer(10, stride=1)})  # type: ignore[arg-type]
 
-    data = await group.async_update()
-    assert data == {"count": 2, "instances": [{"w": 1}, {"w": 2}]}
+    assert await group.async_update() == [{"w": 1}, {"w": 2}]
     # A fixed count needs no count read, so a single pooled holding read suffices.
     assert unit.reads == [("holding", 10, 2)]
 
@@ -106,9 +92,8 @@ async def test_count_register_costs_one_extra_first_trip_then_steady() -> None:
     group = RepeatingGroup(unit, count=uint16(0), block={"w": integer(10, stride=1)})  # type: ignore[arg-type]
 
     await group.async_update()
-    first = list(unit.reads)
     # First poll: read the count, then read count+instances once sized.
-    assert len(first) == 2
+    assert len(unit.reads) == 2
 
     unit.reads.clear()
     await group.async_update()
@@ -116,33 +101,18 @@ async def test_count_register_costs_one_extra_first_trip_then_steady() -> None:
     assert len(unit.reads) == 1
 
 
-async def test_header_fields_read_alongside() -> None:
-    unit = _unit()
-    unit.holding.update({0: 2, 1: 7, 10: 1, 15: 2})
-    group = RepeatingGroup(
-        unit,
-        count=uint16(0),
-        block={"w": integer(10, stride=5)},
-        header={"event": integer(1)},
-    )
-    data = await group.async_update()
-    assert data["header"] == {"event": 7}
-    assert group.header() == {"event": 7}
-    assert data["instances"] == [{"w": 1}, {"w": 2}]
-
-
 async def test_per_instance_scale_register() -> None:
     unit = _unit()
-    # Each instance scales off its own sunssf: inst1 sf at 2 = -2, inst2 sf at 4 = -1
+    # Each instance scales off its own sunssf: inst0 sf at 2 = -2, inst1 sf at 4 = -1
     unit.holding.update({0: 2, 2: (-2) & 0xFFFF, 4: (-1) & 0xFFFF, 10: 1234, 15: 5678})
     group = RepeatingGroup(
         unit,
         count=uint16(0),
         block={"w": uint16(10, scale_register=2, scale_register_stride=2, stride=5)},
     )
-    data = await group.async_update()
-    assert data["instances"][0]["w"] == pytest.approx(12.34)  # 1234 * 10**-2
-    assert data["instances"][1]["w"] == pytest.approx(567.8)  # 5678 * 10**-1
+    instances = await group.async_update()
+    assert instances[0]["w"] == pytest.approx(12.34)  # 1234 * 10**-2
+    assert instances[1]["w"] == pytest.approx(567.8)  # 5678 * 10**-1
 
 
 async def test_coil_block() -> None:
@@ -150,8 +120,7 @@ async def test_coil_block() -> None:
     unit.holding[0] = 2
     unit.coils.update({5: True, 6: False})
     group = RepeatingGroup(unit, count=uint16(0), block={"on": coil(5, stride=1)})
-    data = await group.async_update()
-    assert data["instances"] == [{"on": True}, {"on": False}]
+    assert await group.async_update() == [{"on": True}, {"on": False}]
 
 
 async def test_listeners_fire_once_per_update() -> None:

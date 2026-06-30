@@ -392,10 +392,10 @@ time — a SunSpec multiple-MPPT model (160) carries an `N` point saying how man
 modules follow, a multi-string meter reports its channel count. The number of
 repeats isn't known until the device is polled, and it can change.
 
-A `RepeatingGroup` reads the count on every poll and grows or shrinks the
-instances it reads to match. Give it the count source (a register field, or a
-fixed `int`), the per-instance `block` template (fields with a base address and a
-per-instance `stride`), and optional fixed `header` fields:
+A `RepeatingGroup` reads the count on every poll and reads that many instances.
+Give it the count source (a register field, or a fixed `int`) and the
+per-instance `block` template (fields with a base address and a per-instance
+`stride`); `async_update()` returns one dict per instance:
 
 ```python
 from modbus_connection.model import RepeatingGroup
@@ -409,20 +409,21 @@ group = RepeatingGroup(
         "dc_v": ss.uint16(10, scale_register=1, stride=20),
     },
 )
-data = await group.async_update()
-# {"count": 2, "instances": [{"dc_w": 95.0, "dc_v": 48.2}, {"dc_w": 90.0, ...}]}
-group.count          # 2
-group.instance(0)    # {"dc_w": 95.0, "dc_v": 48.2}  (0-based; == instances[0])
+instances = await group.async_update()
+# [{"dc_w": 95.0, "dc_v": 48.2}, {"dc_w": 90.0, "dc_v": 48.1}]
+len(instances)    # the count
+instances[0]      # {"dc_w": 95.0, "dc_v": 48.2}
 ```
 
-It's built on `ManualComponent`, so the count, header and every instance are
+It's built on `ManualComponent`, so every instance (plus the count register) is
 pooled into as few reads as possible, and a `sunssf` scale register is strided
-per instance (each scales off its own factor). The instance set is re-planned
-only when the count changes, so a steady count costs a single set of reads; the
-first poll, and any poll where the count changes, costs one extra round trip —
-the count must be read before the instances it sizes can be planned. An
-unimplemented or unreadable count reads as `0` instances. The group is read-only
-(drive writes through a `ManualComponent` or `Component`).
+per instance (each scales off its own factor — a shared scale factor at a fixed
+address is read just once). The plan is rebuilt only when the count changes, so a
+steady count costs a single set of reads; the first poll, and any poll where the
+count changes, costs one extra round trip — the count must be read before the
+instances it sizes can be planned. An unimplemented or unreadable count reads as
+`0` instances. The group is read-only (drive writes through a `ManualComponent`
+or `Component`).
 
 ## Testing
 
