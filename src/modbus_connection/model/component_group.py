@@ -120,14 +120,17 @@ class ComponentGroup:
             self._bit_items, ranges, max_gap=self._max_gap, max_span=self._max_span
         )
 
-    async def async_update(self) -> None:
+    async def async_update(self, *, notify: bool = True) -> None:
         """Refresh every component in one pooled set of reads, then notify each.
 
-        The block plan is built on the first call and reused on later polls.
+        The block plan is built on the first call and reused on later polls. Pass
+        ``notify=False`` to read without firing the components' listeners, for a
+        caller that notifies them itself.
         """
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
-        for component in self._components:
-            component.notify()
+        if notify:
+            for component in self._components:
+                component.notify()

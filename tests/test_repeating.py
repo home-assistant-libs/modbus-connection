@@ -174,6 +174,35 @@ async def test_write_through_instance() -> None:
     assert (await unit.read_holding_registers(31, 1)) == [42]
 
 
+async def test_instance_listener_fires_once_per_update() -> None:
+    # A register-count instance is read via ComponentGroup and notified via the
+    # parent's notify(); it must fire exactly once, not twice.
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 1, 31: 2})
+    inv = Inverter(unit)
+    await inv.async_update()  # sizes the two instances
+    calls: list[int] = []
+    inv.modules[0].add_update_listener(lambda: calls.append(1))
+    await inv.async_update()
+    assert calls == [1]
+
+
+async def test_static_instance_listener_fires_via_parent() -> None:
+    class Inverter(Component):
+        modules = repeating_group(1, Module, stride=20)
+
+    unit = _unit()
+    unit.holding[11] = 5
+    inv = Inverter(unit)
+    calls: list[int] = []
+    inv.modules[0].add_update_listener(lambda: calls.append(1))
+    await inv.async_update()
+    assert calls == [1]
+
+
 def test_factory_validates() -> None:
     with pytest.raises(ValueError, match="stride must be > 0"):
         repeating_group(uint16(8), Module, stride=0)

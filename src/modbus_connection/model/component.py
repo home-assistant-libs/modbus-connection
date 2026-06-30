@@ -236,7 +236,14 @@ class Component:
         )
 
     def notify(self) -> None:
-        """Fire every registered update listener."""
+        """Fire this component's update listeners, and each sub-instance's.
+
+        A :func:`repeating_group` instance is notified here too, so one update
+        notifies the whole component — its own subscribers and every instance's.
+        """
+        for group in self._groups.values():
+            for instance in group:
+                instance.notify()
         for listener in list(self._listeners):
             listener()
 
@@ -262,10 +269,6 @@ class Component:
             self.notify()
             return
 
-        # Fixed-count instances were folded into the read above; notify them.
-        for instance in self._static_instances:
-            instance.notify()
-
         # Register-count groups: size to the count just read, keeping survivors
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
@@ -285,10 +288,12 @@ class Component:
                 self._instance_group = None
             instances.extend(existing)
 
+        # Read register-count instances without notifying — self.notify() below
+        # fires every instance (static and register-count) in one place.
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
-            await self._instance_group.async_update()
+            await self._instance_group.async_update(notify=False)
         self.notify()
 
     @cached_property
