@@ -292,10 +292,20 @@ to agree across a `ComponentGroup`):
 ### Repeated sub-units (`stride` / `index`)
 
 Devices that expose several identical sub-units — heating circuits, channels,
-phases — repeat the same registers at a fixed step. Model the sub-unit once and
-instantiate it per index: pass `index` (1-based) to `Component(...)`, and give
-each field a `stride` (the address step between sub-units for *that* register).
-The absolute address read is `field.address + field.stride * (index - 1)`.
+phases — repeat the same registers at a fixed step.
+
+**Prefer [`repeating_group`](#runtime-counted-repeats-repeating_group) for these.**
+It models the sub-unit once as a `Component` and hands back a typed `list` of
+instances with pooled reads — and the count can be fixed *or read from the device
+at poll time*. The `index` / `stride` and `base_offset` knobs below are what it is
+built on; reach for them directly only for a layout it can't express — chiefly a
+sub-unit whose registers are *interleaved by type* across the map (a different
+stride per field).
+
+To use them directly: model the sub-unit once and instantiate it per index — pass
+`index` (1-based) to `Component(...)`, and give each field a `stride` (the address
+step between sub-units for *that* register). The absolute address read is
+`field.address + field.stride * (index - 1)`.
 
 Each field carries its own `stride` because devices usually group registers by
 type, not by sub-unit — so one logical sub-unit's fields are interleaved across
@@ -331,6 +341,11 @@ and writes alike. Scale-factor registers (`scale_register`) are **not** shifted 
 a SunSpec repeating block's scale factors live in the shared fixed block, so they
 keep their absolute address (a per-instance scale register stays governed by
 `scale_register_stride`).
+
+Building that instance list by hand, as above, is the manual form;
+`repeating_group` (below) is the same thing as a managed field — and the only way
+to size the list from a count the device reports at poll time. Prefer it unless
+you specifically need the loose list.
 
 ### Runtime-counted repeats (`repeating_group`)
 
