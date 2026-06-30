@@ -10,11 +10,13 @@ from typing import Any
 import pytest
 
 from modbus_connection.decode import decode_float32
+from modbus_connection.exceptions import ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
     ComponentGroup,
     coil,
+    discrete_input,
     enum,
     flags,
     float32,
@@ -29,6 +31,8 @@ from modbus_connection.model import (
 )
 from modbus_connection.model._planning import _plan_blocks as plan_blocks
 from modbus_connection.model.fields import (
+    CoilField,
+    DiscreteInputField,
     FloatField,
     IPv4Field,
     NumberField,
@@ -233,12 +237,12 @@ async def test_plan_is_built_once_across_polls() -> None:
     meter = _meter({0: 7})
     await meter.async_update()
     register_blocks = meter._register_blocks
-    coil_blocks = meter._coil_blocks
+    bit_blocks = meter._bit_blocks
     await meter.async_update()
     await meter.async_update()
     # The cached_property plan is the same object each poll, never rebuilt.
     assert meter._register_blocks is register_blocks
-    assert meter._coil_blocks is coil_blocks
+    assert meter._bit_blocks is bit_blocks
 
 
 async def test_dynamic_scale_register() -> None:
@@ -690,6 +694,14 @@ class _SpyUnit:
         self.reads.append(("input", address, count))
         return await self._inner.read_input_registers(address, count)
 
+    async def read_coils(self, address: int, count: int) -> list[bool]:
+        self.reads.append(("coil", address, count))
+        return await self._inner.read_coils(address, count)
+
+    async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
+        self.reads.append(("discrete", address, count))
+        return await self._inner.read_discrete_inputs(address, count)
+
     def __getattr__(self, name: str) -> object:
         return getattr(self._inner, name)
 
@@ -803,3 +815,145 @@ async def test_write_to_input_field_raises() -> None:
     unit = MockModbusConnection().for_unit(1)
     with pytest.raises(AttributeError, match="input"):
         await WritableInput(unit).write("x", 5)
+
+
+# -- discrete inputs (FC02) ---------------------------------------------------
+
+
+def test_coil_and_discrete_factories_return_their_field_types() -> None:
+    assert isinstance(coil(0), CoilField)
+    assert isinstance(discrete_input(0), DiscreteInputField)
+    assert coil(0).space == "coil"
+    assert discrete_input(0).space == "discrete"
+
+
+async def test_discrete_input_reads_via_fc02() -> None:
+    class Sensors(Component):
+        alarm = discrete_input(1)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.discrete_inputs[1] = True
+    inner.coils[1] = False  # would read False if (wrongly) read from coils
+    unit = _SpyUnit(inner)
+    sensors = Sensors(unit)  # type: ignore[arg-type]
+    await sensors.async_update()
+    assert sensors.alarm is True
+    assert ("discrete", 1, 1) in unit.reads
+
+
+async def test_component_mixes_coils_and_discrete_inputs() -> None:
+    class Mixed(Component):
+        relay = coil(0, writable=True)
+        fault = discrete_input(0)  # same address number, different space
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils[0] = True
+    inner.discrete_inputs[0] = False
+    unit = _SpyUnit(inner)
+    mixed = Mixed(unit)  # type: ignore[arg-type]
+    await mixed.async_update()
+    assert mixed.relay is True
+    assert mixed.fault is False
+    # Same address number but distinct spaces: never merged into one read.
+    assert ("coil", 0, 1) in unit.reads
+    assert ("discrete", 0, 1) in unit.reads
+
+
+async def test_write_to_discrete_input_raises() -> None:
+    class Sensors(Component):
+        alarm = discrete_input(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(AttributeError, match="read-only"):
+        await Sensors(unit).write("alarm", True)
+
+
+async def test_discrete_input_modbus_exception_decodes_to_none() -> None:
+    class Failing:
+        async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
+            raise ModbusExceptionError(2, "illegal data address")
+
+        async def read_coils(self, address: int, count: int) -> list[bool]:
+            raise AssertionError("no coils to read")  # no coil fields declared
+
+    class Sensors(Component):
+        alarm = discrete_input(0)
+
+    sensors = Sensors(Failing())  # type: ignore[arg-type]
+    await sensors.async_update()
+    assert sensors.alarm is None
+
+
+async def test_group_pools_discrete_inputs() -> None:
+    class A(Component):
+        a = discrete_input(0)
+
+    class B(Component):
+        b = discrete_input(1)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.discrete_inputs.update({0: True, 1: True})
+    unit = _SpyUnit(inner)
+    a, b = A(unit), B(unit)  # type: ignore[arg-type]
+    await ComponentGroup(unit, [a, b]).async_update()  # type: ignore[list-item]
+    assert a.a is True and b.b is True
+    # Both discrete inputs fetched in one pooled read.
+    assert ("discrete", 0, 2) in unit.reads
+
+
+async def test_coil_and_discrete_ranges_are_independent() -> None:
+    class IO(Component):
+        coil_ranges = ((0, 40),)  # coils: one readable block, 5..9 mergeable
+        discrete_ranges = ((0, 6), (9, 40))  # discrete: 7-8 unreadable
+        relay_lo = coil(5)
+        relay_hi = coil(9)
+        sensor_lo = discrete_input(5)
+        sensor_hi = discrete_input(9)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils.update({5: True, 9: True})
+    inner.discrete_inputs.update({5: True, 9: True})
+    unit = _SpyUnit(inner)
+    io = IO(unit)  # type: ignore[arg-type]
+    await io.async_update()
+    read = {
+        (space, start + i) for space, start, count in unit.reads for i in range(count)
+    }
+    # Coils 5 and 9 share one range, so the merged read covers 7-8 too.
+    assert ("coil", 7) in read
+    # Discrete 7-8 are unreadable, so the two discrete spans stay separate.
+    assert ("discrete", 7) not in read and ("discrete", 8) not in read
+    assert io.relay_lo and io.relay_hi and io.sensor_lo and io.sensor_hi
+
+
+async def test_group_rejects_mismatched_discrete_ranges() -> None:
+    class A(Component):
+        discrete_ranges = ((0, 10),)
+        a = discrete_input(0)
+
+    class B(Component):
+        discrete_ranges = ((0, 20),)
+        b = discrete_input(1)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="discrete_ranges"):
+        ComponentGroup(unit, [A(unit), B(unit)])
+
+
+async def test_group_reads_coils_and_discrete_inputs_separately() -> None:
+    class Relays(Component):
+        relay = coil(0)
+
+    class Sensors(Component):
+        fault = discrete_input(0)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils[0] = True
+    inner.discrete_inputs[0] = False
+    unit = _SpyUnit(inner)
+    relays, sensors = Relays(unit), Sensors(unit)  # type: ignore[arg-type]
+    await ComponentGroup(unit, [relays, sensors]).async_update()  # type: ignore[list-item]
+    assert relays.relay is True
+    assert sensors.fault is False
+    assert ("coil", 0, 1) in unit.reads
+    assert ("discrete", 0, 1) in unit.reads

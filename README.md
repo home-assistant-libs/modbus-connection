@@ -160,8 +160,9 @@ await meter.write("relay", True)
 
 Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
-`enum` / `flags` (map to an `IntEnum` / `IntFlag`), and `coil` (plus an optional
-`nan` sentinel, `word_order` and `byte_order`).
+`enum` / `flags` (map to an `IntEnum` / `IntFlag`), and the bit fields `coil`
+(FC01, writable) / `discrete_input` (FC02, read-only) — plus an optional `nan`
+sentinel, `word_order` and `byte_order`.
 
 Numeric fields decode affinely as `raw * scale + offset`. Pass `offset` for a
 device that reports a shifted value (e.g. `gauge(0, 0.1, offset=-100)` for a
@@ -330,6 +331,24 @@ component's own space. A `ComponentGroup` may mix input and holding components: 
 reads each space with its own block reads, and components only need matching
 `register_ranges` with others in the *same* space. Input registers are physically
 read-only, so writing a field on an `"input"` component raises.
+
+### Bit spaces (coils vs discrete inputs)
+
+Bits work the same way over their own pair of spaces: `coil` fields are read and
+written via the **coils** space (FC01), and `discrete_input` fields are read from
+the **discrete inputs** space (FC02, read-only). The space is carried by the field
+type, so a single component may declare both — they are planned and read
+separately (coil 12 ≠ discrete input 12), exactly like input vs holding registers:
+
+```python
+class IO(Component):
+    relay = coil(0, writable=True)       # FC01, read/write
+    fault = discrete_input(0)            # FC02, read-only — distinct from coil 0
+```
+
+Discrete inputs are physically read-only, so writing a `discrete_input` field
+raises. The two bit spaces have their own readable maps, so `coil_ranges`
+constrains coils and `discrete_ranges` constrains discrete inputs.
 
 ## Testing
 

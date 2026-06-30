@@ -9,16 +9,17 @@ from typing import TYPE_CHECKING, Any
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
-    CoilItem,
+    BitItem,
+    BitSpace,
     Range,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_coils,
+    _bulk_read_bits,
     _bulk_read_registers,
-    _plan_blocks,
+    _plan_bit_blocks,
     _plan_register_blocks,
 )
-from .fields import CoilField, RegisterField
+from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -27,12 +28,13 @@ UpdateListener = Callable[[], None]
 
 
 class Component:
-    """A device sub-system whose attributes map to registers and coils.
+    """A device sub-system whose attributes map to registers, coils and inputs.
 
-    Subclasses declare ``RegisterField`` / ``CoilField`` descriptors (usually via
-    the typed factories). Each component reads only its own registers, so it can
-    refresh independently; listeners registered via :meth:`add_update_listener`
-    fire after each update (so a consumer can subscribe per component).
+    Subclasses declare ``RegisterField`` / ``CoilField`` / ``DiscreteInputField``
+    descriptors (usually via the typed factories). Each component reads only its
+    own registers, so it can refresh independently; listeners registered via
+    :meth:`add_update_listener` fire after each update (so a consumer can subscribe
+    per component).
 
     A device that pools several components into one update fetches them together;
     declare :attr:`register_ranges` / :attr:`coil_ranges` (e.g. from the device's
@@ -41,7 +43,9 @@ class Component:
 
     A component's register fields all live in one register space: holding (FC03,
     the default) or input (FC04). Set :attr:`register_space` to ``"input"`` for a
-    read-only input-register sub-system. Input registers cannot be written.
+    read-only input-register sub-system. Input registers cannot be written. Bit
+    fields carry their own space: ``coil`` (FC01, writable) and ``discrete_input``
+    (FC02, read-only) may be mixed in one component and are read separately.
 
     For a device with repeated identical sub-units (e.g. heating circuits), model
     the sub-unit once and pass ``index`` (1-based) per instance; each field's
@@ -59,14 +63,17 @@ class Component:
     """
 
     _register_fields: dict[str, RegisterField[Any]] = {}
-    _coil_fields: dict[str, CoilField] = {}
+    _bit_fields: dict[str, _BitField] = {}
 
     # The device's readable address ranges; None falls back to gap-based planning.
     # Override on a subclass (or set per instance) to constrain reads to the
-    # addresses the device actually answers. ``register_ranges`` applies within
-    # this component's own register space.
+    # addresses the device actually answers. Each applies within its own address
+    # space — ``register_ranges`` to this component's register space, ``coil_ranges``
+    # to coils (FC01) and ``discrete_ranges`` to discrete inputs (FC02), which are
+    # distinct spaces with their own readable maps.
     register_ranges: tuple[Range, ...] | None = None
     coil_ranges: tuple[Range, ...] | None = None
+    discrete_ranges: tuple[Range, ...] | None = None
 
     # Block-planning limits, overridable per device. ``max_gap`` only applies to
     # gap-based planning (no ranges): spans within this many addresses merge into
@@ -82,24 +89,24 @@ class Component:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
-        coils: dict[str, CoilField] = {}
+        bits: dict[str, _BitField] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
                     registers[name] = value
-                elif isinstance(value, CoilField):
-                    coils[name] = value
+                elif isinstance(value, _BitField):
+                    bits[name] = value
         cls._register_fields = registers
-        cls._coil_fields = coils
+        cls._bit_fields = bits
 
     def __init__(self, unit: ModbusUnit, index: int = 1) -> None:
         self._unit = unit
         self._index = index
         self._values: dict[str, Any] = {}
-        self._coils: dict[str, bool | None] = {}
+        self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
 
-    def _address(self, field: RegisterField[Any] | CoilField) -> int:
+    def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return field.address + field.stride * (self._index - 1)
 
     # -- listeners -----------------------------------------------------------
@@ -144,9 +151,9 @@ class Component:
         return items
 
     @cached_property
-    def coil_items(self) -> list[CoilItem]:
-        """This component's coil read targets (absolute address, field, store)."""
-        return [(self._address(f), f, self._coils) for f in self._coil_fields.values()]
+    def bit_items(self) -> list[BitItem]:
+        """This component's bit read targets (coils and discrete inputs)."""
+        return [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
@@ -158,10 +165,13 @@ class Component:
         )
 
     @cached_property
-    def _coil_blocks(self) -> list[tuple[int, int]]:
-        spans = ((address, 1) for address, _, _ in self.coil_items)
-        return _plan_blocks(
-            spans, self.coil_ranges, max_gap=self.max_gap, max_span=self.max_span
+    def _bit_blocks(self) -> dict[BitSpace, list[tuple[int, int]]]:
+        ranges: dict[BitSpace, tuple[Range, ...] | None] = {
+            "coil": self.coil_ranges,
+            "discrete": self.discrete_ranges,
+        }
+        return _plan_bit_blocks(
+            self.bit_items, ranges, max_gap=self.max_gap, max_span=self.max_span
         )
 
     def notify(self) -> None:
@@ -174,13 +184,13 @@ class Component:
 
         Reads only this sub-system's own registers, so it can refresh on its own.
         A device that owns several components can instead pool their
-        :attr:`register_items` / :attr:`coil_items` into one bulk read. The block
+        :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
         )
-        await _bulk_read_coils(self._unit, self.coil_items, self._coil_blocks)
+        await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
         self.notify()
 
     # -- writes --------------------------------------------------------------
@@ -196,8 +206,9 @@ class Component:
         A register field is written with FC06 (single) for a one-word value or
         FC16 (multiple) for a wider one, unless the field sets ``force_fc16``,
         which uses FC16 even for a single register (for a device that honours only
-        FC16). Override :meth:`write` in a subclass for any device-specific write
-        sequencing.
+        FC16). Input registers (FC04) and discrete inputs (FC02) are physically
+        read-only, so writing one raises ``AttributeError``. Override :meth:`write`
+        in a subclass for any device-specific write sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
@@ -218,14 +229,15 @@ class Component:
                 await self._unit.write_registers(address, words)
             else:
                 await self._unit.write_register(address, words[0])
-        elif field in self._coil_fields:
-            coil_field = self._coil_fields[field]
-            if not coil_field.writable:
+        elif field in self._bit_fields:
+            bit_field = self._bit_fields[field]
+            # Discrete inputs (FC02) are read-only: their writable is always False.
+            if not bit_field.writable:
                 raise AttributeError(f"{field} is read-only")
-            if callable(coil_field.writable):
+            if callable(bit_field.writable):
                 # The validator vets/coerces the value and returns what to write,
                 # or raises to reject it.
-                value = coil_field.writable(value)
-            await self._unit.write_coil(self._address(coil_field), bool(value))
+                value = bit_field.writable(value)
+            await self._unit.write_coil(self._address(bit_field), bool(value))
         else:
             raise AttributeError(f"unknown field {field!r}")

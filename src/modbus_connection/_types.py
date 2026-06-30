@@ -18,3 +18,6 @@ with :data:`WordOrder` this spells out all four byte arrangements real devices
 use — ABCD (big/big), CDAB (little/big), BADC (big/little) and DCBA
 (little/little) for a two-register value.
 """
+
+BitSpace = Literal["coil", "discrete"]
+"""Which bit space a field is read from: coil (FC01) or discrete input (FC02)."""

@@ -21,8 +21,9 @@ A ``Component`` is a sub-system whose attributes are ``RegisterField`` /
     meter.voltage            # float | None
 
 Generic field types ship here: scaled / unscaled integers (16/32/64-bit), raw
-words, ``float32`` / ``float64``, strings, and ``enum`` / ``flags`` fields that
-map natively to an ``IntEnum`` / ``IntFlag``.
+words, ``float32`` / ``float64``, strings, ``enum`` / ``flags`` fields that map
+natively to an ``IntEnum`` / ``IntFlag``, and the bit fields ``coil`` (FC01) /
+``discrete_input`` (FC02).
 The SunSpec module :mod:`modbus_connection.model.sunspec` adds the same types
 pre-wired with their per-point "unimplemented" sentinels, plus the address types
 (``ipaddr`` / ``ipv6addr`` / ``eui48``).
@@ -47,7 +48,10 @@ Reads are pooled into block reads. A device may pass its readable address
 ``ranges`` so the planner merges only within a range and never reads across an
 unreadable gap. Register fields default to the holding space (FC03); a component
 that sets ``register_space = "input"`` is read with FC04 instead, and the two
-spaces are always planned and read separately.
+spaces are always planned and read separately. Bits work the same way over their
+own pair of spaces: ``coil`` fields are read/written via FC01 and
+``discrete_input`` fields are read from FC02 (read-only); a component may mix the
+two and they are planned and read separately.
 
 The implementation is split across :mod:`~modbus_connection.model.fields` (the
 field descriptors and factories), :mod:`~modbus_connection.model.component` and
@@ -57,14 +61,17 @@ here.
 
 from __future__ import annotations
 
+from .._types import BitSpace
 from ._planning import Range, RegisterSpace
 from .component import Component, UpdateListener
 from .component_group import ComponentGroup
 from .fields import (
     CoilField,
+    DiscreteInputField,
     RegisterField,
     WriteValidator,
     coil,
+    discrete_input,
     enum,
     flags,
     float32,
@@ -80,15 +87,18 @@ from .fields import (
 )
 
 __all__ = [
+    "BitSpace",
     "CoilField",
     "Component",
     "ComponentGroup",
+    "DiscreteInputField",
     "Range",
     "RegisterField",
     "RegisterSpace",
     "UpdateListener",
     "WriteValidator",
     "coil",
+    "discrete_input",
     "enum",
     "flags",
     "float32",
