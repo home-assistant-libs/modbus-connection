@@ -384,24 +384,25 @@ ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
 ```
 
-### Repeated sub-blocks counted at poll time (`RepeatingGroup`)
+### Repeated sub-blocks counted at poll time (`read_repeating`)
 
 `stride` / `index` repeat a sub-unit whose **count is known when you write the
 code**. Some devices instead advertise the count in a register, read at poll
 time — a SunSpec multiple-MPPT model (160) carries an `N` point saying how many
-modules follow, a multi-string meter reports its channel count. The number of
-repeats isn't known until the device is polled, and it can change.
+modules follow, a multi-string meter reports its channel count. The count isn't
+known until the device is polled.
 
-A `RepeatingGroup` reads the count on every poll and reads that many instances.
-Give it the count source (a register field, or a fixed `int`) and the
-per-instance `block` template (fields with a base address and a per-instance
-`stride`); `async_update()` returns one dict per instance:
+`read_repeating()` is a thin helper over `ManualComponent` for that case. Give it
+the count source (a register field, or a fixed `int`) and the per-instance
+`block` template (fields with a base address and a per-instance `stride`); it
+reads the count, expands the block into that many stride-offset copies, and
+returns one decoded dict per instance:
 
 ```python
-from modbus_connection.model import RepeatingGroup
+from modbus_connection.model import read_repeating
 from modbus_connection.model import sunspec as ss
 
-group = RepeatingGroup(
+instances = await read_repeating(
     unit,
     count=ss.uint16(8),                                   # model 160 "N" point
     block={
@@ -409,21 +410,17 @@ group = RepeatingGroup(
         "dc_v": ss.uint16(10, scale_register=1, stride=20),
     },
 )
-instances = await group.async_update()
 # [{"dc_w": 95.0, "dc_v": 48.2}, {"dc_w": 90.0, "dc_v": 48.1}]
 len(instances)    # the count
 instances[0]      # {"dc_w": 95.0, "dc_v": 48.2}
 ```
 
-It's built on `ManualComponent`, so every instance (plus the count register) is
-pooled into as few reads as possible, and a `sunssf` scale register is strided
-per instance (each scales off its own factor — a shared scale factor at a fixed
-address is read just once). The plan is rebuilt only when the count changes, so a
-steady count costs a single set of reads; the first poll, and any poll where the
-count changes, costs one extra round trip — the count must be read before the
-instances it sizes can be planned. An unimplemented or unreadable count reads as
-`0` instances. The group is read-only (drive writes through a `ManualComponent`
-or `Component`).
+Every instance is pooled into as few reads as possible, and a `sunssf` scale
+register is strided per instance (each scales off its own factor — a shared scale
+factor at a fixed address is read just once). A register `count` costs one extra
+read (it must be read before the instances it sizes). An unimplemented or
+unreadable count yields no instances. It reads only; drive writes through a
+`ManualComponent` or `Component`.
 
 ## Testing
 
