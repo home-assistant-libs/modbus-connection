@@ -110,11 +110,15 @@ def _connect_error(err: Exception, error_message: str) -> Exception:
 
     A ``ParameterException`` means the caller passed bad configuration, not that
     the link is down — surface it as ``ValueError`` (as the framer guards do)
-    instead of masking a caller bug as a transient connection failure. Every
-    other transport failure becomes ``ModbusConnectionError``.
+    instead of masking a caller bug as a transient connection failure. A
+    ``TimeoutError`` (the connect attempt did not complete in time) stays a
+    timeout, mirroring the operational path. Every other transport failure
+    becomes ``ModbusConnectionError``.
     """
     if isinstance(err, ParameterException):
         return ValueError(str(err))
+    if isinstance(err, TimeoutError):
+        return ModbusTimeoutError(str(err))
     return ModbusConnectionError(error_message)
 
 

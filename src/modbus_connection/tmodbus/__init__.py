@@ -107,14 +107,17 @@ async def _open(
 ) -> TmodbusConnection:
     """Construct and connect a tmodbus client, wrapping the result.
 
-    Maps every backend failure — a raising constructor or a raising
-    ``connect()`` — onto ``ModbusConnectionError`` so callers never see a raw
-    tmodbus exception (``TimeoutError`` is an ``OSError`` subclass and is
-    covered here too).
+    Maps every backend failure onto the neutral hierarchy so callers never see
+    a raw tmodbus exception: a ``TimeoutError`` (the connect attempt did not
+    complete in time) stays a timeout, mirroring the operational path; every
+    other transport failure — a raising constructor or a raising ``connect()`` —
+    becomes ``ModbusConnectionError``.
     """
     try:
         client = make_client()
         await client.connect()
+    except TimeoutError as err:
+        raise ModbusTimeoutError(str(err)) from err
     except (TModbusError, OSError) as err:
         raise ModbusConnectionError(error_message) from err
     return TmodbusConnection(client)
