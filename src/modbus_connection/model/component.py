@@ -130,8 +130,8 @@ class Component:
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
         # Fixed-count groups are static — build them now so their reads fold into
-        # the normal plan; register-count groups are sized later, in async_update.
-        self._static_instances: list[Component] = []
+        # the normal plan (see _static_instances); register-count groups are sized
+        # later, in async_update.
         for name, field in self._repeating_fields.items():
             if isinstance(field.count, int):
                 self._groups[name] = [
@@ -140,7 +140,6 @@ class Component:
                     )
                     for i in range(field.count)
                 ]
-                self._static_instances.extend(self._groups[name])
         # The pooled reader for the register-count instances; rebuilt only when an
         # instance set changes, reused while counts hold.
         self._instance_group: ComponentGroup | None = None
@@ -205,6 +204,17 @@ class Component:
         """
         own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
         return own + [it for inst in self._static_instances for it in inst.bit_items]
+
+    @cached_property
+    def _static_instances(self) -> list[Component]:
+        """Fixed-count groups' instances — static, so they fold into the normal
+        register / bit read instead of the register-count second pass."""
+        return [
+            instance
+            for name, field in self._repeating_fields.items()
+            if isinstance(field.count, int)
+            for instance in self._groups[name]
+        ]
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
