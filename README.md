@@ -350,6 +350,40 @@ Discrete inputs are physically read-only, so writing a `discrete_input` field
 raises. The two bit spaces have their own readable maps, so `coil_ranges`
 constrains coils and `discrete_ranges` constrains discrete inputs.
 
+### Runtime-built groups (`ManualComponent`)
+
+When the field layout comes from config (e.g. YAML) rather than a typed class —
+there's no `Component` subclass to declare — use a `ManualComponent`. It's the
+imperative twin: add targets by key at runtime and it pools them into as few
+reads as possible, mixing all four tables (holding, input, coils, discrete
+inputs) in one update.
+
+```python
+mc = ManualComponent(unit, max_gap=16)
+mc.add("flow_temp", gauge(40, 0.1))                 # holding (default)
+mc.add("energy",    uint32(2),  space="input")      # input registers
+mc.add("relay",     coil(5, writable=True))         # coils (FC01)
+mc.add("alarm",     discrete_input(9))              # discrete inputs (FC02)
+
+data = await mc.async_update()    # {"flow_temp": 21.5, "energy": 100000, ...}
+mc.get("flow_temp")               # 21.5
+await mc.write("relay", True)     # per-key write (holding / coils only)
+```
+
+A register target takes its `space` (`"holding"` / `"input"`) on `add()`; a bit
+target's space is fixed by the factory (`coil` / `discrete_input`). The field
+`address` is absolute (no `index` / `stride`), values come out via `get(key)` and
+the dict `async_update()` returns (no typed attribute access — there's no class),
+and `add()` / `remove()` invalidate the cached plan so it re-plans on the next
+update. It reuses the same planning, write (validator / `force_fc16`) and bit
+machinery as `Component`; it does not pool into a `ComponentGroup`. Readable
+ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges`
+/ `discrete_ranges` (any left unset falls back to gap-based planning):
+
+```python
+ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
+```
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an

@@ -19,6 +19,7 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
+from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -212,32 +213,18 @@ class Component:
         """
         if field in self._register_fields:
             register = self._register_fields[field]
-            if not register.writable:
-                raise AttributeError(f"{field} is read-only")
-            if self.register_space != "holding":
-                raise AttributeError(
-                    f"{field} is in the {self.register_space} register space, "
-                    "which is read-only"
-                )
-            if callable(register.writable):
-                # The validator vets/coerces the value and returns what to write,
-                # or raises to reject it.
-                value = register.writable(value)
-            address = self._address(register)
-            words = register.encode(value)
-            if register.force_fc16 or len(words) > 1:
-                await self._unit.write_registers(address, words)
-            else:
-                await self._unit.write_register(address, words[0])
+            await write_register_field(
+                self._unit,
+                register,
+                self._address(register),
+                self.register_space,
+                value,
+                label=field,
+            )
         elif field in self._bit_fields:
             bit_field = self._bit_fields[field]
-            # Discrete inputs (FC02) are read-only: their writable is always False.
-            if not bit_field.writable:
-                raise AttributeError(f"{field} is read-only")
-            if callable(bit_field.writable):
-                # The validator vets/coerces the value and returns what to write,
-                # or raises to reject it.
-                value = bit_field.writable(value)
-            await self._unit.write_coil(self._address(bit_field), bool(value))
+            await write_bit_field(
+                self._unit, bit_field, self._address(bit_field), value, label=field
+            )
         else:
             raise AttributeError(f"unknown field {field!r}")
