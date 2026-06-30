@@ -360,12 +360,13 @@ await inv.modules[2].write("dc_w", ...)   # writes go through the instance
 ```
 
 `count` is a `RegisterField` (read each poll) or a fixed `int`; instance *i* is
-read at `base_offset = i * stride`, so `stride` is the block length. The parent
-reads in two phases — its own fields and the count first, then the sized-out
-instances (pooled among themselves) — so a component with a `repeating_group`
-costs two reads per poll. An unimplemented or unreadable count yields no
-instances. A component with a `repeating_group` refreshes on its own; it is not
-pooled into a `ComponentGroup`.
+read at `base_offset = i * stride`, so `stride` is the block length. A fixed
+`int` count is static, so its instances fold into the component's normal read.
+A `RegisterField` count needs a second pass — the count is read first, then the
+sized-out instances (pooled among themselves) — since the count must be known
+before the instances it sizes can be planned. An unimplemented or unreadable
+count yields no instances. A component with a `repeating_group` refreshes on its
+own; it is not pooled into a `ComponentGroup`.
 
 ### Register spaces (holding vs input)
 

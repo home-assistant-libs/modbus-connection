@@ -98,6 +98,22 @@ async def test_fixed_int_count() -> None:
     assert [m.w for m in inv.modules] == [100, 95]
 
 
+async def test_fixed_count_reads_in_one_pass() -> None:
+    class Inverter(Component):
+        modules = repeating_group(2, Module, stride=2)
+
+    inner = _unit()
+    # module 0 at v=10/w=11, module 1 shifted +2 -> v=12/w=13; all adjacent
+    inner.holding.update({10: 1, 11: 2, 12: 3, 13: 4})
+    unit = _Spy(inner)
+    inv = Inverter(unit)  # type: ignore[arg-type]
+    await inv.async_update()
+    assert [(m.v, m.w) for m in inv.modules] == [(1, 2), (3, 4)]
+    # A fixed count is static: its instances fold into the normal read — one
+    # pooled block, no second pass.
+    assert unit.reads == [("holding", 10, 4)]
+
+
 async def test_parent_own_fields_read_alongside() -> None:
     class Inverter(Component):
         serial = integer(0, signed=False)

@@ -125,12 +125,24 @@ class Component:
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
-        # Repeating-group state: the live sub-component instances per group field,
-        # and the last-read count register value per group (keyed by field name).
+        # Repeating-group state, keyed by group-field name: the live sub-component
+        # instances per group, and the last-read count for register-count groups.
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
-        # The pooled reader for the current instance set; rebuilt only when an
-        # instance set changes (see ``_sync_groups``), reused while counts hold.
+        # Fixed-count groups are static — build them now so their reads fold into
+        # the normal plan; register-count groups are sized later, in async_update.
+        self._static_instances: list[Component] = []
+        for name, field in self._repeating_fields.items():
+            if isinstance(field.count, int):
+                self._groups[name] = [
+                    field.component_class(
+                        self._unit, base_offset=base_offset + i * field.stride
+                    )
+                    for i in range(field.count)
+                ]
+                self._static_instances.extend(self._groups[name])
+        # The pooled reader for the register-count instances; rebuilt only when an
+        # instance set changes, reused while counts hold.
         self._instance_group: ComponentGroup | None = None
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
@@ -158,8 +170,9 @@ class Component:
 
         Derived once from the static field layout and cached for the instance's
         life; do not mutate the field set afterwards. Includes each
-        :func:`repeating_group` count register, so the normal read fetches the
-        counts the instances are sized from.
+        :func:`repeating_group` count register and the registers of any
+        fixed-count group's instances, so the normal read fetches the counts and
+        every statically-sized instance in one pass.
         """
         items = []
         for field in self._register_fields.values():
@@ -177,12 +190,21 @@ class Component:
                     self.register_space,
                 )
             )
-        return items + self._count_items
+        return (
+            items
+            + self._count_items
+            + [it for inst in self._static_instances for it in inst.register_items]
+        )
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
-        """This component's bit read targets (coils and discrete inputs)."""
-        return [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
+        """This component's bit read targets (coils and discrete inputs).
+
+        Includes the bits of any fixed-count :func:`repeating_group` instances, so
+        they read in the normal pass alongside this component's own bits.
+        """
+        own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
+        return own + [it for inst in self._static_instances for it in inst.bit_items]
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
@@ -216,11 +238,11 @@ class Component:
         :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
 
-        A component with :func:`repeating_group` fields reads in two phases: the
-        normal read above fetches its own fields and each group's count register
-        (the counts are part of :attr:`register_items`), then — once the counts are
-        known — the sized-out sub-component instances are read, pooled among
-        themselves into as few reads as possible.
+        :func:`repeating_group` fields with a fixed count are static, so their
+        instances fold into that same read. A register-sourced count needs a
+        second pass: the first read fetches the count (it is part of
+        :attr:`register_items`), then the sized-out instances are read, pooled
+        among themselves into as few reads as possible.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
@@ -230,14 +252,17 @@ class Component:
             self.notify()
             return
 
-        # Resize each group's instances to the count just read, keeping survivors
+        # Fixed-count instances were folded into the read above; notify them.
+        for instance in self._static_instances:
+            instance.notify()
+
+        # Register-count groups: size to the count just read, keeping survivors
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
             if isinstance(field.count, int):
-                count = field.count
-            else:
-                value = self._counts.get(name)
-                count = max(0, int(value)) if value is not None else 0
+                continue  # static — already read in the pass above
+            value = self._counts.get(name)
+            count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
             if len(existing) != count:
                 existing = existing[:count] + [
