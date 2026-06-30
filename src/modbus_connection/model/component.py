@@ -231,9 +231,6 @@ class Component:
             return
 
         # Resize each group's instances to the count just read, keeping survivors
-        # (their listeners and cached plans) and building/dropping only the delta;
-        # instance i's address depends only on i, so survivors stay correct. A
-        # changed instance set invalidates the pooled reader.
         for name, field in self._repeating_fields.items():
             if isinstance(field.count, int):
                 count = field.count
