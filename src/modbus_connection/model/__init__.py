@@ -85,6 +85,7 @@ from .fields import (
     uint32,
     uint64,
 )
+from .manual import ManualComponent
 
 __all__ = [
     "BitSpace",
@@ -92,6 +93,7 @@ __all__ = [
     "Component",
     "ComponentGroup",
     "DiscreteInputField",
+    "ManualComponent",
     "Range",
     "RegisterField",
     "RegisterSpace",
