@@ -957,3 +957,69 @@ async def test_group_reads_coils_and_discrete_inputs_separately() -> None:
     assert sensors.fault is False
     assert ("coil", 0, 1) in unit.reads
     assert ("discrete", 0, 1) in unit.reads
+
+
+# -- base_offset (uniform per-instance address shift) -------------------------
+
+
+async def test_base_offset_shifts_every_field_and_bit() -> None:
+    class Block(Component):
+        w = integer(10, signed=False)
+        v = integer(11, signed=False)
+        on = coil(5)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({30: 100, 31: 220})  # 10, 11 shifted by +20
+    unit.coils[25] = True  # 5 shifted by +20
+    block = Block(unit, base_offset=20)
+    await block.async_update()
+    assert block.w == 100
+    assert block.v == 220
+    assert block.on is True
+
+
+async def test_base_offset_defaults_to_zero() -> None:
+    class Block(Component):
+        w = integer(10, signed=False)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[10] = 5
+    block = Block(unit)  # no base_offset -> addresses unchanged
+    await block.async_update()
+    assert block.w == 5
+
+
+async def test_base_offset_composes_with_index_stride() -> None:
+    class Block(Component):
+        w = integer(0, signed=False, stride=5)
+
+    unit = MockModbusConnection().for_unit(1)
+    # index=3 -> stride*(3-1)=10; +base_offset 100 -> address 0+10+100=110
+    unit.holding[110] = 7
+    block = Block(unit, index=3, base_offset=100)
+    await block.async_update()
+    assert block.w == 7
+
+
+async def test_base_offset_shifts_writes() -> None:
+    class Block(Component):
+        setpoint = integer(10, signed=False, writable=True)
+
+    unit, calls = _calls_recording_unit()
+    await Block(unit, base_offset=20).write("setpoint", 42)
+    assert calls == [("single", 30, 42)]
+    assert unit.holding[30] == 42
+
+
+async def test_base_offset_does_not_shift_scale_register() -> None:
+    # A SunSpec repeating block scales off a shared sunssf in the fixed block:
+    # the value address shifts with base_offset, the scale register does not.
+    class Block(Component):
+        w = gauge(10, 1.0, scale_register=2)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = (-2) & 0xFFFF  # sf = -2, at its fixed (unshifted) address
+    unit.holding[30] = 1234  # value at 10, shifted by +20
+    block = Block(unit, base_offset=20)
+    await block.async_update()
+    assert block.w == pytest.approx(12.34)  # 1234 * 10**-2

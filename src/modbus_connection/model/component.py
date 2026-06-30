@@ -55,6 +55,16 @@ class Component:
     often carry different strides, as devices group registers by type rather than
     by sub-unit.
 
+    When instead *every* field of a repeated sub-unit shares one step — the common
+    case for a self-contained, contiguous repeating block — pass ``base_offset``:
+    it shifts every field and bit address by that fixed amount, so you model the
+    block once at instance 0's addresses and read instance *i* with
+    ``base_offset = i * block_len``. It composes additively with ``index`` /
+    ``stride`` and applies to reads and writes alike. Scale-factor registers
+    (``scale_register``) are **not** shifted — a SunSpec repeating block's scale
+    factors live in the shared fixed block, so they keep their absolute address;
+    a per-instance scale register stays governed by ``scale_register_stride``.
+
     The read plan (which blocks to fetch) is derived from the static field layout
     and cached on first :meth:`async_update`, so each subsequent poll reuses it
     rather than re-planning. The fields and ``register_ranges`` / ``coil_ranges``
@@ -100,15 +110,18 @@ class Component:
         cls._register_fields = registers
         cls._bit_fields = bits
 
-    def __init__(self, unit: ModbusUnit, index: int = 1) -> None:
+    def __init__(
+        self, unit: ModbusUnit, index: int = 1, *, base_offset: int = 0
+    ) -> None:
         self._unit = unit
         self._index = index
+        self._base_offset = base_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
-        return field.address + field.stride * (self._index - 1)
+        return field.address + field.stride * (self._index - 1) + self._base_offset
 
     # -- listeners -----------------------------------------------------------
 
