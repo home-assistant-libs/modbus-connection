@@ -92,6 +92,47 @@ def _check(response: ModbusPDU) -> ModbusPDU:
     return response
 
 
+def _safe_close(client: ModbusBaseClient) -> None:
+    """Best-effort close used on the connect-failure path; never raises.
+
+    The connection attempt has already failed, so a teardown error here would
+    only mask the ``ModbusConnectionError`` we are about to raise.
+    """
+    try:
+        client.close()
+    except (ModbusException, OSError):
+        pass
+
+
+async def _open(
+    make_client: Callable[[Callable[[bool], None]], ModbusBaseClient],
+    message_spacing: float,
+    error_message: str,
+) -> PymodbusConnection:
+    """Construct, connect, and wrap a pymodbus client.
+
+    Maps every backend failure — a raising constructor, a raising ``connect()``,
+    or a falsy ``connect()`` — onto ``ModbusConnectionError`` so callers never
+    see a raw pymodbus exception. ``make_client`` receives the connection's
+    trace-connect hook and returns the not-yet-connected client.
+    """
+    connection = PymodbusConnection.__new__(PymodbusConnection)
+    try:
+        client = make_client(connection._on_trace_connect)
+    except (ModbusException, OSError) as err:
+        raise ModbusConnectionError(error_message) from err
+    PymodbusConnection.__init__(connection, client, message_spacing)
+    try:
+        connected = await client.connect()
+    except (ModbusException, OSError) as err:
+        _safe_close(client)
+        raise ModbusConnectionError(error_message) from err
+    if not connected or not client.connected:
+        _safe_close(client)
+        raise ModbusConnectionError(error_message)
+    return connection
+
+
 class _GenericDiagnostic(DiagnosticBase):
     """A diagnostics request (FC 0x08) with a caller-supplied sub-function.
 
@@ -193,7 +234,10 @@ class PymodbusConnection:
         return unsubscribe
 
     async def close(self) -> None:
-        self._client.close()
+        try:
+            self._client.close()
+        except (ModbusException, OSError) as err:
+            raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
 
@@ -421,21 +465,20 @@ async def connect_tcp(
     connection does not self-reconnect (``reconnect_delay=0``): on loss the owner
     recreates it.
     """
-    connection = PymodbusConnection.__new__(PymodbusConnection)
-    client = AsyncModbusTcpClient(
-        host,
-        port=port,
-        timeout=timeout,
-        name=name,
-        reconnect_delay=0,
-        framer=_socket_framer(framer),
-        trace_connect=connection._on_trace_connect,
+    framer_type = _socket_framer(framer)
+    return await _open(
+        lambda trace: AsyncModbusTcpClient(
+            host,
+            port=port,
+            timeout=timeout,
+            name=name,
+            reconnect_delay=0,
+            framer=framer_type,
+            trace_connect=trace,
+        ),
+        message_spacing,
+        f"could not connect to {host}:{port}",
     )
-    PymodbusConnection.__init__(connection, client, message_spacing)
-    if not await client.connect() or not client.connected:
-        client.close()
-        raise ModbusConnectionError(f"could not connect to {host}:{port}")
-    return connection
 
 
 async def connect_udp(
@@ -462,21 +505,20 @@ async def connect_udp(
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up. The
     connection does not self-reconnect (``reconnect_delay=0``).
     """
-    connection = PymodbusConnection.__new__(PymodbusConnection)
-    client = AsyncModbusUdpClient(
-        host,
-        port=port,
-        timeout=timeout,
-        name=name,
-        reconnect_delay=0,
-        framer=_socket_framer(framer),
-        trace_connect=connection._on_trace_connect,
+    framer_type = _socket_framer(framer)
+    return await _open(
+        lambda trace: AsyncModbusUdpClient(
+            host,
+            port=port,
+            timeout=timeout,
+            name=name,
+            reconnect_delay=0,
+            framer=framer_type,
+            trace_connect=trace,
+        ),
+        message_spacing,
+        f"could not connect to {host}:{port}",
     )
-    PymodbusConnection.__init__(connection, client, message_spacing)
-    if not await client.connect() or not client.connected:
-        client.close()
-        raise ModbusConnectionError(f"could not connect to {host}:{port}")
-    return connection
 
 
 async def connect_tls(
@@ -509,22 +551,20 @@ async def connect_tls(
     context = sslctx or AsyncModbusTlsClient.generate_ssl(
         certfile=certfile, keyfile=keyfile, password=password
     )
-    connection = PymodbusConnection.__new__(PymodbusConnection)
-    client = AsyncModbusTlsClient(
-        host,
-        sslctx=context,
-        port=port,
-        timeout=timeout,
-        name=name,
-        reconnect_delay=0,
-        framer=FramerType.TLS,
-        trace_connect=connection._on_trace_connect,
+    return await _open(
+        lambda trace: AsyncModbusTlsClient(
+            host,
+            sslctx=context,
+            port=port,
+            timeout=timeout,
+            name=name,
+            reconnect_delay=0,
+            framer=FramerType.TLS,
+            trace_connect=trace,
+        ),
+        message_spacing,
+        f"could not connect to {host}:{port}",
     )
-    PymodbusConnection.__init__(connection, client, message_spacing)
-    if not await client.connect() or not client.connected:
-        client.close()
-        raise ModbusConnectionError(f"could not connect to {host}:{port}")
-    return connection
 
 
 async def connect_serial(
@@ -551,21 +591,20 @@ async def connect_serial(
     Raises ``ModbusConnectionError`` if the port cannot be opened. The connection
     does not self-reconnect (``reconnect_delay=0``).
     """
-    connection = PymodbusConnection.__new__(PymodbusConnection)
-    client = AsyncModbusSerialClient(
-        port,
-        framer=_serial_framer(framer),
-        baudrate=baudrate,
-        bytesize=bytesize,
-        parity=parity,
-        stopbits=stopbits,
-        timeout=timeout,
-        name=name,
-        reconnect_delay=0,
-        trace_connect=connection._on_trace_connect,
+    framer_type = _serial_framer(framer)
+    return await _open(
+        lambda trace: AsyncModbusSerialClient(
+            port,
+            framer=framer_type,
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            timeout=timeout,
+            name=name,
+            reconnect_delay=0,
+            trace_connect=trace,
+        ),
+        message_spacing,
+        f"could not open serial port {port}",
     )
-    PymodbusConnection.__init__(connection, client, message_spacing)
-    if not await client.connect() or not client.connected:
-        client.close()
-        raise ModbusConnectionError(f"could not open serial port {port}")
-    return connection
