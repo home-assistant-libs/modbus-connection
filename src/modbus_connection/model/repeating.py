@@ -37,19 +37,20 @@ _HEADER_PREFIX = "header."
 def _at_instance(
     field: RegisterField[Any] | CoilField, index: int
 ) -> RegisterField[Any] | CoilField:
-    """A copy of ``field`` resolved to its absolute address for 1-based ``index``.
+    """A copy of ``field`` resolved to its absolute address for 0-based ``index``.
 
-    Mirrors ``Component`` addressing — ``address + stride * (index - 1)`` — but
-    bakes the result into a standalone field (``stride`` zeroed) so it can be read
-    by a :class:`ManualComponent`, which addresses absolutely. A ``sunssf`` scale
-    register is strided the same way so each instance scales off its own factor.
+    Addresses as ``address + stride * index`` — so instance 0 sits at the
+    template's own base address — and bakes the result into a standalone field
+    (``stride`` zeroed) so it can be read by a :class:`ManualComponent`, which
+    addresses absolutely. A ``sunssf`` scale register is strided the same way so
+    each instance scales off its own factor.
     """
     clone = copy.copy(field)
-    clone.address = field.address + field.stride * (index - 1)
+    clone.address = field.address + field.stride * index
     clone.stride = 0
     if isinstance(field, RegisterField) and field.scale_register is not None:
-        clone.scale_register = field.scale_register + field.scale_register_stride * (
-            index - 1
+        clone.scale_register = (
+            field.scale_register + field.scale_register_stride * index
         )
         clone.scale_register_stride = 0
     return clone
@@ -146,9 +147,12 @@ class RepeatingGroup:
         return _normalize(self._mc.get(_COUNT_KEY))
 
     def instance(self, index: int) -> dict[str, Any]:
-        """The decoded block values for 1-based ``index`` (KeyError if out of range)."""
+        """The decoded block values for 0-based ``index`` (KeyError if out of range).
+
+        ``instance(i)`` is the same mapping as the update's ``["instances"][i]``.
+        """
         configured = self._configured or 0
-        if not 1 <= index <= configured:
+        if not 0 <= index < configured:
             raise KeyError(index)
         return {name: self._mc.get(f"#{index}.{name}") for name in self._block}
 
@@ -163,7 +167,7 @@ class RepeatingGroup:
         for key in self._instance_keys:
             self._mc.remove(key)
         self._instance_keys = []
-        for index in range(1, count + 1):
+        for index in range(count):
             for name, field in self._block.items():
                 key = f"#{index}.{name}"
                 self._mc.add(key, _at_instance(field, index))
@@ -196,7 +200,7 @@ class RepeatingGroup:
         configured = self._configured or 0
         result: dict[str, Any] = {
             "count": self.count,
-            "instances": [self.instance(i) for i in range(1, configured + 1)],
+            "instances": [self.instance(i) for i in range(configured)],
         }
         if self._header:
             result["header"] = self.header()

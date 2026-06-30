@@ -412,7 +412,7 @@ group = RepeatingGroup(
 data = await group.async_update()
 # {"count": 2, "instances": [{"dc_w": 95.0, "dc_v": 48.2}, {"dc_w": 90.0, ...}]}
 group.count          # 2
-group.instance(1)    # {"dc_w": 95.0, "dc_v": 48.2}  (1-based)
+group.instance(0)    # {"dc_w": 95.0, "dc_v": 48.2}  (0-based; == instances[0])
 ```
 
 It's built on `ManualComponent`, so the count, header and every instance are

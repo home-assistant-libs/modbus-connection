@@ -47,10 +47,10 @@ async def test_count_register_sizes_the_instances() -> None:
         "instances": [{"w": 100, "v": 220}, {"w": 95, "v": 210}],
     }
     assert group.count == 2
-    assert group.instance(1) == {"w": 100, "v": 220}
-    assert group.instance(2) == {"w": 95, "v": 210}
+    assert group.instance(0) == {"w": 100, "v": 220}
+    assert group.instance(1) == {"w": 95, "v": 210}
     with pytest.raises(KeyError):
-        group.instance(3)
+        group.instance(2)
 
 
 async def test_count_change_regrows_instances() -> None:
@@ -76,7 +76,7 @@ async def test_count_shrinks_and_drops_old_instances() -> None:
     data = await group.async_update()
     assert data["instances"] == [{"w": 1}]
     with pytest.raises(KeyError):
-        group.instance(2)
+        group.instance(1)
 
 
 async def test_unimplemented_count_yields_no_instances() -> None:
