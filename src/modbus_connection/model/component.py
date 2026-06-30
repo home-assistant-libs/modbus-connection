@@ -157,7 +157,9 @@ class Component:
         """This component's register read targets, scale registers resolved.
 
         Derived once from the static field layout and cached for the instance's
-        life; do not mutate the field set afterwards.
+        life; do not mutate the field set afterwards. Includes each
+        :func:`repeating_group` count register, so the normal read fetches the
+        counts the instances are sized from.
         """
         items = []
         for field in self._register_fields.values():
@@ -175,7 +177,7 @@ class Component:
                     self.register_space,
                 )
             )
-        return items
+        return items + self._count_items
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
@@ -214,30 +216,21 @@ class Component:
         :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
 
-        A component with :func:`repeating_group` fields reads in two phases: its
-        own fields and each group's count register first, then — once the counts
-        are known — the sized-out sub-component instances. The instances are pooled
-        among themselves into as few reads as possible.
+        A component with :func:`repeating_group` fields reads in two phases: the
+        normal read above fetches its own fields and each group's count register
+        (the counts are part of :attr:`register_items`), then — once the counts are
+        known — the sized-out sub-component instances are read, pooled among
+        themselves into as few reads as possible.
         """
+        await _bulk_read_registers(
+            self._unit, self.register_items, self._register_blocks
+        )
+        await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
         if not self._repeating_fields:
-            await _bulk_read_registers(
-                self._unit, self.register_items, self._register_blocks
-            )
-            await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
             self.notify()
             return
 
-        # Phase 1: this component's own fields plus each group's count register.
-        static_items = self.register_items + self._count_items
-        static_blocks = _plan_register_blocks(
-            static_items,
-            {self.register_space: self.register_ranges},
-            max_gap=self.max_gap,
-            max_span=self.max_span,
-        )
-        await _bulk_read_registers(self._unit, static_items, static_blocks)
-        await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
-        # Phase 2: size the instances to the counts just read, then read them all.
+        # Size the instances to the counts just read, then read them.
         self._sync_groups()
         await self._read_instances()
         self.notify()
