@@ -91,11 +91,36 @@ class TmodbusConnection:
         return unsubscribe
 
     async def close(self) -> None:
-        await self._client.disconnect()
+        try:
+            await self._client.disconnect()
+        except (TModbusError, OSError) as err:
+            raise ModbusConnectionError(str(err)) from err
 
     def _notify_lost(self) -> None:
         for callback in list(self._lost_callbacks):
             callback()
+
+
+async def _open(
+    make_client: Callable[[], AsyncModbusClient],
+    error_message: str,
+) -> TmodbusConnection:
+    """Construct and connect a tmodbus client, wrapping the result.
+
+    Maps every backend failure onto the neutral hierarchy so callers never see
+    a raw tmodbus exception: a ``TimeoutError`` (the connect attempt did not
+    complete in time) stays a timeout, mirroring the operational path; every
+    other transport failure — a raising constructor or a raising ``connect()`` —
+    becomes ``ModbusConnectionError``.
+    """
+    try:
+        client = make_client()
+        await client.connect()
+    except TimeoutError as err:
+        raise ModbusTimeoutError(str(err)) from err
+    except (TModbusError, OSError) as err:
+        raise ModbusConnectionError(error_message) from err
+    return TmodbusConnection(client)
 
 
 def _map_errors[**P, R](
@@ -283,19 +308,17 @@ async def connect_tcp(
         raise ValueError(
             f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
         )
-    client = create(
-        host,
-        port,
-        unit_id=unit_id,
-        timeout=timeout,
-        auto_reconnect=False,
-        wait_between_requests=message_spacing,
+    return await _open(
+        lambda: create(
+            host,
+            port,
+            unit_id=unit_id,
+            timeout=timeout,
+            auto_reconnect=False,
+            wait_between_requests=message_spacing,
+        ),
+        f"could not connect to {host}:{port}",
     )
-    try:
-        await client.connect()
-    except (TimeoutError, TModbusConnectionError, OSError) as err:
-        raise ModbusConnectionError(f"could not connect to {host}:{port}") from err
-    return TmodbusConnection(client)
 
 
 async def connect_udp(
@@ -365,18 +388,16 @@ async def connect_serial(
         create = create_async_ascii_client
     else:
         raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
-    client = create(
-        port,
-        unit_id=unit_id,
-        baudrate=baudrate,
-        bytesize=bytesize,
-        parity=parity,
-        stopbits=stopbits,
-        auto_reconnect=False,
-        wait_between_requests=message_spacing,
+    return await _open(
+        lambda: create(
+            port,
+            unit_id=unit_id,
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            auto_reconnect=False,
+            wait_between_requests=message_spacing,
+        ),
+        f"could not open serial port {port}",
     )
-    try:
-        await client.connect()
-    except (TimeoutError, TModbusConnectionError, OSError) as err:
-        raise ModbusConnectionError(f"could not open serial port {port}") from err
-    return TmodbusConnection(client)

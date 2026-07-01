@@ -132,7 +132,9 @@ Both backends raise the same neutral types:
 
 - `ModbusError` — base class.
 - `ModbusConnectionError` — link down / not connected / transport failure.
-- `ModbusTimeoutError` — request sent, no valid response in time.
+- `ModbusTimeoutError` — an operation timed out: a request got no valid response
+  in time, or a connect attempt did not complete in time. Also a builtin
+  `TimeoutError`, so `except TimeoutError` catches it too.
 - `ModbusExceptionError` — device returned a Modbus exception response
   (`.exception_code` carries the raw code).
 

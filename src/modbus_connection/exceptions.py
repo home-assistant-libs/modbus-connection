@@ -14,8 +14,13 @@ class ModbusConnectionError(ModbusError):
     """The link is down: not connected, connection lost, or transport failure."""
 
 
-class ModbusTimeoutError(ModbusError):
-    """The request was sent but no (valid) response arrived in time."""
+class ModbusTimeoutError(ModbusError, TimeoutError):
+    """An operation timed out.
+
+    Either a request was sent and no (valid) response arrived in time, or a
+    connect attempt did not complete in time. Also a builtin ``TimeoutError``
+    (and therefore an ``OSError``), so ``except TimeoutError`` catches it too.
+    """
 
 
 class ModbusExceptionError(ModbusError):
