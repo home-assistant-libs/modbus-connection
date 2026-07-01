@@ -19,7 +19,7 @@ from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
-from .._types import BitSpace, ByteOrder, WordOrder
+from .._types import BitSpace, WordOrder
 from ..decode import (
     combine_words,
     decode_eui48,
@@ -233,7 +233,6 @@ class NumberField[T](_ScaledField[T]):
         signed: bool = True,
         enum_type: type[Enum] | None = None,
         word_order: WordOrder = "big",
-        byte_order: ByteOrder = "big",
         **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
@@ -241,31 +240,18 @@ class NumberField[T](_ScaledField[T]):
         # IntEnum / IntFlag to map the raw value through; None returns the raw int.
         self.enum_type = enum_type
         self.word_order = word_order
-        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
-        raw = combine_words(
-            words, word_order=self.word_order, byte_order=self.byte_order
-        )
+        raw = combine_words(words, word_order=self.word_order)
         if self.nan is not None and raw == self.nan:
             return None
         if self.enum_type is not None:
             # Map the signed or unsigned code, per the field's `signed` flag; the
             # nan check above still matches the raw (unsigned) sentinel pattern.
             return self._to_enum(
-                decode_int(
-                    words,
-                    signed=self.signed,
-                    word_order=self.word_order,
-                    byte_order=self.byte_order,
-                )
+                decode_int(words, signed=self.signed, word_order=self.word_order)
             )
-        value = decode_int(
-            words,
-            signed=self.signed,
-            word_order=self.word_order,
-            byte_order=self.byte_order,
-        )
+        value = decode_int(words, signed=self.signed, word_order=self.word_order)
         return self._scale(value, scale_exponent)
 
     def _to_enum(self, raw: int) -> Any:
@@ -294,12 +280,7 @@ class NumberField[T](_ScaledField[T]):
             raw = int(value)  # no transform: keep the value exact
         else:
             raw = round(self._unscale(value))
-        return encode_int(
-            raw,
-            count=self.count,
-            word_order=self.word_order,
-            byte_order=self.byte_order,
-        )
+        return encode_int(raw, count=self.count, word_order=self.word_order)
 
 
 class RawField(RegisterField[int]):
@@ -310,25 +291,16 @@ class RawField(RegisterField[int]):
         address: int,
         *,
         word_order: WordOrder = "big",
-        byte_order: ByteOrder = "big",
         **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
         self.word_order = word_order
-        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> int:
-        return combine_words(
-            words, word_order=self.word_order, byte_order=self.byte_order
-        )
+        return combine_words(words, word_order=self.word_order)
 
     def encode(self, value: Any) -> list[int]:
-        return encode_int(
-            int(value),
-            count=self.count,
-            word_order=self.word_order,
-            byte_order=self.byte_order,
-        )
+        return encode_int(int(value), count=self.count, word_order=self.word_order)
 
 
 class FloatField(_ScaledField[float]):
@@ -339,16 +311,14 @@ class FloatField(_ScaledField[float]):
         address: int,
         *,
         word_order: WordOrder = "big",
-        byte_order: ByteOrder = "big",
         **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
         self.word_order = word_order
-        self.byte_order = byte_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         decoder = decode_float64 if self.count == 4 else decode_float32
-        value = decoder(words, word_order=self.word_order, byte_order=self.byte_order)
+        value = decoder(words, word_order=self.word_order)
         if self.nan is not None and math.isnan(value):
             return None
         return self._scale(value, scale_exponent)
@@ -361,23 +331,17 @@ class FloatField(_ScaledField[float]):
         if self.scale != 1.0 or self.offset != 0.0:
             value = self._unscale(value)  # invert the affine transform decode applies
         encoder = encode_float64 if self.count == 4 else encode_float32
-        return encoder(value, word_order=self.word_order, byte_order=self.byte_order)
+        return encoder(value, word_order=self.word_order)
 
 
 class StringField(RegisterField[str]):
     """A fixed-length null-padded ASCII string over ``count`` registers."""
 
-    def __init__(
-        self, address: int, *, byte_order: ByteOrder = "big", **kwargs: Any
-    ) -> None:
-        super().__init__(address, **kwargs)
-        self.byte_order = byte_order
-
     def decode(self, words: list[int], scale_exponent: int | None = None) -> str:
-        return decode_string(words, byte_order=self.byte_order)
+        return decode_string(words)
 
     def encode(self, value: Any) -> list[int]:
-        return encode_string(value, length=self.count, byte_order=self.byte_order)
+        return encode_string(value, length=self.count)
 
 
 class IPv4Field(RegisterField[IPv4Address]):
@@ -471,7 +435,6 @@ def gauge(
     *,
     offset: float = 0.0,
     signed: bool = True,
-    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -487,15 +450,13 @@ def gauge(
     invert it as ``(value - offset) / scale``.
 
     Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``). Set
-    ``byte_order="little"`` for a device that byte-swaps within the register.
+    register (read as a signed int16 and applied as ``10**sf``).
     """
     return NumberField(
         address,
         scale=scale,
         offset=offset,
         signed=signed,
-        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -511,7 +472,6 @@ def integer(
     *,
     offset: float = 0.0,
     signed: bool = True,
-    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -527,14 +487,12 @@ def integer(
     read and inverted on write.
 
     Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``). Set
-    ``byte_order="little"`` for a device that byte-swaps within the register.
+    register (read as a signed int16 and applied as ``10**sf``).
     """
     return NumberField(
         address,
         offset=offset,
         signed=signed,
-        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -548,7 +506,6 @@ def integer(
 def raw_register(
     address: int,
     *,
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,
@@ -556,7 +513,6 @@ def raw_register(
     """A raw register word (no scaling or sign handling)."""
     return RawField(
         address,
-        byte_order=byte_order,
         stride=stride,
         writable=writable,
         force_fc16=force_fc16,
@@ -569,7 +525,6 @@ def uint32(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -580,7 +535,6 @@ def uint32(
         address,
         count=2,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         signed=False,
@@ -597,7 +551,6 @@ def int32(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -608,7 +561,6 @@ def int32(
         address,
         count=2,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         signed=True,
@@ -625,7 +577,6 @@ def float32(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -636,7 +587,6 @@ def float32(
         address,
         count=2,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         stride=stride,
@@ -652,7 +602,6 @@ def uint64(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -663,7 +612,6 @@ def uint64(
         address,
         count=4,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         signed=False,
@@ -680,7 +628,6 @@ def int64(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -691,7 +638,6 @@ def int64(
         address,
         count=4,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         signed=True,
@@ -708,7 +654,6 @@ def float64(
     scale: float = 1.0,
     offset: float = 0.0,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
@@ -719,7 +664,6 @@ def float64(
         address,
         count=4,
         word_order=word_order,
-        byte_order=byte_order,
         scale=scale,
         offset=offset,
         stride=stride,
@@ -733,7 +677,6 @@ def string(
     address: int,
     length: int,
     *,
-    byte_order: ByteOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,
@@ -742,7 +685,6 @@ def string(
     return StringField(
         address,
         count=length,
-        byte_order=byte_order,
         stride=stride,
         writable=writable,
         force_fc16=force_fc16,
@@ -756,7 +698,6 @@ def enum[E: IntEnum](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -775,7 +716,6 @@ def enum[E: IntEnum](
         signed=signed,
         enum_type=enum_type,
         word_order=word_order,
-        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,
@@ -790,7 +730,6 @@ def flags[F: IntFlag](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
     nan: int | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -806,7 +745,6 @@ def flags[F: IntFlag](
         signed=signed,
         enum_type=flag_type,
         word_order=word_order,
-        byte_order=byte_order,
         nan=nan,
         stride=stride,
         writable=writable,

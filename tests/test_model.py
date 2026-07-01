@@ -215,24 +215,6 @@ async def test_word_order_little() -> None:
     assert le.value == 100000
 
 
-async def test_byte_order_little() -> None:
-    class Swapped(Component):
-        reg16 = integer(0, signed=False, byte_order="little", writable=True)
-        reg32 = uint32(1, byte_order="little")
-
-    unit = MockModbusConnection().for_unit(1)
-    # Bytes swapped within each register: 0x3412 -> 0x1234, 0x3412/0x7856 -> 0x12345678
-    unit.holding.update({0: 0x3412, 1: 0x3412, 2: 0x7856})
-    dev = Swapped(unit)
-    await dev.async_update()
-    assert dev.reg16 == 0x1234
-    assert dev.reg32 == 0x12345678
-
-    # A write byte-swaps on the way back out.
-    await dev.write("reg16", 0x1234)
-    assert unit.holding[0] == 0x3412
-
-
 async def test_plan_is_built_once_across_polls() -> None:
     meter = _meter({0: 7})
     await meter.async_update()

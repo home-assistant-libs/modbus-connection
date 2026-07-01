@@ -9,10 +9,8 @@ callers who don't model a whole device can use them directly::
     power = decode_uint32(words)
 
 ``word_order`` selects the order of the registers themselves for multi-register
-values; ``byte_order`` selects the order of the two bytes within each register.
-Both default to ``"big"`` (the Modbus convention), so ABCD ordering is the
-default; set ``byte_order="little"`` for devices that byte-swap within a
-register.
+values; it defaults to ``"big"`` (the Modbus convention), so ABCD ordering is
+the default.
 """
 
 from __future__ import annotations
@@ -20,8 +18,7 @@ from __future__ import annotations
 import ipaddress
 import struct
 
-from ._types import ByteOrder, WordOrder
-from ._types import swap_bytes as _swap_bytes
+from ._types import WordOrder
 
 __all__ = [
     "combine_words",
@@ -41,20 +38,12 @@ __all__ = [
 ]
 
 
-def combine_words(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> int:
-    """Pack register words into one unsigned integer per word and byte order."""
+def combine_words(words: list[int], *, word_order: WordOrder = "big") -> int:
+    """Pack register words into one unsigned integer per word order."""
     ordered = words if word_order == "big" else list(reversed(words))
     raw = 0
     for word in ordered:
-        value = word & 0xFFFF
-        if byte_order == "little":
-            value = _swap_bytes(value)
-        raw = (raw << 16) | value
+        raw = (raw << 16) | (word & 0xFFFF)
     return raw
 
 
@@ -67,94 +56,59 @@ def decode_int(
     *,
     signed: bool,
     word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
 ) -> int:
     """Decode register words into a (signed or unsigned) integer of any width."""
-    raw = combine_words(words, word_order=word_order, byte_order=byte_order)
+    raw = combine_words(words, word_order=word_order)
     return _signed(raw, 16 * len(words)) if signed else raw
 
 
-def decode_uint16(words: list[int], *, byte_order: ByteOrder = "big") -> int:
+def decode_uint16(words: list[int]) -> int:
     """Decode one register as an unsigned 16-bit integer."""
-    return combine_words(words, byte_order=byte_order)
+    return combine_words(words)
 
 
-def decode_int16(words: list[int], *, byte_order: ByteOrder = "big") -> int:
+def decode_int16(words: list[int]) -> int:
     """Decode one register as a signed 16-bit integer."""
-    return _signed(combine_words(words, byte_order=byte_order), 16)
+    return _signed(combine_words(words), 16)
 
 
-def decode_uint32(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> int:
+def decode_uint32(words: list[int], *, word_order: WordOrder = "big") -> int:
     """Decode two registers as an unsigned 32-bit integer."""
-    return combine_words(words, word_order=word_order, byte_order=byte_order)
+    return combine_words(words, word_order=word_order)
 
 
-def decode_int32(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> int:
+def decode_int32(words: list[int], *, word_order: WordOrder = "big") -> int:
     """Decode two registers as a signed 32-bit integer."""
-    return _signed(
-        combine_words(words, word_order=word_order, byte_order=byte_order), 32
-    )
+    return _signed(combine_words(words, word_order=word_order), 32)
 
 
-def decode_uint64(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> int:
+def decode_uint64(words: list[int], *, word_order: WordOrder = "big") -> int:
     """Decode four registers as an unsigned 64-bit integer."""
-    return combine_words(words, word_order=word_order, byte_order=byte_order)
+    return combine_words(words, word_order=word_order)
 
 
-def decode_int64(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> int:
+def decode_int64(words: list[int], *, word_order: WordOrder = "big") -> int:
     """Decode four registers as a signed 64-bit integer."""
-    return _signed(
-        combine_words(words, word_order=word_order, byte_order=byte_order), 64
-    )
+    return _signed(combine_words(words, word_order=word_order), 64)
 
 
-def decode_float32(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> float:
+def decode_float32(words: list[int], *, word_order: WordOrder = "big") -> float:
     """Decode two registers as an IEEE-754 single-precision float."""
     ordered = words if word_order == "big" else list(reversed(words))
-    raw = b"".join((w & 0xFFFF).to_bytes(2, byte_order) for w in ordered)
+    raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in ordered)
     return struct.unpack(">f", raw)[0]
 
 
-def decode_float64(
-    words: list[int],
-    *,
-    word_order: WordOrder = "big",
-    byte_order: ByteOrder = "big",
-) -> float:
+def decode_float64(words: list[int], *, word_order: WordOrder = "big") -> float:
     """Decode four registers as an IEEE-754 double-precision float."""
     ordered = words if word_order == "big" else list(reversed(words))
-    raw = b"".join((w & 0xFFFF).to_bytes(2, byte_order) for w in ordered)
+    raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in ordered)
     return struct.unpack(">d", raw)[0]
 
 
-def decode_string(words: list[int], *, byte_order: ByteOrder = "big") -> str:
+def decode_string(words: list[int]) -> str:
     """Decode registers as a null-padded ASCII string (two characters per word)."""
-    raw = b"".join((w & 0xFFFF).to_bytes(2, byte_order) for w in words)
+    raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in words)
     return raw.decode("ascii", errors="ignore").rstrip("\x00")
 
 

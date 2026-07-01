@@ -29,33 +29,14 @@ def test_split_words() -> None:
     assert split_words(100000, count=2, word_order="little") == [0x86A0, 0x0001]
 
 
-def test_split_words_byte_order() -> None:
-    # The four byte arrangements of 0x12345678 (ABCD / CDAB / BADC / DCBA).
-    assert split_words(0x12345678, count=2) == [0x1234, 0x5678]
-    assert split_words(0x12345678, count=2, word_order="little") == [0x5678, 0x1234]
-    assert split_words(0x12345678, count=2, byte_order="little") == [0x3412, 0x7856]
-    assert split_words(
-        0x12345678, count=2, word_order="little", byte_order="little"
-    ) == [0x7856, 0x3412]
-
-
-def test_byte_order_round_trips() -> None:
-    # Every word/byte order round-trips through its matching decode.
+def test_word_order_round_trips() -> None:
+    # Both word orders round-trip through their matching decode.
     for word_order in ("big", "little"):
-        for byte_order in ("big", "little"):
-            words = encode_uint32(100000, word_order=word_order, byte_order=byte_order)
-            assert (
-                decode_uint32(words, word_order=word_order, byte_order=byte_order)
-                == 100000
-            )
-    assert (
-        decode_string(
-            encode_string("ABCD", length=3, byte_order="little"), byte_order="little"
-        )
-        == "ABCD"
-    )
+        words = encode_uint32(100000, word_order=word_order)
+        assert decode_uint32(words, word_order=word_order) == 100000
+    assert decode_string(encode_string("ABCD", length=3)) == "ABCD"
     assert decode_float32(
-        encode_float32(-7.25, byte_order="little"), byte_order="little"
+        encode_float32(-7.25, word_order="little"), word_order="little"
     ) == pytest.approx(-7.25)
 
 

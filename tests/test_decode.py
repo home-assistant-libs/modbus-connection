@@ -31,24 +31,6 @@ def test_combine_words_word_order() -> None:
     assert combine_words([0x86A0, 0x0001], word_order="little") == 100000
 
 
-def test_combine_words_byte_order() -> None:
-    # The four byte arrangements of a two-register value (minimalmodbus's
-    # BIG / LITTLE / BIG_SWAP / LITTLE_SWAP). Wire bytes 0x12 0x34 0x56 0x78
-    # decode to 0x12345678 under each ordering.
-    assert combine_words([0x1234, 0x5678]) == 0x12345678  # ABCD
-    assert combine_words([0x5678, 0x1234], word_order="little") == 0x12345678  # CDAB
-    assert combine_words([0x3412, 0x7856], byte_order="little") == 0x12345678  # BADC
-    assert (
-        combine_words([0x7856, 0x3412], word_order="little", byte_order="little")
-        == 0x12345678
-    )  # DCBA
-
-
-def test_byte_order_little_16() -> None:
-    assert decode_uint16([0x3412], byte_order="little") == 0x1234
-    assert decode_int16([0x00FF], byte_order="little") == -256  # 0xFF00
-
-
 def test_unsigned_and_signed_16() -> None:
     assert decode_uint16([0xFFFF]) == 65535
     assert decode_int16([0xFFFF]) == -1
@@ -84,17 +66,6 @@ def test_float_word_order_little() -> None:
 
 def test_string_strips_null_padding() -> None:
     assert decode_string([0x4142, 0x4344, 0x0000]) == "ABCD"
-
-
-def test_string_byte_order_little() -> None:
-    # Bytes swapped within each register still decode to "ABCD".
-    assert decode_string([0x4241, 0x4443, 0x0000], byte_order="little") == "ABCD"
-
-
-def test_float_byte_order_little() -> None:
-    words = list(struct.unpack(">HH", struct.pack(">f", 7.25)))
-    swapped = [((w & 0xFF) << 8) | (w >> 8) for w in words]
-    assert decode_float32(swapped, byte_order="little") == pytest.approx(7.25)
 
 
 def test_address_formats() -> None:
