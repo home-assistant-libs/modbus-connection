@@ -197,7 +197,13 @@ class Component:
                     self.register_space,
                 )
             )
-        return items + self._count_items + self._static_items("register_items")
+        static = [
+            item
+            for name in self._static_groups
+            for instance in self._groups[name]
+            for item in instance.register_items
+        ]
+        return items + self._count_items + static
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
@@ -207,16 +213,13 @@ class Component:
         they read in the normal pass alongside this component's own bits.
         """
         own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
-        return own + self._static_items("bit_items")
-
-    def _static_items(self, attr: str) -> list[Any]:
-        """The ``attr`` read targets of every fixed-count group's instances."""
-        return [
+        static = [
             item
             for name in self._static_groups
             for instance in self._groups[name]
-            for item in getattr(instance, attr)
+            for item in instance.bit_items
         ]
+        return own + static
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
