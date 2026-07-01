@@ -71,11 +71,19 @@ class TmodbusConnection:
     Inter-request spacing (``message_spacing``) is the transport's own job here:
     it maps to tmodbus's native ``wait_between_requests``, enforced inside the
     client's communication lock — so this wrapper carries no pacing state.
+
+    ``on_connection_lost`` fires at most once per connection. tmodbus exposes no
+    transport-level disconnect hook, so a drop is detected *reactively* — on the
+    next request that fails — rather than proactively like the pymodbus backend;
+    an idle link that drops is not noticed until the next request. Since the
+    connection never self-reconnects (the owner builds a new one on loss), the
+    first detected failure fires the callbacks and later failures are suppressed.
     """
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
         self._lost_callbacks = CallbackRegistry()
+        self._lost_fired = False
 
     @property
     def connected(self) -> bool:
@@ -94,6 +102,11 @@ class TmodbusConnection:
             raise ModbusConnectionError(str(err)) from err
 
     def _notify_lost(self) -> None:
+        # A request failed with a connection error. The link does not revive
+        # itself, so fire once and suppress the repeats from later failed requests.
+        if self._lost_fired:
+            return
+        self._lost_fired = True
         self._lost_callbacks.fire()
 
 
