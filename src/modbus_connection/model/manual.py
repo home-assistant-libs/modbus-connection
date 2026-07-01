@@ -94,11 +94,11 @@ class ManualComponent(_RepeatingGroups):
     def add(
         self,
         key: str,
-        target: RegisterField[Any] | _BitField,
+        target: RegisterField[Any] | _BitField | RepeatingGroupField[Any],
         *,
         space: RegisterSpace | None = None,
     ) -> None:
-        """Add a read target under ``key``; invalidates the cached plan.
+        """Add a read target under ``key``, replacing any existing one.
 
         ``target`` is a register field (from ``gauge`` / ``integer`` / ``uint32``
         / ``sunspec.*`` / ...) read from ``space`` ``"holding"`` (default) or
@@ -107,32 +107,22 @@ class ManualComponent(_RepeatingGroups):
         ``address`` is absolute. ``target`` may also be a :func:`repeating_group`
         (``space`` does not apply); its instances come out via :meth:`get`.
         """
-        self._values.pop(key, None)
+        self.remove(key)  # replace any existing target, and invalidate the plan
         if isinstance(target, RepeatingGroupField):
             if space is not None:
                 raise ValueError("space does not apply to a repeating_group")
-            self._registers.pop(key, None)
-            self._bits.pop(key, None)
-            self._static_groups.pop(key, None)
-            self._repeating_fields.pop(key, None)
-            self._groups.pop(key, None)
             if isinstance(target.count, int):
                 self._static_groups[key] = target
                 self._groups[key] = self._build_instances(target, 0, target.count)
             else:
                 self._repeating_fields[key] = target
-            self._instance_group = None
-            self._invalidate_group_cache()
-            self._plan = None
-            return
-        if isinstance(target, _BitField):
+        elif isinstance(target, _BitField):
             if space is not None:
                 raise ValueError(
                     "space is fixed by the field type for bits; "
                     "use coil() or discrete_input()"
                 )
             target.name = key  # the bit reader scatters into store[field.name]
-            self._registers.pop(key, None)
             self._bits[key] = target
         elif isinstance(target, RegisterField):
             register_space = space or "holding"
@@ -141,14 +131,12 @@ class ManualComponent(_RepeatingGroups):
                     f"register space must be 'holding' or 'input', got {space!r}"
                 )
             target.name = key  # the register reader scatters into store[field.name]
-            self._bits.pop(key, None)
             self._registers[key] = (target, register_space)
         else:
             raise TypeError(
                 f"target must be a RegisterField, a bit field or a repeating_group, "
                 f"got {type(target).__name__}"
             )
-        self._plan = None
 
     def remove(self, key: str) -> None:
         """Remove the target under ``key``; invalidates the cached plan."""

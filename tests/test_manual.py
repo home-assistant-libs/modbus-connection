@@ -324,3 +324,16 @@ async def test_adding_a_group_invalidates_the_folded_cache() -> None:
     await mc.async_update()
     assert [m.x for m in mc.get("extra")] == [7, 9]
     assert [m.w for m in mc.get("modules")] == [100]
+
+
+async def test_add_replaces_a_group_with_a_plain_register() -> None:
+    # Re-adding a key clears whatever was there — a group must not linger when the
+    # key is reused for a plain register (add() removes the key first).
+    unit = _unit()
+    unit.holding[5] = 42
+    mc = ManualComponent(unit)
+    mc.add("x", repeating_group(uint16(8), _Module, stride=20))
+    mc.add("x", integer(5))  # same key, now a plain register
+    data = await mc.async_update()
+    assert data["x"] == 42  # read as a register
+    assert mc.get("x") == 42  # no leftover group instances
