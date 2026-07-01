@@ -257,6 +257,20 @@ async def test_listeners_fire_on_update() -> None:
     assert calls == [1]  # no longer notified
 
 
+async def test_update_notifies_group_sub_instances() -> None:
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 100, 31: 95})  # count@8=2; two modules
+    mc = ManualComponent(unit)
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    await mc.async_update()  # size the group so its instances exist
+
+    calls: list[int] = []
+    for module in mc.get("modules"):
+        module.add_update_listener(lambda: calls.append(1))
+    await mc.async_update()
+    assert calls == [1, 1]  # each sub-instance's listener fires on update
+
+
 def test_add_validates_space_and_type() -> None:
     mc = ManualComponent(_unit())
     with pytest.raises(ValueError, match="register space"):
