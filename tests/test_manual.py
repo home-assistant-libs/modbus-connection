@@ -7,11 +7,13 @@ import pytest
 from modbus_connection.exceptions import ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
+    Component,
     ManualComponent,
     coil,
     discrete_input,
     gauge,
     integer,
+    repeating_group,
     uint32,
 )
 from modbus_connection.model.sunspec import uint16
@@ -19,6 +21,12 @@ from modbus_connection.model.sunspec import uint16
 
 def _unit() -> MockModbusUnit:
     return MockModbusConnection().for_unit(1)
+
+
+class _Module(Component):
+    """One repeating sub-unit, at instance 0's addresses."""
+
+    w = integer(11, signed=False)
 
 
 class _Spy:
@@ -251,5 +259,48 @@ def test_add_validates_space_and_type() -> None:
         mc.add("x", integer(0), space="coil")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="space is fixed"):
         mc.add("y", coil(0), space="coil")
-    with pytest.raises(TypeError, match="RegisterField or a bit field"):
+    with pytest.raises(TypeError, match="RegisterField, a bit field or a repeating"):
         mc.add("z", "not a field")  # type: ignore[arg-type]
+
+
+# -- repeating groups ---------------------------------------------------------
+
+
+async def test_repeating_group_register_count() -> None:
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 100, 31: 95})  # count@8=2; module 0 w@11, 1 w@31
+    mc = ManualComponent(unit)
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    assert mc.get("modules") == []  # not sized until the first update
+
+    await mc.async_update()
+    modules = mc.get("modules")
+    assert isinstance(modules[0], _Module)
+    assert [m.w for m in modules] == [100, 95]
+
+    unit.holding[8] = 1  # device now reports one module
+    await mc.async_update()
+    assert [m.w for m in mc.get("modules")] == [100]
+
+
+async def test_repeating_group_fixed_count_folds_into_read() -> None:
+    inner = _unit()
+    inner.holding.update({11: 100, 13: 95})  # stride 2 -> module 0 w@11, 1 w@13
+    unit = _Spy(inner)
+    mc = ManualComponent(unit)  # type: ignore[arg-type]
+    mc.add("modules", repeating_group(2, _Module, stride=2))
+    await mc.async_update()
+    assert [m.w for m in mc.get("modules")] == [100, 95]
+    # A fixed count is static, so its instances read in the one pooled block.
+    assert unit.reads == [("holding", 11, 3)]
+
+
+async def test_repeating_group_mixed_with_plain_targets() -> None:
+    unit = _unit()
+    unit.holding.update({0: 7, 8: 2, 11: 100, 31: 95})
+    mc = ManualComponent(unit)
+    mc.add("serial", integer(0, signed=False))
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    data = await mc.async_update()
+    assert data["serial"] == 7  # plain values still come out in the dict
+    assert [m.w for m in mc.get("modules")] == [100, 95]

@@ -447,8 +447,11 @@ target's space is fixed by the factory (`coil` / `discrete_input`). The field
 `address` is absolute (no `index` / `stride`), values come out via `get(key)` and
 the dict `async_update()` returns (no typed attribute access — there's no class),
 and `add()` / `remove()` invalidate the cached plan so it re-plans on the next
-update. It reuses the same planning, write (validator / `force_fc16`) and bit
-machinery as `Component`; it does not pool into a `ComponentGroup`. Readable
+update. A `repeating_group` can be `add()`ed like any other target; its instances
+come out via `get(key)` as a `list` of sub-components (sized at poll time for a
+register count). It reuses the same planning, write (validator / `force_fc16`),
+bit and repeating-group machinery as `Component`; it does not pool into a
+`ComponentGroup`. Readable
 ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges`
 / `discrete_ranges` (any left unset falls back to gap-based planning):
 
