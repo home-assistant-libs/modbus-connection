@@ -148,6 +148,23 @@ async def test_tls_verify_with_pinned_cafile(
         await conn.close()
 
 
+def test_build_tls_context_hostname_and_verify_flags() -> None:
+    """check_hostname toggles name matching without dropping cert verification."""
+    from modbus_connection.pymodbus import _build_tls_context
+
+    verifying = _build_tls_context(None, None, None, True, True)
+    assert verifying.check_hostname is True
+    assert verifying.verify_mode is ssl.CERT_REQUIRED
+
+    no_hostname = _build_tls_context(None, None, None, True, False)
+    assert no_hostname.check_hostname is False
+    assert no_hostname.verify_mode is ssl.CERT_REQUIRED  # still verifies the cert
+
+    unverified = _build_tls_context(None, None, None, False, True)
+    assert unverified.check_hostname is False  # check_hostname ignored
+    assert unverified.verify_mode is ssl.CERT_NONE
+
+
 async def test_tmodbus_tls_not_implemented() -> None:
     """tmodbus ships no TLS transport: connect_tls raises NotImplementedError."""
     with pytest.raises(NotImplementedError):
