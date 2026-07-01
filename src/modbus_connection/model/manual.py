@@ -18,8 +18,9 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
+from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
-from .component import RepeatingGroupField, UpdateListener, _RepeatingGroups
+from .component import RepeatingGroupField, UpdateListener
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
