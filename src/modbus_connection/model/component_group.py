@@ -126,11 +126,17 @@ class ComponentGroup:
         The block plan is built on the first call and reused on later polls. Pass
         ``notify=False`` to read without firing the components' listeners, for a
         caller that notifies them itself.
+
+        The pooled read fetches each member's own fields plus any
+        :func:`repeating_group` counts; a second pass then sizes and reads each
+        member's register-count groups, so those refresh inside the group too.
         """
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
+        for component in self._components:
+            await component.refresh_repeating_groups()
         if notify:
             for component in self._components:
                 component.notify()

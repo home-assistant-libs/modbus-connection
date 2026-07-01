@@ -380,8 +380,9 @@ read at `base_offset = i * stride`, so `stride` is the block length. A fixed
 A `RegisterField` count needs a second pass — the count is read first, then the
 sized-out instances (pooled among themselves) — since the count must be known
 before the instances it sizes can be planned. An unimplemented or unreadable
-count yields no instances. A component with a `repeating_group` refreshes on its
-own; it is not pooled into a `ComponentGroup`.
+count yields no instances. A component with a `repeating_group` can refresh on
+its own or be pooled in a `ComponentGroup` — the group reads the counts in its
+pooled read, then refreshes each member's groups.
 
 ### Register spaces (holding vs input)
 

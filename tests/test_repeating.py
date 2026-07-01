@@ -230,18 +230,21 @@ async def test_static_group_pooled_in_component_group() -> None:
     assert calls == [1]  # instance notified once, via the group's notify() cascade
 
 
-async def test_dynamic_group_not_updated_by_component_group() -> None:
-    # A register-count group is sized in the component's own async_update, which
-    # ComponentGroup does not call — so a group reads the count but never
-    # materialises the instances. Such a component must refresh on its own.
+async def test_dynamic_group_refreshed_by_component_group() -> None:
+    # ComponentGroup reads the count in its pooled read, then drives each member's
+    # refresh_repeating_groups() — so a register-count group updates in a group too.
     class Inverter(Component):
         modules = repeating_group(uint16(8), Module, stride=20)
 
+    class Meter(Component):
+        power = integer(50, signed=False)
+
     unit = _unit()
-    unit.holding.update({8: 2, 11: 100, 31: 95})
-    inv = Inverter(unit)
-    await ComponentGroup(unit, [inv]).async_update()
-    assert inv.modules == []
+    unit.holding.update({8: 2, 11: 100, 31: 95, 50: 7})
+    inv, meter = Inverter(unit), Meter(unit)
+    await ComponentGroup(unit, [inv, meter]).async_update()
+    assert [m.w for m in inv.modules] == [100, 95]
+    assert meter.power == 7
 
 
 def test_factory_validates() -> None:

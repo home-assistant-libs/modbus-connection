@@ -261,19 +261,27 @@ class Component:
         plan is built on the first call and reused on later polls.
 
         A :func:`repeating_group` field needs a second pass: the first read
-        fetches the count (it is part of :attr:`register_items`), then the
-        sized-out instances are read, pooled among themselves into as few reads
-        as possible.
+        fetches the count (it is part of :attr:`register_items`), then
+        :meth:`refresh_repeating_groups` reads the sized-out instances.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
-        if not self._repeating_fields:
-            self.notify()
-            return
+        await self.refresh_repeating_groups()
+        self.notify()
 
-        # Size each group to the count just read, keeping survivors
+    async def refresh_repeating_groups(self) -> None:
+        """Size each register-count group to the count just read, and read them.
+
+        The counts are already in ``self._counts`` (they are part of
+        :attr:`register_items`), so this is the second pass of an update. Reads the
+        instances pooled among themselves, without notifying — the caller does.
+        A :class:`ComponentGroup` calls this on each member after its pooled read,
+        so a member's register-count groups refresh inside the group too.
+        """
+        if not self._repeating_fields:
+            return
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
             value = self._counts.get(name)
@@ -289,14 +297,10 @@ class Component:
                 self._groups[name] = existing
                 self._instance_group = None
             instances.extend(existing)
-
-        # Read the instances without notifying — self.notify() below fires every
-        # instance in one place.
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
             await self._instance_group.async_update(notify=False)
-        self.notify()
 
     @cached_property
     def _count_items(self) -> list[RegisterItem]:
