@@ -21,3 +21,14 @@ use — ABCD (big/big), CDAB (little/big), BADC (big/little) and DCBA
 
 BitSpace = Literal["coil", "discrete"]
 """Which bit space a field is read from: coil (FC01) or discrete input (FC02)."""
+
+SocketFraming = Literal["socket", "rtu", "ascii"]
+"""Wire framing for a TCP/UDP connection: native Modbus (MBAP), RTU or ASCII."""
+
+SerialFraming = Literal["rtu", "ascii"]
+"""Wire framing for a serial connection: binary RTU or ASCII."""
+
+
+def swap_bytes(word: int) -> int:
+    """Exchange the two bytes of a 16-bit register word."""
+    return ((word & 0xFF) << 8) | ((word >> 8) & 0xFF)

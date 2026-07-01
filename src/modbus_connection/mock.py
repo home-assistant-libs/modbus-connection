@@ -17,8 +17,7 @@ Register / coil values are *value specs* — each store entry may be:
 Writes additionally fire any callbacks registered with ``unit.on_write(...)``,
 so a test can react to a write by mocking other registers (e.g. flip a "ready"
 flag once a command register is set). To simulate a device rejecting a write,
-arm ``unit.fail_write(address, error)``: the next write covering that address
-raises before mutating the store, so the value is left unchanged.
+arm ``unit.fail_write(address, error)``.
 """
 
 from __future__ import annotations
@@ -27,6 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from ._callbacks import CallbackRegistry
 from .exceptions import ModbusConnectionError
 
 __all__ = [
@@ -101,7 +101,7 @@ class MockModbusConnection:
     def __init__(self) -> None:
         self._units: dict[int, MockModbusUnit] = {}
         self._connected = True
-        self._lost_callbacks: list[Callable[[], None]] = []
+        self._lost_callbacks = CallbackRegistry()
 
     @property
     def connected(self) -> bool:
@@ -113,15 +113,7 @@ class MockModbusConnection:
         return self._units[unit_id]
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        self._lost_callbacks.append(callback)
-
-        def unsubscribe() -> None:
-            try:
-                self._lost_callbacks.remove(callback)
-            except ValueError:
-                pass
-
-        return unsubscribe
+        return self._lost_callbacks.subscribe(callback)
 
     async def close(self) -> None:
         self._connected = False
@@ -129,8 +121,7 @@ class MockModbusConnection:
     def simulate_connection_lost(self) -> None:
         """Flip the link down and fire every ``on_connection_lost`` callback."""
         self._connected = False
-        for callback in list(self._lost_callbacks):
-            callback()
+        self._lost_callbacks.fire()
 
 
 class MockModbusUnit:

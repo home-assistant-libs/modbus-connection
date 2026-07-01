@@ -11,6 +11,7 @@ from __future__ import annotations
 import struct
 
 from ._types import ByteOrder, WordOrder
+from ._types import swap_bytes as _swap_bytes
 
 __all__ = [
     "encode_float32",
@@ -25,11 +26,6 @@ __all__ = [
     "encode_uint64",
     "split_words",
 ]
-
-
-def _swap_bytes(word: int) -> int:
-    """Exchange the two bytes of a 16-bit register word."""
-    return ((word & 0xFF) << 8) | ((word >> 8) & 0xFF)
 
 
 def split_words(

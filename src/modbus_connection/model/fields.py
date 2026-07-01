@@ -77,9 +77,8 @@ _warned_unknown_enum: set[tuple[type, int]] = set()
 def _decimals(scale: float) -> int:
     """Number of decimals implied by a scale factor (0.1 -> 1, 2.5 -> 1, 10 -> 0).
 
-    A whole-number scale formats to no fractional digits and yields 0, so the
-    result stays an ``int``; a fractional scale (whether below or above 1) keeps
-    its decimals, so e.g. a 2.5 scale is rounded rather than truncated.
+    A fractional scale keeps its decimals, so a 2.5-scaled value rounds rather
+    than truncates.
     """
     return max(0, len(f"{scale:.10f}".rstrip("0").split(".")[1]))
 

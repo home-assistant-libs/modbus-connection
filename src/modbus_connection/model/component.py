@@ -35,43 +35,26 @@ class Component(_RepeatingGroups):
     Subclasses declare ``RegisterField`` / ``CoilField`` / ``DiscreteInputField``
     descriptors (usually via the typed factories). Each component reads only its
     own registers, so it can refresh independently; listeners registered via
-    :meth:`add_update_listener` fire after each update (so a consumer can subscribe
-    per component).
+    :meth:`add_update_listener` fire after each update.
 
-    A device that pools several components into one update fetches them together;
-    declare :attr:`register_ranges` / :attr:`coil_ranges` (e.g. from the device's
-    datasheet) — as class attributes on a subclass or per instance — so reads
-    never cross an unreadable gap.
+    Register fields live in one space, holding (FC03, default) or input (FC04) via
+    :attr:`register_space`; input registers are read-only. Bit fields carry their
+    own space — ``coil`` (FC01, writable) and ``discrete_input`` (FC02, read-only)
+    — may be mixed, and are read separately. Declare :attr:`register_ranges` /
+    :attr:`coil_ranges` / :attr:`discrete_ranges` (as class attributes or per
+    instance) so pooled reads never cross an unreadable gap.
 
-    A component's register fields all live in one register space: holding (FC03,
-    the default) or input (FC04). Set :attr:`register_space` to ``"input"`` for a
-    read-only input-register sub-system. Input registers cannot be written. Bit
-    fields carry their own space: ``coil`` (FC01, writable) and ``discrete_input``
-    (FC02, read-only) may be mixed in one component and are read separately.
+    Repeated identical sub-units are addressed per instance: pass ``index``
+    (1-based) with a per-field ``stride`` (the two compose as
+    ``field.address + field.stride * (index - 1)``), or, when the whole block
+    shifts uniformly, ``base_offset`` (added to every field and bit address, on
+    reads and writes). ``scale_register`` addresses are **not** shifted by
+    ``base_offset`` — a SunSpec block's scale factors sit in the shared fixed
+    block — but do honour ``scale_register_stride``.
 
-    For a device with repeated identical sub-units (e.g. heating circuits), model
-    the sub-unit once and pass ``index`` (1-based) per instance; each field's
-    ``stride`` is the address step between sub-units for that register, so the
-    absolute address is ``field.address + field.stride * (index - 1)``. Fields
-    often carry different strides, as devices group registers by type rather than
-    by sub-unit.
-
-    When instead *every* field of a repeated sub-unit shares one step — the common
-    case for a self-contained, contiguous repeating block — pass ``base_offset``:
-    it shifts every field and bit address by that fixed amount, so you model the
-    block once at instance 0's addresses and read instance *i* with
-    ``base_offset = i * block_len``. It composes additively with ``index`` /
-    ``stride`` and applies to reads and writes alike. Scale-factor registers
-    (``scale_register``) are **not** shifted — a SunSpec repeating block's scale
-    factors live in the shared fixed block, so they keep their absolute address;
-    a per-instance scale register stays governed by ``scale_register_stride``.
-
-    The read plan (which blocks to fetch) is derived from the static field layout
-    and cached on first :meth:`async_update`, so each subsequent poll reuses it
-    rather than re-planning. The fields and ``register_ranges`` / ``coil_ranges``
-    are read once at that point; mutating them afterwards is not supported — set
-    the ranges before the first update, and build a new component to change the
-    field layout.
+    The read plan is derived from the static field layout and cached on the first
+    :meth:`async_update`. The fields and ranges are read once then; to change the
+    layout, build a new component.
     """
 
     _register_fields: dict[str, RegisterField[Any]] = {}
@@ -244,17 +227,11 @@ class Component(_RepeatingGroups):
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
 
-        A field declared with a :data:`~modbus_connection.model.fields.WriteValidator`
-        callable for ``writable`` has that validator run against ``value`` first; it
-        returns the value to actually write (vetted or coerced), or raises to reject
-        it before anything is sent to the device.
-
-        A register field is written with FC06 (single) for a one-word value or
-        FC16 (multiple) for a wider one, unless the field sets ``force_fc16``,
-        which uses FC16 even for a single register (for a device that honours only
-        FC16). Input registers (FC04) and discrete inputs (FC02) are physically
-        read-only, so writing one raises ``AttributeError``. Override :meth:`write`
-        in a subclass for any device-specific write sequencing.
+        Applies the field's ``index`` / ``stride`` / ``base_offset`` to resolve the
+        address, then defers to the shared write path (``writable`` validator,
+        FC06 / FC16 / ``force_fc16``); see :func:`._writing.write_register_field`.
+        Writing a read-only field or space raises ``AttributeError``. Override in a
+        subclass for device-specific write sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]

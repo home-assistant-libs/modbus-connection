@@ -16,7 +16,7 @@ import ssl
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
-from typing import Any, Concatenate, Literal
+from typing import Any, Concatenate
 
 from pymodbus import FramerType
 from pymodbus.client import (
@@ -36,15 +36,14 @@ from pymodbus.pdu import ExceptionResponse, ModbusPDU
 from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
+from .._callbacks import CallbackRegistry
+from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
     ModbusTimeoutError,
 )
-
-SocketFraming = Literal["socket", "rtu", "ascii"]
-SerialFraming = Literal["rtu", "ascii"]
 
 __all__ = [
     "PymodbusConnection",
@@ -129,12 +128,11 @@ async def _open(
 ) -> PymodbusConnection:
     """Construct, connect, and wrap a pymodbus client.
 
-    Maps every backend failure — a raising constructor, a raising ``connect()``,
-    or a falsy ``connect()`` — onto a neutral exception so callers never see a
+    Maps every backend failure onto a neutral exception so callers never see a
     raw pymodbus type: a bad-configuration ``ParameterException`` becomes
-    ``ValueError``, every other failure ``ModbusConnectionError``.
-    ``make_client`` receives the connection's trace-connect hook and returns the
-    not-yet-connected client.
+    ``ValueError``, every other failure ``ModbusConnectionError``. ``make_client``
+    receives the connection's trace-connect hook and returns the not-yet-connected
+    client.
     """
     connection = PymodbusConnection.__new__(PymodbusConnection)
     try:
@@ -211,7 +209,7 @@ class PymodbusConnection:
         self._message_spacing = message_spacing
         self._request_lock = asyncio.Lock()
         self._last_request_finished_at = 0.0
-        self._lost_callbacks: list[Callable[[], None]] = []
+        self._lost_callbacks = CallbackRegistry()
 
     @asynccontextmanager
     async def _paced(self) -> AsyncIterator[None]:
@@ -243,15 +241,7 @@ class PymodbusConnection:
         return PymodbusUnit(self, unit_id)
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        self._lost_callbacks.append(callback)
-
-        def unsubscribe() -> None:
-            try:
-                self._lost_callbacks.remove(callback)
-            except ValueError:
-                pass
-
-        return unsubscribe
+        return self._lost_callbacks.subscribe(callback)
 
     async def close(self) -> None:
         try:
@@ -264,8 +254,7 @@ class PymodbusConnection:
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
         if not connecting:
-            for callback in list(self._lost_callbacks):
-                callback()
+            self._lost_callbacks.fire()
 
 
 class PymodbusUnit:
