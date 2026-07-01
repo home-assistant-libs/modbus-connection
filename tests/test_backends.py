@@ -15,7 +15,7 @@ from modbus_connection import (
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
-from .conftest import COILS, DISCRETE, HOLDING, INPUT, UNIT_ID
+from .conftest import COILS, DEVICE_ID, DISCRETE, HOLDING, INPUT, UNIT_ID
 
 BACKENDS = ["pymodbus", "tmodbus"]
 
@@ -89,6 +89,14 @@ async def test_write_coils_roundtrip(unit: tuple[str, ModbusUnit, Any]) -> None:
     _, u, _ = unit
     await u.write_coils(72, [True, False, True])
     assert await u.read_coils(72, 3) == [True, False, True]
+
+
+# -- device identification (FC43/14) ------------------------------------------
+
+
+async def test_read_device_identification(unit: tuple[str, ModbusUnit, Any]) -> None:
+    _, u, _ = unit
+    assert await u.read_device_identification() == DEVICE_ID
 
 
 # -- error semantics ----------------------------------------------------------
