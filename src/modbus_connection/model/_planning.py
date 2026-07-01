@@ -56,6 +56,25 @@ def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
     return None
 
 
+def _validate_ranges(ranges: tuple[Range, ...]) -> None:
+    """Reject reversed or overlapping readable ranges.
+
+    :func:`_range_of` maps an address to the *first* range that contains it, so
+    overlapping ranges would make block-merge decisions depend on declaration
+    order, and a reversed ``(low > high)`` range can never match. Both are config
+    errors, so fail loudly rather than mis-plan silently.
+    """
+    for low, high in ranges:
+        if low > high:
+            raise ValueError(f"readable range ({low}, {high}) is reversed: low > high")
+    ordered = sorted(ranges)
+    for (a_low, a_high), (b_low, b_high) in zip(ordered, ordered[1:], strict=False):
+        if b_low <= a_high:
+            raise ValueError(
+                f"readable ranges overlap: ({a_low}, {a_high}) and ({b_low}, {b_high})"
+            )
+
+
 def _plan_blocks(
     spans: Iterable[tuple[int, int]],
     ranges: tuple[Range, ...] | None = None,
@@ -74,6 +93,8 @@ def _plan_blocks(
     readable too), and never across a range boundary; reads are still clipped to
     the addresses actually used.
     """
+    if ranges is not None:
+        _validate_ranges(ranges)
     ordered = sorted(set(spans))
     if not ordered:
         return []

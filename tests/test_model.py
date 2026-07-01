@@ -544,6 +544,16 @@ def test_plan_blocks_range_aware_never_crosses_gap() -> None:
     assert (9, 4) in blocks
 
 
+def test_plan_blocks_rejects_overlapping_ranges() -> None:
+    with pytest.raises(ValueError, match="overlap"):
+        plan_blocks([(5, 1)], ((0, 40), (30, 60)))  # 30-40 in both ranges
+
+
+def test_plan_blocks_rejects_reversed_range() -> None:
+    with pytest.raises(ValueError, match="reversed"):
+        plan_blocks([(5, 1)], ((40, 0),))
+
+
 def test_plan_blocks_configurable_max_gap() -> None:
     spans = [(0, 1), (10, 1)]  # 10 apart
     assert plan_blocks(spans, max_gap=8) == [(0, 1), (10, 1)]  # gap too wide -> split
