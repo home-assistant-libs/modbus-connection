@@ -136,7 +136,7 @@ class ComponentGroup:
         )
         await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
         for component in self._components:
-            await component.update_repeating_groups()
+            await component.async_update_repeating_groups()
         if notify:
             for component in self._components:
                 component.notify()

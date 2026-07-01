@@ -230,13 +230,13 @@ class Component(_RepeatingGroups):
 
         A :func:`repeating_group` field needs a second pass: the first read
         fetches the count (it is part of :attr:`register_items`), then
-        :meth:`update_repeating_groups` reads the sized-out instances.
+        :meth:`async_update_repeating_groups` reads the sized-out instances.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
-        await self.update_repeating_groups()
+        await self.async_update_repeating_groups()
         self.notify()
 
     # -- writes --------------------------------------------------------------

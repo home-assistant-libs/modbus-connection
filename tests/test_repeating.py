@@ -232,7 +232,7 @@ async def test_static_group_pooled_in_component_group() -> None:
 
 async def test_dynamic_group_refreshed_by_component_group() -> None:
     # ComponentGroup reads the count in its pooled read, then drives each member's
-    # update_repeating_groups() — so a register-count group updates in a group too.
+    # async_update_repeating_groups() — so a register-count group updates in a group.
     class Inverter(Component):
         modules = repeating_group(uint16(8), Module, stride=20)
 

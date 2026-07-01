@@ -234,7 +234,7 @@ class ManualComponent(_RepeatingGroups):
         register_items, register_blocks, bit_items, bit_blocks = self._plan
         await _bulk_read_registers(self._unit, register_items, register_blocks)
         await _bulk_read_bits(self._unit, bit_items, bit_blocks)
-        await self.update_repeating_groups()
+        await self.async_update_repeating_groups()
         for listener in list(self._listeners):
             listener()
         return dict(self._values)
