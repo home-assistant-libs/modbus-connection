@@ -189,23 +189,17 @@ def _serial_framer(framer: SerialFraming) -> FramerType:
 
 
 def _build_tls_context(
-    certfile: str | None,
-    keyfile: str | None,
-    password: str | None,
     verify: bool | str,
     check_hostname: bool,
+    client_cert: str | None,
+    client_key: str | None,
+    client_key_password: str | None,
 ) -> ssl.SSLContext:
     """Build a client TLS context for ``connect_tls`` (blocking; run in a thread).
 
-    ``verify`` mirrors the ``httpx`` convention: ``True`` verifies the server
-    against the system trust store; ``False`` disables verification, for a device
-    with a self-signed certificate; a ``str`` is a path to a CA bundle (a file) or
-    a directory of CAs to verify against — the common case of pinning a device's
-    own self-signed certificate. ``check_hostname`` gates hostname matching while
-    still verifying the certificate (turn it off for a device reached by an
-    address its cert has no SAN for); it is ignored when ``verify`` is ``False``.
-    ``certfile`` / ``keyfile`` / ``password`` are the *client* certificate for
-    mutual TLS, applied independently of ``verify``.
+    ``verify`` / ``check_hostname`` are the *server* side (see ``connect_tls``);
+    ``client_cert`` / ``client_key`` / ``client_key_password`` are the *client*
+    certificate this side presents for mutual TLS, applied independently.
 
     Reads the system trust store and any cert files from disk, so callers offload
     it with :func:`asyncio.to_thread`.
@@ -222,8 +216,8 @@ def _build_tls_context(
             context.verify_mode = ssl.CERT_NONE
     if verify and not check_hostname:
         context.check_hostname = False  # still verifies the cert, skips the name
-    if certfile is not None:
-        context.load_cert_chain(certfile, keyfile, password)
+    if client_cert is not None:
+        context.load_cert_chain(client_cert, client_key, client_key_password)
     return context
 
 
@@ -576,18 +570,21 @@ async def connect_tls(
     port: int = 802,
     verify: bool | str = True,
     check_hostname: bool = True,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    client_key_password: str | None = None,
     sslctx: ssl.SSLContext | None = None,
-    certfile: str | None = None,
-    keyfile: str | None = None,
-    password: str | None = None,
     timeout: float = 3,
     name: str = "modbus_connection",
     message_spacing: float = 0.0,
 ) -> PymodbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection and return a live handle.
 
-    The wire framing is always TLS. ``verify`` controls how the server
-    certificate is checked (the ``httpx`` convention):
+    The wire framing is always TLS. Two groups of arguments split the *server*
+    side from the *client* side.
+
+    Server verification — ``verify`` controls how the device's certificate is
+    checked (the ``httpx`` convention):
 
     - ``True`` (default) — verify against the system trust store.
     - ``False`` — do not verify, for a device with a self-signed certificate.
@@ -597,10 +594,13 @@ async def connect_tls(
     ``check_hostname`` (default ``True``) gates hostname matching while still
     verifying the certificate — set it ``False`` for a device reached by an
     address its certificate has no SAN for; ignored when ``verify`` is ``False``.
-    ``certfile`` / ``keyfile`` / ``password`` are the *client* certificate for
-    mutual TLS, applied independently of ``verify``. Pass a fully-configured
-    ``sslctx`` to take full control; it overrides ``verify`` / ``check_hostname``
-    and the client-cert arguments.
+
+    Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
+    ``client_key_password`` are this side's own certificate, presented to the
+    device; independent of the server-verification arguments.
+
+    Pass a fully-configured ``sslctx`` to take full control; it overrides every
+    argument above.
 
     ``message_spacing`` is the minimum interval, in seconds, between consecutive
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
@@ -610,7 +610,12 @@ async def connect_tls(
     connection does not self-reconnect (``reconnect_delay=0``).
     """
     context = sslctx or await asyncio.to_thread(
-        _build_tls_context, certfile, keyfile, password, verify, check_hostname
+        _build_tls_context,
+        verify,
+        check_hostname,
+        client_cert,
+        client_key,
+        client_key_password,
     )
     return await _open(
         lambda trace: AsyncModbusTlsClient(
