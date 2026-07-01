@@ -24,8 +24,9 @@ class _RepeatingGroups:
     The host supplies ``_unit`` and, split by count kind, ``_static_groups``
     (fixed ``int``) and ``_repeating_fields`` (``RegisterField``). It calls
     :meth:`_build_groups` once to set up per-instance state (and build the static
-    instances), folds :attr:`_count_items` and :meth:`_static_group_items` into its
-    read plan, and awaits :meth:`refresh_repeating_groups` as the second pass.
+    instances), folds :attr:`_count_items` and the fixed-count instances' items
+    into its read plan, and awaits :meth:`update_repeating_groups` as the second
+    pass.
     """
 
     _unit: ModbusUnit
@@ -95,7 +96,7 @@ class _RepeatingGroups:
         for attr in ("_count_items", "_static_register_items", "_static_bit_items"):
             self.__dict__.pop(attr, None)
 
-    async def refresh_repeating_groups(self) -> None:
+    async def update_repeating_groups(self) -> None:
         """Size each register-count group to the count just read, and read them.
 
         The counts are already in ``self._counts`` (they are part of the read
