@@ -164,7 +164,7 @@ Generic field types ship here — `integer`, `gauge`, `raw_register`, `uint32` /
 `int32` / `uint64` / `int64`, `float32` / `float64`, `string`,
 `enum` / `flags` (map to an `IntEnum` / `IntFlag`), and the bit fields `coil`
 (FC01, writable) / `discrete_input` (FC02, read-only) — plus an optional `nan`
-sentinel, `word_order` and `byte_order`.
+sentinel and `word_order`.
 
 Numeric fields decode affinely as `raw * scale + offset`. Pass `offset` for a
 device that reports a shifted value (e.g. `gauge(0, 0.1, offset=-100)` for a
@@ -193,12 +193,9 @@ The SunSpec module `modbus_connection.model.sunspec` adds the same types pre-wir
 with their "unimplemented" sentinels, plus the address types (`ipaddr` /
 `ipv6addr` / `eui48`).
 
-`word_order` selects the order of the 16-bit registers in a multi-register value
-and `byte_order` the order of the two bytes within each register; both default to
-`"big"` (the Modbus convention). Together they spell out all four byte
-arrangements real devices use — ABCD, CDAB, BADC and DCBA for a two-register
-value — so a device that byte-swaps within a register decodes correctly with
-`byte_order="little"`.
+`word_order` selects the order of the 16-bit registers in a multi-register value;
+it defaults to `"big"` (the Modbus convention), covering the ABCD and CDAB
+arrangements (`word_order="little"` for CDAB).
 
 Shaping that neither covers — composing or transforming a value, packed
 dates/times — is left to the consumer via a private field + a `@property`, so

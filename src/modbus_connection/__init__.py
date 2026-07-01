@@ -14,7 +14,7 @@ Pick a backend to actually talk to a device:
 """
 
 from ._protocol import ModbusConnection, ModbusUnit
-from ._types import ByteOrder, WordOrder
+from ._types import WordOrder
 from .exceptions import (
     ModbusConnectionError,
     ModbusError,
@@ -23,7 +23,6 @@ from .exceptions import (
 )
 
 __all__ = [
-    "ByteOrder",
     "ModbusConnection",
     "ModbusConnectionError",
     "ModbusError",
