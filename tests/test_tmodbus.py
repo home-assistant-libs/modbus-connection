@@ -1,18 +1,21 @@
 """tmodbus-backend unit tests that don't need a live server.
 
 These exercise the seams the shared end-to-end suite can't: file records go
-through tmodbus's ``execute(pdu)`` path, and pymodbus's test server ships a
+through tmodbus's ``execute(pdu)`` path (and pymodbus's test server ships a
 broken dummy file-record handler, so the return-shape is verified here against
-tmodbus's own PDU decoding instead.
+tmodbus's own PDU decoding instead), and the reactive connection-lost detection.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 from tmodbus.pdu import ReadFileRecordPDU
 
-from modbus_connection.tmodbus import TmodbusUnit
+from modbus_connection import ModbusConnectionError
+from modbus_connection.tmodbus import TmodbusConnection, TmodbusUnit
 
 
 class _FakeClient:
@@ -59,3 +62,23 @@ async def test_read_file_record_builds_expected_request() -> None:
         9,
         3,
     )
+
+
+class _DroppingClient:
+    """A unit client whose reads always fail as a lost connection."""
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        raise TModbusConnectionError("link down")
+
+
+async def test_on_connection_lost_fires_once_across_repeated_failures() -> None:
+    conn = TmodbusConnection(object())  # type: ignore[arg-type]
+    calls: list[int] = []
+    conn.on_connection_lost(lambda: calls.append(1))
+    unit = TmodbusUnit(conn, _DroppingClient())  # type: ignore[arg-type]
+
+    for _ in range(3):
+        with pytest.raises(ModbusConnectionError):
+            await unit.read_holding_registers(0, 1)
+
+    assert calls == [1]  # detected reactively, fired once despite three failures
