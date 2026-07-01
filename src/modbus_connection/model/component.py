@@ -188,7 +188,7 @@ class Component(_RepeatingGroups):
                     self.register_space,
                 )
             )
-        return items + self._count_items + self._static_group_items("register_items")
+        return items + self._count_items + self._static_register_items
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
@@ -198,7 +198,7 @@ class Component(_RepeatingGroups):
         they read in the normal pass alongside this component's own bits.
         """
         own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
-        return own + self._static_group_items("bit_items")
+        return own + self._static_bit_items
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:

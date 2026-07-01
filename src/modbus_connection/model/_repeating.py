@@ -6,6 +6,7 @@ the group classifications and read the folded targets.
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from ._planning import RegisterItem
@@ -13,7 +14,7 @@ from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
-    from ._planning import RegisterSpace
+    from ._planning import BitItem, RegisterSpace
     from .component import Component, RepeatingGroupField
 
 
@@ -51,7 +52,7 @@ class _RepeatingGroups:
             for i in range(start, stop)
         ]
 
-    @property
+    @cached_property
     def _count_items(self) -> list[RegisterItem]:
         """Read targets for each register-count group's count register."""
         items = []
@@ -69,14 +70,30 @@ class _RepeatingGroups:
             )
         return items
 
-    def _static_group_items(self, attr: str) -> list[Any]:
-        """The ``attr`` read targets of every fixed-count group's instances."""
+    @cached_property
+    def _static_register_items(self) -> list[RegisterItem]:
+        """Register read targets of every fixed-count group's instances."""
         return [
             item
             for name in self._static_groups
             for instance in self._groups[name]
-            for item in getattr(instance, attr)
+            for item in instance.register_items
         ]
+
+    @cached_property
+    def _static_bit_items(self) -> list[BitItem]:
+        """Bit read targets of every fixed-count group's instances."""
+        return [
+            item
+            for name in self._static_groups
+            for instance in self._groups[name]
+            for item in instance.bit_items
+        ]
+
+    def _invalidate_group_cache(self) -> None:
+        """Drop the cached group read targets after group membership changes."""
+        for attr in ("_count_items", "_static_register_items", "_static_bit_items"):
+            self.__dict__.pop(attr, None)
 
     async def refresh_repeating_groups(self) -> None:
         """Size each register-count group to the count just read, and read them.

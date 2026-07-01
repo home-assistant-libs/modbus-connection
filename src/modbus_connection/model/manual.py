@@ -122,6 +122,7 @@ class ManualComponent(_RepeatingGroups):
             else:
                 self._repeating_fields[key] = target
             self._instance_group = None
+            self._invalidate_group_cache()
             self._plan = None
             return
         if isinstance(target, _BitField):
@@ -158,6 +159,7 @@ class ManualComponent(_RepeatingGroups):
         self._repeating_fields.pop(key, None)
         if self._groups.pop(key, None) is not None:
             self._instance_group = None
+        self._invalidate_group_cache()
         self._plan = None
 
     # -- values --------------------------------------------------------------
@@ -202,7 +204,7 @@ class ManualComponent(_RepeatingGroups):
         ]
         # Fold in each group's count register and any fixed-count instances, so the
         # normal read fetches the counts and static instances in one pass.
-        register_items += self._count_items + self._static_group_items("register_items")
+        register_items += self._count_items + self._static_register_items
         register_blocks = _plan_register_blocks(
             register_items,
             {"holding": self._holding_ranges, "input": self._input_ranges},
@@ -212,7 +214,7 @@ class ManualComponent(_RepeatingGroups):
         bit_items: list[BitItem] = [
             (field.address, field, self._values) for field in self._bits.values()
         ]
-        bit_items += self._static_group_items("bit_items")
+        bit_items += self._static_bit_items
         bit_blocks = _plan_bit_blocks(
             bit_items,
             {"coil": self._coil_ranges, "discrete": self._discrete_ranges},

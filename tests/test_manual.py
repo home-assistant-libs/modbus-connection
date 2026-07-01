@@ -29,6 +29,10 @@ class _Module(Component):
     w = integer(11, signed=False)
 
 
+class _Module2(Component):
+    x = integer(50, signed=False)
+
+
 class _Spy:
     """Wraps a unit and records every read and write call."""
 
@@ -304,3 +308,19 @@ async def test_repeating_group_mixed_with_plain_targets() -> None:
     data = await mc.async_update()
     assert data["serial"] == 7  # plain values still come out in the dict
     assert [m.w for m in mc.get("modules")] == [100, 95]
+
+
+async def test_adding_a_group_invalidates_the_folded_cache() -> None:
+    unit = _unit()
+    unit.holding.update({8: 1, 11: 100, 50: 7, 52: 9})
+    mc = ManualComponent(unit)
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    await mc.async_update()
+    assert [m.w for m in mc.get("modules")] == [100]
+
+    # Add a fixed-count group after the first update: its instances must fold into
+    # the rebuilt plan, not be lost to the cached (empty) static-items list.
+    mc.add("extra", repeating_group(2, _Module2, stride=2))
+    await mc.async_update()
+    assert [m.x for m in mc.get("extra")] == [7, 9]
+    assert [m.w for m in mc.get("modules")] == [100]
