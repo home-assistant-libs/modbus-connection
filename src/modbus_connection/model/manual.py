@@ -100,12 +100,9 @@ class ManualComponent(_RepeatingGroups):
     ) -> None:
         """Add a read target under ``key``, replacing any existing one.
 
-        ``target`` is a register field (from ``gauge`` / ``integer`` / ``uint32``
-        / ``sunspec.*`` / ...) read from ``space`` ``"holding"`` (default) or
-        ``"input"``, or a bit field from ``coil()`` (FC01) / ``discrete_input()``
-        (FC02) — whose own space is fixed, so ``space`` does not apply. The field's
-        ``address`` is absolute. ``target`` may also be a :func:`repeating_group`
-        (``space`` does not apply); its instances come out via :meth:`get`.
+        ``space`` applies to a register field — ``"holding"`` (default) or
+        ``"input"``; a bit field fixes its own space. The field's ``address`` is
+        absolute.
         """
         self.remove(key)  # replace any existing target, and invalidate the plan
         if isinstance(target, RepeatingGroupField):
@@ -153,11 +150,7 @@ class ManualComponent(_RepeatingGroups):
     # -- values --------------------------------------------------------------
 
     def get(self, key: str) -> Any:
-        """The value decoded for ``key`` on the last update (None if not yet read).
-
-        For a :func:`repeating_group` key, returns its ``list`` of sub-component
-        instances (empty before the first update sizes a register-count group).
-        """
+        """The value decoded for ``key`` on the last update (None if not yet read)."""
         if key in self._static_groups or key in self._repeating_fields:
             return self._groups.get(key, [])
         return self._values.get(key)
