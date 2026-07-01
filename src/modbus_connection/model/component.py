@@ -167,10 +167,7 @@ class Component(_RepeatingGroups):
         """This component's register read targets, scale registers resolved.
 
         Derived once from the static field layout and cached for the instance's
-        life; do not mutate the field set afterwards. Includes each
-        :func:`repeating_group` count register and, for fixed-count groups, their
-        instances' registers — so the normal read fetches the counts and every
-        static instance in one pass.
+        life; do not mutate the field set afterwards.
         """
         items = []
         for field in self._register_fields.values():
@@ -192,11 +189,7 @@ class Component(_RepeatingGroups):
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
-        """This component's bit read targets (coils and discrete inputs).
-
-        Includes the bits of any fixed-count :func:`repeating_group` instances, so
-        they read in the normal pass alongside this component's own bits.
-        """
+        """This component's bit read targets (coils and discrete inputs)."""
         own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
         return own + self._static_bit_items
 
@@ -220,11 +213,7 @@ class Component(_RepeatingGroups):
         )
 
     def notify(self) -> None:
-        """Fire this component's update listeners, and each sub-instance's.
-
-        A :func:`repeating_group` instance is notified here too, so one update
-        notifies the whole component — its own subscribers and every instance's.
-        """
+        """Fire this component's update listeners, and each sub-instance's."""
         for group in self._groups.values():
             for instance in group:
                 instance.notify()
