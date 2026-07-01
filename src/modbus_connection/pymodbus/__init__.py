@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import os
 import ssl
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
@@ -185,6 +186,37 @@ def _serial_framer(framer: SerialFraming) -> FramerType:
     if framer == "ascii":
         return FramerType.ASCII
     raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
+
+
+def _build_tls_context(
+    certfile: str | None,
+    keyfile: str | None,
+    password: str | None,
+    verify: bool | str,
+) -> ssl.SSLContext:
+    """Build a client TLS context for ``connect_tls``.
+
+    ``verify`` mirrors the ``httpx`` convention: ``True`` verifies the server
+    against the system trust store (with hostname checking); ``False`` disables
+    verification, for a device with a self-signed certificate; a ``str`` is a path
+    to a CA bundle (a file) or a directory of CAs to verify against — the common
+    case of pinning a device's own self-signed certificate. ``certfile`` /
+    ``keyfile`` / ``password`` are the *client* certificate for mutual TLS, applied
+    independently of ``verify``.
+    """
+    if isinstance(verify, str):
+        if os.path.isdir(verify):
+            context = ssl.create_default_context(capath=verify)
+        else:
+            context = ssl.create_default_context(cafile=verify)
+    else:
+        context = ssl.create_default_context()
+        if not verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+    if certfile is not None:
+        context.load_cert_chain(certfile, keyfile, password)
+    return context
 
 
 class PymodbusConnection:
@@ -534,6 +566,7 @@ async def connect_tls(
     host: str,
     *,
     port: int = 802,
+    verify: bool | str = True,
     sslctx: ssl.SSLContext | None = None,
     certfile: str | None = None,
     keyfile: str | None = None,
@@ -544,11 +577,19 @@ async def connect_tls(
 ) -> PymodbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection and return a live handle.
 
-    The wire framing is always TLS. Pass a fully-configured ``sslctx`` to control
-    server verification and trust; otherwise one is built from the optional
-    client ``certfile`` / ``keyfile`` / ``password`` (``sslctx`` takes precedence
-    over those). The generated context does **not** verify the server
-    certificate — supply your own ``sslctx`` to require verification.
+    The wire framing is always TLS. ``verify`` controls how the server
+    certificate is checked (the ``httpx`` convention):
+
+    - ``True`` (default) — verify against the system trust store, with hostname
+      checking.
+    - ``False`` — do not verify, for a device with a self-signed certificate.
+    - a path (``str``) — verify against a CA bundle (a file) or a directory of
+      CAs, e.g. to pin a device's own self-signed certificate.
+
+    ``certfile`` / ``keyfile`` / ``password`` are the *client* certificate for
+    mutual TLS, applied independently of ``verify``. Pass a fully-configured
+    ``sslctx`` to take full control; it overrides ``verify`` and the client-cert
+    arguments.
 
     ``message_spacing`` is the minimum interval, in seconds, between consecutive
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
@@ -557,9 +598,7 @@ async def connect_tls(
     Raises ``ModbusConnectionError`` if the connection cannot be established. The
     connection does not self-reconnect (``reconnect_delay=0``).
     """
-    context = sslctx or AsyncModbusTlsClient.generate_ssl(
-        certfile=certfile, keyfile=keyfile, password=password
-    )
+    context = sslctx or _build_tls_context(certfile, keyfile, password, verify)
     return await _open(
         lambda trace: AsyncModbusTlsClient(
             host,
