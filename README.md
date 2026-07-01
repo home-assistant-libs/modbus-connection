@@ -294,10 +294,20 @@ to agree across a `ComponentGroup`):
 ### Repeated sub-units (`stride` / `index`)
 
 Devices that expose several identical sub-units — heating circuits, channels,
-phases — repeat the same registers at a fixed step. Model the sub-unit once and
-instantiate it per index: pass `index` (1-based) to `Component(...)`, and give
-each field a `stride` (the address step between sub-units for *that* register).
-The absolute address read is `field.address + field.stride * (index - 1)`.
+phases — repeat the same registers at a fixed step.
+
+**Prefer [`repeating_group`](#runtime-counted-repeats-repeating_group) for these.**
+It models the sub-unit once as a `Component` and hands back a typed `list` of
+instances with pooled reads — and the count can be fixed *or read from the device
+at poll time*. The `index` / `stride` and `base_offset` knobs below are what it is
+built on; reach for them directly only for a layout it can't express — chiefly a
+sub-unit whose registers are *interleaved by type* across the map (a different
+stride per field).
+
+To use them directly: model the sub-unit once and instantiate it per index — pass
+`index` (1-based) to `Component(...)`, and give each field a `stride` (the address
+step between sub-units for *that* register). The absolute address read is
+`field.address + field.stride * (index - 1)`.
 
 Each field carries its own `stride` because devices usually group registers by
 type, not by sub-unit — so one logical sub-unit's fields are interleaved across
@@ -333,6 +343,48 @@ and writes alike. Scale-factor registers (`scale_register`) are **not** shifted 
 a SunSpec repeating block's scale factors live in the shared fixed block, so they
 keep their absolute address (a per-instance scale register stays governed by
 `scale_register_stride`).
+
+Building that instance list by hand, as above, is the manual form;
+`repeating_group` (below) is the same thing as a managed field — and the only way
+to size the list from a count the device reports at poll time. Prefer it unless
+you specifically need the loose list.
+
+### Runtime-counted repeats (`repeating_group`)
+
+`stride` / `base_offset` cover repeats whose **count is known when you write the
+code**. Some devices instead advertise the count in a register, read at poll time
+— a SunSpec multiple-MPPT model (160) carries an `N` point saying how many modules
+follow. `repeating_group` is a field for that: model one instance as a `Component`,
+and the parent reads the count each poll and exposes a `list` of that many
+instances, each fully typed:
+
+```python
+from modbus_connection.model import Component, integer, repeating_group
+from modbus_connection.model.sunspec import uint16
+
+class MPPTModule(Component):                 # one module, at instance 0's addresses
+    dc_w = integer(11, scale_register=2)
+    dc_v = integer(10, scale_register=1)
+
+class Inverter(Component):
+    modules = repeating_group(uint16(8), MPPTModule, stride=20)  # N at register 8
+
+inv = Inverter(unit)
+await inv.async_update()
+inv.modules                # list[MPPTModule]
+inv.modules[0].dc_w        # typed per-instance access
+await inv.modules[2].write("dc_w", ...)   # writes go through the instance
+```
+
+`count` is a `RegisterField` (read each poll) or a fixed `int`; instance *i* is
+read at `base_offset = i * stride`, so `stride` is the block length. A fixed
+`int` count is static, so its instances fold into the component's normal read.
+A `RegisterField` count needs a second pass — the count is read first, then the
+sized-out instances (pooled among themselves) — since the count must be known
+before the instances it sizes can be planned. An unimplemented or unreadable
+count yields no instances. A component with a `repeating_group` can refresh on
+its own or be pooled in a `ComponentGroup` — the group reads the counts in its
+pooled read, then refreshes each member's groups.
 
 ### Register spaces (holding vs input)
 
@@ -397,8 +449,11 @@ target's space is fixed by the factory (`coil` / `discrete_input`). The field
 `address` is absolute (no `index` / `stride`), values come out via `get(key)` and
 the dict `async_update()` returns (no typed attribute access — there's no class),
 and `add()` / `remove()` invalidate the cached plan so it re-plans on the next
-update. It reuses the same planning, write (validator / `force_fc16`) and bit
-machinery as `Component`; it does not pool into a `ComponentGroup`. Readable
+update. A `repeating_group` can be `add()`ed like any other target; its instances
+come out via `get(key)` as a `list` of sub-components (sized at poll time for a
+register count). It reuses the same planning, write (validator / `force_fc16`),
+bit and repeating-group machinery as `Component`; it does not pool into a
+`ComponentGroup`. Readable
 ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges`
 / `discrete_ranges` (any left unset falls back to gap-based planning):
 

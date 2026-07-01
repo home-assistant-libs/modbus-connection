@@ -18,8 +18,9 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
+from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
-from .component import UpdateListener
+from .component import RepeatingGroupField, UpdateListener
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ _Plan = tuple[
 ]
 
 
-class ManualComponent:
+class ManualComponent(_RepeatingGroups):
     """A register/bit read group assembled imperatively at runtime.
 
     The imperative sibling of :class:`Component`: instead of declaring fields as
@@ -82,33 +83,43 @@ class ManualComponent:
         self._values: dict[str, Any] = {}
         self._listeners: list[UpdateListener] = []
         self._plan: _Plan | None = None
+        # repeating_group support (counts read from holding); groups are added by
+        # key like any other target. base_offset stays 0 — addresses are absolute.
+        self._static_groups: dict[str, RepeatingGroupField[Any]] = {}
+        self._repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
+        self._build_groups()
 
     # -- membership ----------------------------------------------------------
 
     def add(
         self,
         key: str,
-        target: RegisterField[Any] | _BitField,
+        target: RegisterField[Any] | _BitField | RepeatingGroupField[Any],
         *,
         space: RegisterSpace | None = None,
     ) -> None:
-        """Add a read target under ``key``; invalidates the cached plan.
+        """Add a read target under ``key``, replacing any existing one.
 
-        ``target`` is a register field (from ``gauge`` / ``integer`` / ``uint32``
-        / ``sunspec.*`` / ...) read from ``space`` ``"holding"`` (default) or
-        ``"input"``, or a bit field from ``coil()`` (FC01) / ``discrete_input()``
-        (FC02) — whose own space is fixed, so ``space`` does not apply. The field's
-        ``address`` is absolute.
+        ``space`` applies to a register field — ``"holding"`` (default) or
+        ``"input"``; a bit field fixes its own space. The field's ``address`` is
+        absolute.
         """
-        self._values.pop(key, None)
-        if isinstance(target, _BitField):
+        self.remove(key)  # replace any existing target, and invalidate the plan
+        if isinstance(target, RepeatingGroupField):
+            if space is not None:
+                raise ValueError("space does not apply to a repeating_group")
+            if isinstance(target.count, int):
+                self._static_groups[key] = target
+                self._groups[key] = self._build_instances(target, 0, target.count)
+            else:
+                self._repeating_fields[key] = target
+        elif isinstance(target, _BitField):
             if space is not None:
                 raise ValueError(
                     "space is fixed by the field type for bits; "
                     "use coil() or discrete_input()"
                 )
             target.name = key  # the bit reader scatters into store[field.name]
-            self._registers.pop(key, None)
             self._bits[key] = target
         elif isinstance(target, RegisterField):
             register_space = space or "holding"
@@ -117,26 +128,31 @@ class ManualComponent:
                     f"register space must be 'holding' or 'input', got {space!r}"
                 )
             target.name = key  # the register reader scatters into store[field.name]
-            self._bits.pop(key, None)
             self._registers[key] = (target, register_space)
         else:
             raise TypeError(
-                f"target must be a RegisterField or a bit field, got "
-                f"{type(target).__name__}"
+                f"target must be a RegisterField, a bit field or a repeating_group, "
+                f"got {type(target).__name__}"
             )
-        self._plan = None
 
     def remove(self, key: str) -> None:
         """Remove the target under ``key``; invalidates the cached plan."""
         self._registers.pop(key, None)
         self._bits.pop(key, None)
         self._values.pop(key, None)
+        self._static_groups.pop(key, None)
+        self._repeating_fields.pop(key, None)
+        if self._groups.pop(key, None) is not None:
+            self._instance_group = None
+        self._invalidate_group_cache()
         self._plan = None
 
     # -- values --------------------------------------------------------------
 
     def get(self, key: str) -> Any:
         """The value decoded for ``key`` on the last update (None if not yet read)."""
+        if key in self._static_groups or key in self._repeating_fields:
+            return self._groups.get(key, [])
         return self._values.get(key)
 
     @property
@@ -167,6 +183,9 @@ class ManualComponent:
             )
             for field, space in self._registers.values()
         ]
+        # Fold in each group's count register and any fixed-count instances, so the
+        # normal read fetches the counts and static instances in one pass.
+        register_items += self._count_items + self._static_register_items
         register_blocks = _plan_register_blocks(
             register_items,
             {"holding": self._holding_ranges, "input": self._input_ranges},
@@ -176,6 +195,7 @@ class ManualComponent:
         bit_items: list[BitItem] = [
             (field.address, field, self._values) for field in self._bits.values()
         ]
+        bit_items += self._static_bit_items
         bit_blocks = _plan_bit_blocks(
             bit_items,
             {"coil": self._coil_ranges, "discrete": self._discrete_ranges},
@@ -195,6 +215,7 @@ class ManualComponent:
         register_items, register_blocks, bit_items, bit_blocks = self._plan
         await _bulk_read_registers(self._unit, register_items, register_blocks)
         await _bulk_read_bits(self._unit, bit_items, bit_blocks)
+        await self.async_update_repeating_groups()
         for listener in list(self._listeners):
             listener()
         return dict(self._values)

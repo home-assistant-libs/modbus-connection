@@ -19,10 +19,10 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
-from .component import Component
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+    from .component import Component
 
 
 class ComponentGroup:
@@ -120,14 +120,23 @@ class ComponentGroup:
             self._bit_items, ranges, max_gap=self._max_gap, max_span=self._max_span
         )
 
-    async def async_update(self) -> None:
+    async def async_update(self, *, notify: bool = True) -> None:
         """Refresh every component in one pooled set of reads, then notify each.
 
-        The block plan is built on the first call and reused on later polls.
+        The block plan is built on the first call and reused on later polls. Pass
+        ``notify=False`` to read without firing the components' listeners, for a
+        caller that notifies them itself.
+
+        The pooled read fetches each member's own fields plus any
+        :func:`repeating_group` counts; a second pass then sizes and reads each
+        member's register-count groups, so those refresh inside the group too.
         """
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
         for component in self._components:
-            component.notify()
+            await component.async_update_repeating_groups()
+        if notify:
+            for component in self._components:
+                component.notify()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from ._planning import (
     _MAX_GAP,
@@ -19,6 +19,7 @@ from ._planning import (
     _plan_bit_blocks,
     _plan_register_blocks,
 )
+from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 UpdateListener = Callable[[], None]
 
 
-class Component:
+class Component(_RepeatingGroups):
     """A device sub-system whose attributes map to registers, coils and inputs.
 
     Subclasses declare ``RegisterField`` / ``CoilField`` / ``DiscreteInputField``
@@ -75,6 +76,11 @@ class Component:
 
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
+    # repeating_group fields, split by count kind: a fixed ``int`` count is static
+    # (its instances fold into the normal read like ordinary fields), a
+    # ``RegisterField`` count is read at poll time (the two-phase repeating path).
+    _static_groups: dict[str, RepeatingGroupField[Any]] = {}
+    _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
     # The device's readable address ranges; None falls back to gap-based planning.
     # Override on a subclass (or set per instance) to constrain reads to the
@@ -101,14 +107,23 @@ class Component:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
         bits: dict[str, _BitField] = {}
+        static_groups: dict[str, RepeatingGroupField[Any]] = {}
+        repeating: dict[str, RepeatingGroupField[Any]] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
                     registers[name] = value
                 elif isinstance(value, _BitField):
                     bits[name] = value
+                elif isinstance(value, RepeatingGroupField):
+                    target = (
+                        static_groups if isinstance(value.count, int) else repeating
+                    )
+                    target[name] = value
         cls._register_fields = registers
         cls._bit_fields = bits
+        cls._static_groups = static_groups
+        cls._repeating_fields = repeating
 
     def __init__(
         self, unit: ModbusUnit, index: int = 1, *, base_offset: int = 0
@@ -119,6 +134,14 @@ class Component:
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
+        # Set up repeating_group state; fixed-count groups' instances are built
+        # now so they fold into the normal read plan like ordinary fields.
+        self._build_groups()
+
+    @property
+    def _count_space(self) -> RegisterSpace:
+        # a count register is read from this component's own register space
+        return self.register_space
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return field.address + field.stride * (self._index - 1) + self._base_offset
@@ -162,12 +185,13 @@ class Component:
                     self.register_space,
                 )
             )
-        return items
+        return items + self._count_items + self._static_register_items
 
     @cached_property
     def bit_items(self) -> list[BitItem]:
         """This component's bit read targets (coils and discrete inputs)."""
-        return [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
+        own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
+        return own + self._static_bit_items
 
     @cached_property
     def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
@@ -189,7 +213,10 @@ class Component:
         )
 
     def notify(self) -> None:
-        """Fire every registered update listener."""
+        """Fire this component's update listeners, and each sub-instance's."""
+        for group in self._groups.values():
+            for instance in group:
+                instance.notify()
         for listener in list(self._listeners):
             listener()
 
@@ -200,11 +227,16 @@ class Component:
         A device that owns several components can instead pool their
         :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
         plan is built on the first call and reused on later polls.
+
+        A :func:`repeating_group` field needs a second pass: the first read
+        fetches the count (it is part of :attr:`register_items`), then
+        :meth:`async_update_repeating_groups` reads the sized-out instances.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks
         )
         await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
+        await self.async_update_repeating_groups()
         self.notify()
 
     # -- writes --------------------------------------------------------------
@@ -241,3 +273,76 @@ class Component:
             )
         else:
             raise AttributeError(f"unknown field {field!r}")
+
+
+class RepeatingGroupField[C: Component]:
+    """A list of sub-component instances whose length is read at poll time.
+
+    Built by :func:`repeating_group`. Placed as a descriptor on a parent
+    ``Component``; reading the attribute returns the ``list`` of instances from
+    the last update (empty before the first), each a fully typed ``C``.
+    """
+
+    name: str = ""  # set by __set_name__ when used as a class descriptor
+
+    def __init__(
+        self, count: RegisterField[int] | int, component_class: type[C], *, stride: int
+    ) -> None:
+        self.count = count
+        self.component_class = component_class
+        self.stride = stride
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(self, obj: None, objtype: Any = ...) -> RepeatingGroupField[C]: ...
+
+        @overload
+        def __get__(self, obj: object, objtype: Any = ...) -> list[C]: ...
+
+    def __get__(self, obj: Any, objtype: Any = None) -> Any:
+        if obj is None:
+            return self
+        return obj._groups.get(self.name, [])
+
+
+def repeating_group[C: Component](
+    count: RegisterField[int] | int,
+    component_class: type[C],
+    *,
+    stride: int,
+) -> RepeatingGroupField[C]:
+    """A repeated sub-block whose instance count is read from a register at poll time.
+
+    Declares, on a parent ``Component``, a list of ``component_class`` instances
+    sized at runtime — the runtime-counted counterpart to ``index`` / ``stride``,
+    for a device that advertises its repeat count (a SunSpec multiple-MPPT model's
+    ``N`` point, a meter's channel count) instead of fixing it in the layout::
+
+        class MPPTModule(Component):              # one module, at instance 0
+            dc_w = integer(11, scale_register=2)
+            dc_v = integer(10, scale_register=1)
+
+        class Inverter(Component):
+            modules = repeating_group(uint16(8), MPPTModule, stride=20)
+
+        inv = Inverter(unit)
+        await inv.async_update()
+        inv.modules              # list[MPPTModule]
+        inv.modules[0].dc_w      # typed per-instance access; writes via the instance
+
+    ``count`` is a :class:`RegisterField` read each poll, or a fixed ``int`` —
+    a fixed count is static, so its instances fold into the parent's normal read
+    instead of taking the two-phase path. ``component_class`` models one instance
+    at instance 0's addresses; instance *i* is read at ``base_offset = i * stride``
+    (so ``stride`` is the block length). An unimplemented or unreadable count
+    yields no instances.
+    """
+    if stride <= 0:
+        raise ValueError(f"repeating_group stride must be > 0, got {stride}")
+    if isinstance(count, int) and count < 0:
+        raise ValueError(f"a fixed count must be >= 0, got {count}")
+    return RepeatingGroupField(count, component_class, stride=stride)
