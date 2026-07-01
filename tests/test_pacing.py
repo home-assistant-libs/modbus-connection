@@ -119,9 +119,7 @@ async def test_backend_paces_requests(
     if backend == "pymodbus":
         conn = await pymodbus_connect_tcp(host, port=port, message_spacing=spacing)
     else:
-        conn = await tmodbus_connect_tcp(
-            host, port=port, unit_id=UNIT_ID, message_spacing=spacing
-        )
+        conn = await tmodbus_connect_tcp(host, port=port, message_spacing=spacing)
     try:
         unit = conn.for_unit(UNIT_ID)
         start = time.monotonic()

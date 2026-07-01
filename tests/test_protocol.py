@@ -32,7 +32,7 @@ async def test_tmodbus_instances_satisfy_protocols(
     modbus_server: tuple[str, int],
 ) -> None:
     host, port = modbus_server
-    conn = await tmodbus_connect_tcp(host, port=port, unit_id=UNIT_ID)
+    conn = await tmodbus_connect_tcp(host, port=port)
     try:
         assert isinstance(conn, ModbusConnection)
         assert isinstance(conn.for_unit(UNIT_ID), ModbusUnit)
@@ -48,7 +48,7 @@ async def test_tmodbus_unsupported_codes_raise(
     modbus_server: tuple[str, int], method: str
 ) -> None:
     host, port = modbus_server
-    conn = await tmodbus_connect_tcp(host, port=port, unit_id=UNIT_ID)
+    conn = await tmodbus_connect_tcp(host, port=port)
     try:
         unit: Any = conn.for_unit(UNIT_ID)
         with pytest.raises(NotImplementedError):

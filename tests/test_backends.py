@@ -23,7 +23,7 @@ BACKENDS = ["pymodbus", "tmodbus"]
 async def _connect(backend: str, host: str, port: int) -> ModbusConnection:
     if backend == "pymodbus":
         return await pymodbus_connect_tcp(host, port=port)
-    return await tmodbus_connect_tcp(host, port=port, unit_id=UNIT_ID)
+    return await tmodbus_connect_tcp(host, port=port)
 
 
 @pytest.fixture(params=BACKENDS)

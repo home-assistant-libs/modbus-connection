@@ -120,9 +120,7 @@ async def test_tmodbus_serial_reads(
     serial_port: Callable[[FramerType], Any], framing: str, framer: FramerType
 ) -> None:
     client_port = await serial_port(framer)
-    conn = await tmodbus_connect_serial(
-        client_port, framer=framing, unit_id=UNIT_ID, baudrate=9600
-    )
+    conn = await tmodbus_connect_serial(client_port, framer=framing, baudrate=9600)
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

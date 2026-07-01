@@ -58,6 +58,12 @@ __all__ = [
     "connect_udp",
 ]
 
+# tmodbus binds a unit id when the client is created, but this library selects the
+# unit via ``ModbusConnection.for_unit()`` instead. The base client is only used
+# to derive per-unit handles (``for_unit_id``), so its own binding is never used
+# for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
+_PLACEHOLDER_UNIT_ID = 1
+
 
 class TmodbusConnection:
     """A live tmodbus connection.
@@ -267,7 +273,6 @@ async def connect_tcp(
     *,
     port: int = 502,
     timeout: float = 3,
-    unit_id: int = 1,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
@@ -302,7 +307,7 @@ async def connect_tcp(
         lambda: create(
             host,
             port,
-            unit_id=unit_id,
+            unit_id=_PLACEHOLDER_UNIT_ID,
             timeout=timeout,
             auto_reconnect=False,
             wait_between_requests=message_spacing,
@@ -316,7 +321,6 @@ async def connect_udp(
     *,
     port: int = 502,
     timeout: float = 3,
-    unit_id: int = 1,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
@@ -338,7 +342,6 @@ async def connect_tls(
     keyfile: str | None = None,
     password: str | None = None,
     timeout: float = 3,
-    unit_id: int = 1,
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Modbus/TLS is not available over tmodbus.
@@ -357,7 +360,6 @@ async def connect_serial(
     bytesize: int = 8,
     parity: str = "N",
     stopbits: int = 1,
-    unit_id: int = 1,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
@@ -381,7 +383,7 @@ async def connect_serial(
     return await _open(
         lambda: create(
             port,
-            unit_id=unit_id,
+            unit_id=_PLACEHOLDER_UNIT_ID,
             baudrate=baudrate,
             bytesize=bytesize,
             parity=parity,
