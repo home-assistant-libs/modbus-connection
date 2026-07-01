@@ -12,6 +12,7 @@ import struct
 from collections.abc import AsyncIterator
 
 import pytest
+from pymodbus import ModbusDeviceIdentification
 from pymodbus.datastore import (
     ModbusDeviceContext,
     ModbusSequentialDataBlock,
@@ -34,6 +35,18 @@ for i, ch in enumerate(b"ABCDEF\x00\x00"):
 INPUT: dict[int, int] = {0: 555, 1: 777}
 COILS: dict[int, bool] = {0: True, 1: False, 2: True, 56: True}
 DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
+
+# Device identification (FC43/14) the server advertises, keyed by MEI object id
+# (0 VendorName, 1 ProductCode, 2 MajorMinorRevision).
+DEVICE_ID: dict[int, bytes] = {0: b"Acme", 1: b"PC-1", 2: b"1.2"}
+
+
+def _device_identity() -> ModbusDeviceIdentification:
+    ident = ModbusDeviceIdentification()
+    ident.VendorName = DEVICE_ID[0].decode()
+    ident.ProductCode = DEVICE_ID[1].decode()
+    ident.MajorMinorRevision = DEVICE_ID[2].decode()
+    return ident
 
 
 def _block_from(
@@ -74,7 +87,7 @@ async def modbus_server() -> AsyncIterator[tuple[str, int]]:
     # device is registered at id 0 and served for any unit id (incl. UNIT_ID).
     context = ModbusServerContext(devices=device)
     host, port = "127.0.0.1", _free_port()
-    server = ModbusTcpServer(context, address=(host, port))
+    server = ModbusTcpServer(context, identity=_device_identity(), address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     # Wait until the listener is actually accepting connections.
     for _ in range(100):
