@@ -21,6 +21,7 @@ import ipaddress
 import struct
 
 from ._types import ByteOrder, WordOrder
+from ._types import swap_bytes as _swap_bytes
 
 __all__ = [
     "combine_words",
@@ -38,11 +39,6 @@ __all__ = [
     "decode_uint32",
     "decode_uint64",
 ]
-
-
-def _swap_bytes(word: int) -> int:
-    """Exchange the two bytes of a 16-bit register word."""
-    return ((word & 0xFF) << 8) | ((word >> 8) & 0xFF)
 
 
 def combine_words(

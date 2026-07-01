@@ -16,7 +16,7 @@ from __future__ import annotations
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, Concatenate, Literal
+from typing import Any, Concatenate
 
 from tmodbus import (
     AsyncModbusClient,
@@ -40,15 +40,14 @@ from tmodbus.pdu import (
     WriteFileRecordPDU,
 )
 
+from .._callbacks import CallbackRegistry
+from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
     ModbusTimeoutError,
 )
-
-SocketFraming = Literal["socket", "rtu", "ascii"]
-SerialFraming = Literal["rtu", "ascii"]
 
 __all__ = [
     "TmodbusConnection",
@@ -70,7 +69,7 @@ class TmodbusConnection:
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
-        self._lost_callbacks: list[Callable[[], None]] = []
+        self._lost_callbacks = CallbackRegistry()
 
     @property
     def connected(self) -> bool:
@@ -80,15 +79,7 @@ class TmodbusConnection:
         return TmodbusUnit(self, self._client.for_unit_id(unit_id))
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        self._lost_callbacks.append(callback)
-
-        def unsubscribe() -> None:
-            try:
-                self._lost_callbacks.remove(callback)
-            except ValueError:
-                pass
-
-        return unsubscribe
+        return self._lost_callbacks.subscribe(callback)
 
     async def close(self) -> None:
         try:
@@ -97,8 +88,7 @@ class TmodbusConnection:
             raise ModbusConnectionError(str(err)) from err
 
     def _notify_lost(self) -> None:
-        for callback in list(self._lost_callbacks):
-            callback()
+        self._lost_callbacks.fire()
 
 
 async def _open(

@@ -123,10 +123,8 @@ def _plan_register_blocks(
 ) -> dict[RegisterSpace, list[tuple[int, int]]]:
     """Plan read blocks separately per register space; spaces never merge.
 
-    Items are partitioned by their :attr:`RegisterItem.space` and each partition
-    is planned on its own — an input and a holding span at numerically adjacent
-    addresses land in different reads. ``ranges_by_space`` gives the readable
-    address ranges for each space (a device's input and holding ranges differ).
+    Items are partitioned by :attr:`RegisterItem.space` and each partition planned
+    on its own. ``ranges_by_space`` gives each space's readable address ranges.
     """
     by_space: dict[RegisterSpace, list[RegisterItem]] = {}
     for item in items:
@@ -168,11 +166,10 @@ async def _read_blocks_by_space[S: Hashable, E](
     """Read every block per space, returning values and the addresses that failed.
 
     The shared core of the bulk readers: each space's blocks are read with that
-    space's reader and the results are keyed by ``(space, address)`` — distinct
-    spaces share address numbers but are different data, so the space is part of
-    the key. A ``ModbusExceptionError`` on a block marks all of its addresses
-    failed (so the caller stores ``None`` for any field they cover) and reading
-    continues; any other error propagates so the caller can mark the device down.
+    space's reader, keyed by ``(space, address)``. A ``ModbusExceptionError`` on a
+    block marks all its addresses failed (the caller stores ``None`` for any field
+    they cover) and reading continues; any other error propagates so the caller
+    can mark the device down.
     """
     values: dict[tuple[S, int], E] = {}
     failed: set[tuple[S, int]] = set()
