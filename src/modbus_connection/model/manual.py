@@ -176,6 +176,14 @@ class ManualComponent(_RepeatingGroups):
 
     # -- update --------------------------------------------------------------
 
+    def notify(self) -> None:
+        """Fire this component's update listeners, and each sub-instance's."""
+        for group in self._groups.values():
+            for instance in group:
+                instance.notify()
+        for listener in list(self._listeners):
+            listener()
+
     def _build_plan(self) -> _Plan:
         register_items = [
             RegisterItem(
@@ -216,8 +224,7 @@ class ManualComponent(_RepeatingGroups):
         await _bulk_read_registers(self._unit, register_items, register_blocks)
         await _bulk_read_bits(self._unit, bit_items, bit_blocks)
         await self.async_update_repeating_groups()
-        for listener in list(self._listeners):
-            listener()
+        self.notify()
         return dict(self._values)
 
     # -- writes --------------------------------------------------------------
