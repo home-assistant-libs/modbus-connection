@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
-from modbus_connection.model import Component, integer, repeating_group
+from modbus_connection.model import (
+    Component,
+    ComponentGroup,
+    integer,
+    repeating_group,
+)
 from modbus_connection.model.sunspec import uint16
 
 
@@ -201,6 +206,42 @@ async def test_static_instance_listener_fires_via_parent() -> None:
     inv.modules[0].add_update_listener(lambda: calls.append(1))
     await inv.async_update()
     assert calls == [1]
+
+
+async def test_static_group_pooled_in_component_group() -> None:
+    # A fixed-count group's instances fold into register_items, so ComponentGroup
+    # reads them in its pooled reads and its notify() cascades to them.
+    class Inverter(Component):
+        modules = repeating_group(2, Module, stride=20)
+
+    class Meter(Component):
+        power = integer(50, signed=False)
+
+    unit = _unit()
+    unit.holding.update({11: 100, 31: 95, 50: 7})  # module 0/1 at w=11/31; meter at 50
+    inv, meter = Inverter(unit), Meter(unit)
+    calls: list[int] = []
+    inv.modules[0].add_update_listener(lambda: calls.append(1))
+
+    await ComponentGroup(unit, [inv, meter]).async_update()
+
+    assert [m.w for m in inv.modules] == [100, 95]
+    assert meter.power == 7
+    assert calls == [1]  # instance notified once, via the group's notify() cascade
+
+
+async def test_dynamic_group_not_updated_by_component_group() -> None:
+    # A register-count group is sized in the component's own async_update, which
+    # ComponentGroup does not call — so a group reads the count but never
+    # materialises the instances. Such a component must refresh on its own.
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 100, 31: 95})
+    inv = Inverter(unit)
+    await ComponentGroup(unit, [inv]).async_update()
+    assert inv.modules == []
 
 
 def test_factory_validates() -> None:
