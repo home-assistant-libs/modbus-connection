@@ -12,7 +12,7 @@ import pytest
 from tmodbus.exceptions import InvalidResponseError
 from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 
-from modbus_connection import ModbusConnectionError, ModbusTimeoutError
+from modbus_connection import ModbusConnectionError, ModbusProtocolError
 from modbus_connection.tmodbus import TmodbusConnection, TmodbusUnit
 
 
@@ -69,13 +69,13 @@ class _InvalidResponseClient:
         raise InvalidResponseError("bad CRC", response_bytes=b"\x00")
 
 
-async def test_invalid_response_maps_to_timeout() -> None:
-    # tmodbus 0.4.0 raises InvalidResponseError for any garbled/unparseable reply;
-    # like the pymodbus backend's ModbusIOException, it surfaces as a timeout since
-    # no valid response arrived.
+async def test_invalid_response_maps_to_protocol_error() -> None:
+    # tmodbus 0.4.0 raises InvalidResponseError for any garbled/unparseable reply.
+    # A reply arrived but could not be parsed: that is a protocol error, not a
+    # timeout (no reply) nor a device exception (a valid error PDU).
     unit = TmodbusUnit(TmodbusConnection(object()), _InvalidResponseClient())  # type: ignore[arg-type]
 
-    with pytest.raises(ModbusTimeoutError):
+    with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
 
 

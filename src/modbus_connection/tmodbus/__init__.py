@@ -40,6 +40,7 @@ from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
+    ModbusProtocolError,
     ModbusTimeoutError,
 )
 
@@ -147,11 +148,12 @@ def _map_errors[**P, R](
         except (TimeoutError, RequestRetryFailedError) as err:
             raise ModbusTimeoutError(str(err)) from err
         except InvalidResponseError as err:
-            # A garbled or unparseable reply (bad CRC/LRC, framing, MBAP header):
-            # no valid response arrived, so surface it as a timeout — mirroring how
-            # the pymodbus backend maps ModbusIOException. tmodbus 0.4.0 made this a
-            # single ``InvalidResponseError`` for every invalid response.
-            raise ModbusTimeoutError(str(err)) from err
+            # A reply arrived but was not a valid frame (bad CRC/LRC, framing, or a
+            # mismatched header) — a protocol error, not a timeout. tmodbus 0.4.0
+            # made this a single ``InvalidResponseError`` for every invalid
+            # response, which lets us distinguish it from a missing reply (unlike
+            # the pymodbus backend, whose ModbusIOException conflates the two).
+            raise ModbusProtocolError(str(err)) from err
         except ModbusResponseError as err:
             raise ModbusExceptionError(int(err.error_code)) from err
         except TModbusError as err:

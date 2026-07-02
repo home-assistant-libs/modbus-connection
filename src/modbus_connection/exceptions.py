@@ -23,6 +23,21 @@ class ModbusTimeoutError(ModbusError, TimeoutError):
     """
 
 
+class ModbusProtocolError(ModbusError):
+    """A response arrived but was not a valid Modbus frame.
+
+    A bad CRC/LRC, a framing error, or a header that does not match the request:
+    something came back over the wire, but it could not be parsed as the expected
+    reply. Distinct from ``ModbusTimeoutError`` (no response arrived at all) and
+    from ``ModbusExceptionError`` (a *valid* error PDU from the device).
+
+    Backends that cannot tell a garbled response apart from a missing one (e.g.
+    pymodbus, which raises a single ``ModbusIOException`` for both) surface these
+    as ``ModbusTimeoutError`` instead; only backends that distinguish the two
+    (e.g. tmodbus) raise this type.
+    """
+
+
 class ModbusExceptionError(ModbusError):
     """The device answered with a Modbus exception response (a valid error PDU).
 
