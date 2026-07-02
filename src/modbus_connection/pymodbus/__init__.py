@@ -72,10 +72,6 @@ def _map_errors[**P, R](
         except ConnectionException as err:
             raise ModbusConnectionError(str(err)) from err
         except ModbusIOException as err:
-            # pymodbus raises one ModbusIOException for both a missing reply and a
-            # garbled/undecodable one, so we cannot tell a timeout from a protocol
-            # error here — surface it as a timeout, the dominant case. (The tmodbus
-            # backend distinguishes them and raises ModbusProtocolError.)
             raise ModbusTimeoutError(str(err)) from err
         except ModbusException as err:
             raise ModbusError(str(err)) from err

@@ -150,9 +150,7 @@ def _map_errors[**P, R](
         except InvalidResponseError as err:
             # A reply arrived but was not a valid frame (bad CRC/LRC, framing, or a
             # mismatched header) — a protocol error, not a timeout. tmodbus 0.4.0
-            # made this a single ``InvalidResponseError`` for every invalid
-            # response, which lets us distinguish it from a missing reply (unlike
-            # the pymodbus backend, whose ModbusIOException conflates the two).
+            # standardized this as a single ``InvalidResponseError``.
             raise ModbusProtocolError(str(err)) from err
         except ModbusResponseError as err:
             raise ModbusExceptionError(int(err.error_code)) from err
