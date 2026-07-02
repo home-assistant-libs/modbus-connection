@@ -23,6 +23,14 @@ class ModbusTimeoutError(ModbusError, TimeoutError):
     """
 
 
+class ModbusProtocolError(ModbusError):
+    """A response arrived but was not a valid frame (bad CRC/LRC, framing, header).
+
+    Distinct from ``ModbusTimeoutError`` (no response arrived) and
+    ``ModbusExceptionError`` (a valid error PDU from the device).
+    """
+
+
 class ModbusExceptionError(ModbusError):
     """The device answered with a Modbus exception response (a valid error PDU).
 

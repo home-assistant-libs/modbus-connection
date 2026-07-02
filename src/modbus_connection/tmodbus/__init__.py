@@ -1,12 +1,12 @@
 """tmodbus-backed implementation of the modbus_connection Protocols.
 
-Mirrors the pymodbus backend over tmodbus. Per the design, three function codes
-have no tmodbus equivalent and raise ``NotImplementedError``: diagnostics (0x08),
-get-comm-event-counter (0x0B), and get-comm-event-log (0x0C). File records
-(0x14/0x15) are issued through tmodbus's ``execute(pdu)`` seam.
+Implements the ``ModbusConnection`` / ``ModbusUnit`` Protocols over tmodbus. Per
+the design, three function codes have no tmodbus equivalent and raise
+``NotImplementedError``: diagnostics (0x08), get-comm-event-counter (0x0B), and
+get-comm-event-log (0x0C).
 
 tmodbus ships no UDP or TLS transport, so ``connect_udp`` / ``connect_tls`` raise
-``NotImplementedError`` — use the pymodbus backend for those.
+``NotImplementedError``.
 
 Requires the ``[tmodbus]`` extra.
 """
@@ -26,18 +26,13 @@ from tmodbus import (
     create_async_tcp_client,
 )
 from tmodbus.exceptions import (
-    ModbusConnectionError as TModbusConnectionError,
-)
-from tmodbus.exceptions import (
+    InvalidResponseError,
     ModbusResponseError,
     RequestRetryFailedError,
     TModbusError,
 )
-from tmodbus.pdu import (
-    FileRecord,
-    FileRecordRequest,
-    ReadFileRecordPDU,
-    WriteFileRecordPDU,
+from tmodbus.exceptions import (
+    ModbusConnectionError as TModbusConnectionError,
 )
 
 from .._callbacks import CallbackRegistry
@@ -46,6 +41,7 @@ from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
+    ModbusProtocolError,
     ModbusTimeoutError,
 )
 
@@ -74,10 +70,10 @@ class TmodbusConnection:
 
     ``on_connection_lost`` fires at most once per connection. tmodbus exposes no
     transport-level disconnect hook, so a drop is detected *reactively* — on the
-    next request that fails — rather than proactively like the pymodbus backend;
-    an idle link that drops is not noticed until the next request. Since the
-    connection never self-reconnects (the owner builds a new one on loss), the
-    first detected failure fires the callbacks and later failures are suppressed.
+    next request that fails — rather than proactively; an idle link that drops is
+    not noticed until the next request. Since the connection never self-reconnects
+    (the owner builds a new one on loss), the first detected failure fires the
+    callbacks and later failures are suppressed.
     """
 
     def __init__(self, client: AsyncModbusClient) -> None:
@@ -152,6 +148,8 @@ def _map_errors[**P, R](
             raise ModbusConnectionError(str(err)) from err
         except (TimeoutError, RequestRetryFailedError) as err:
             raise ModbusTimeoutError(str(err)) from err
+        except InvalidResponseError as err:
+            raise ModbusProtocolError(str(err)) from err
         except ModbusResponseError as err:
             raise ModbusExceptionError(int(err.error_code)) from err
         except TModbusError as err:
@@ -250,10 +248,7 @@ class TmodbusUnit:
     async def read_file_record(
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
-        pdu = ReadFileRecordPDU([FileRecordRequest(file, record, length)])
-        # ReadFileRecordPDU decodes to list[bytes], one entry per requested record.
-        records = await self._client.execute(pdu)
-        data = records[0]
+        data = await self._client.read_file_record(file, record, length)
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
     @_map_errors
@@ -261,8 +256,7 @@ class TmodbusUnit:
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
         payload = b"".join(int(value).to_bytes(2, "big") for value in values)
-        pdu = WriteFileRecordPDU([FileRecord(file, record, payload)])
-        await self._client.execute(pdu)
+        await self._client.write_file_record(file, record, payload)
 
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
         raise NotImplementedError("tmodbus does not implement diagnostics (FC 0x08)")
@@ -294,7 +288,7 @@ async def connect_tcp(
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak. ``"ascii"`` (ASCII-over-TCP) raises ``NotImplementedError``:
-    tmodbus has no ASCII-over-TCP transport — use the pymodbus backend.
+    tmodbus has no ASCII-over-TCP transport.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start — applied across every unit sharing the link, via
@@ -309,9 +303,7 @@ async def connect_tcp(
     elif framer == "rtu":
         create = create_async_rtu_over_tcp_client
     elif framer == "ascii":
-        raise NotImplementedError(
-            "tmodbus has no ASCII-over-TCP transport; use the pymodbus backend"
-        )
+        raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
     else:
         raise ValueError(
             f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
@@ -339,11 +331,10 @@ async def connect_udp(
 ) -> TmodbusConnection:
     """Modbus UDP is not available over tmodbus.
 
-    tmodbus ships no UDP transport, so this always raises
-    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_udp`` for
-    Modbus UDP. Kept here so the backend's connect surface mirrors pymodbus's.
+    tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
+    Kept here so the backend's connect surface stays complete.
     """
-    raise NotImplementedError("tmodbus has no UDP transport; use the pymodbus backend")
+    raise NotImplementedError("tmodbus has no UDP transport")
 
 
 async def connect_tls(
@@ -359,11 +350,10 @@ async def connect_tls(
 ) -> TmodbusConnection:
     """Modbus/TLS is not available over tmodbus.
 
-    tmodbus ships no TLS transport, so this always raises
-    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_tls`` for
-    Modbus/TLS. Kept here so the backend's connect surface mirrors pymodbus's.
+    tmodbus ships no TLS transport, so this always raises ``NotImplementedError``.
+    Kept here so the backend's connect surface stays complete.
     """
-    raise NotImplementedError("tmodbus has no TLS transport; use the pymodbus backend")
+    raise NotImplementedError("tmodbus has no TLS transport")
 
 
 async def connect_serial(

@@ -128,7 +128,7 @@ them.
 
 ## Exceptions
 
-Both backends raise the same neutral types:
+Both backends map their errors onto the same neutral hierarchy:
 
 - `ModbusError` — base class.
 - `ModbusConnectionError` — link down / not connected / transport failure.
@@ -137,6 +137,10 @@ Both backends raise the same neutral types:
   `TimeoutError`, so `except TimeoutError` catches it too.
 - `ModbusExceptionError` — device returned a Modbus exception response
   (`.exception_code` carries the raw code).
+- `ModbusProtocolError` — a reply arrived but was not a valid frame (bad CRC/LRC,
+  framing, or a mismatched header). Only backends that can tell a garbled reply
+  from a missing one raise it (tmodbus does; pymodbus cannot, and surfaces both
+  as `ModbusTimeoutError`).
 
 ## Device modelling (`modbus_connection.model`)
 

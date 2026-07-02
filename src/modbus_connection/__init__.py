@@ -19,6 +19,7 @@ from .exceptions import (
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
+    ModbusProtocolError,
     ModbusTimeoutError,
 )
 
@@ -27,6 +28,7 @@ __all__ = [
     "ModbusConnectionError",
     "ModbusError",
     "ModbusExceptionError",
+    "ModbusProtocolError",
     "ModbusTimeoutError",
     "ModbusUnit",
     "WordOrder",
