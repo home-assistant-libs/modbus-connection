@@ -102,7 +102,7 @@ Each backend ships a set of connect functions, one per wire transport:
 | `connect_tcp(host, *, port=502, framer="socket")` | Modbus TCP, or RTU-/ASCII-over-TCP (transparent serial-to-Ethernet gateways) | `socket` / `rtu` / `ascii` |
 | `connect_udp(host, *, port=502, framer="socket")` | Modbus UDP (MBAP, RTU, or ASCII framing over UDP) | `socket` / `rtu` / `ascii` |
 | `connect_serial(port, *, framer="rtu", baudrate=…, bytesize=…, parity=…, stopbits=…)` | Modbus serial — binary RTU or ASCII transmission mode | `rtu` / `ascii` |
-| `connect_tls(host, *, port=802, sslctx=None, certfile=None, keyfile=None, password=None)` | Modbus/TLS (Modbus Security) | — (always TLS framing) |
+| `connect_tls(host, *, port=802, verify=True, check_hostname=True, client_cert=None, client_key=None, client_key_password=None, sslctx=None)` | Modbus/TLS (Modbus Security) | — (always TLS framing) |
 
 `framer` names the wire framing across every transport (its value set differs by
 transport: `socket`/`rtu`/`ascii` for TCP/UDP, `rtu`/`ascii` for serial; TLS is
@@ -113,13 +113,16 @@ from modbus_connection.pymodbus import connect_udp, connect_serial, connect_tls
 
 udp = await connect_udp("192.168.1.50", port=502)
 ascii_serial = await connect_serial("/dev/ttyUSB0", framer="ascii", baudrate=9600)
-tls = await connect_tls("192.168.1.50", certfile="client.crt", keyfile="client.key")
+tls = await connect_tls("device.local")  # verifies the server certificate by default
 ```
 
-For `connect_tls`, pass a fully-configured `ssl.SSLContext` as `sslctx` to control
-server verification and trust; otherwise one is built from the optional client
-`certfile` / `keyfile` / `password` (the default context does not verify the
-server certificate).
+`connect_tls` verifies the server certificate against the system trust store by
+default (`verify=True`) and checks the hostname (`check_hostname=True`). Pass
+`verify=False` for a device with a self-signed certificate, `verify="/path/to/ca"`
+for a private CA (file or directory), or `check_hostname=False` to verify the
+certificate but not the hostname. `client_cert` / `client_key` /
+`client_key_password` present a client certificate for mutual TLS; pass a
+ready-made `ssl.SSLContext` as `sslctx` for full control.
 
 tmodbus exposes the same functions, except `connect_udp`, `connect_tls`, and
 `connect_tcp(framer="ascii")` — tmodbus has no UDP, TLS, or ASCII-over-TCP
