@@ -1,11 +1,12 @@
 """tmodbus-backed implementation of the modbus_connection Protocols.
 
-Mirrors the pymodbus backend over tmodbus. Per the design, three function codes
-have no tmodbus equivalent and raise ``NotImplementedError``: diagnostics (0x08),
-get-comm-event-counter (0x0B), and get-comm-event-log (0x0C).
+Implements the ``ModbusConnection`` / ``ModbusUnit`` Protocols over tmodbus. Per
+the design, three function codes have no tmodbus equivalent and raise
+``NotImplementedError``: diagnostics (0x08), get-comm-event-counter (0x0B), and
+get-comm-event-log (0x0C).
 
 tmodbus ships no UDP or TLS transport, so ``connect_udp`` / ``connect_tls`` raise
-``NotImplementedError`` — use the pymodbus backend for those.
+``NotImplementedError``.
 
 Requires the ``[tmodbus]`` extra.
 """
@@ -69,10 +70,10 @@ class TmodbusConnection:
 
     ``on_connection_lost`` fires at most once per connection. tmodbus exposes no
     transport-level disconnect hook, so a drop is detected *reactively* — on the
-    next request that fails — rather than proactively like the pymodbus backend;
-    an idle link that drops is not noticed until the next request. Since the
-    connection never self-reconnects (the owner builds a new one on loss), the
-    first detected failure fires the callbacks and later failures are suppressed.
+    next request that fails — rather than proactively; an idle link that drops is
+    not noticed until the next request. Since the connection never self-reconnects
+    (the owner builds a new one on loss), the first detected failure fires the
+    callbacks and later failures are suppressed.
     """
 
     def __init__(self, client: AsyncModbusClient) -> None:
@@ -291,7 +292,7 @@ async def connect_tcp(
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak. ``"ascii"`` (ASCII-over-TCP) raises ``NotImplementedError``:
-    tmodbus has no ASCII-over-TCP transport — use the pymodbus backend.
+    tmodbus has no ASCII-over-TCP transport.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start — applied across every unit sharing the link, via
@@ -306,9 +307,7 @@ async def connect_tcp(
     elif framer == "rtu":
         create = create_async_rtu_over_tcp_client
     elif framer == "ascii":
-        raise NotImplementedError(
-            "tmodbus has no ASCII-over-TCP transport; use the pymodbus backend"
-        )
+        raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
     else:
         raise ValueError(
             f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
@@ -336,11 +335,10 @@ async def connect_udp(
 ) -> TmodbusConnection:
     """Modbus UDP is not available over tmodbus.
 
-    tmodbus ships no UDP transport, so this always raises
-    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_udp`` for
-    Modbus UDP. Kept here so the backend's connect surface mirrors pymodbus's.
+    tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
+    Kept here so the backend's connect surface stays complete.
     """
-    raise NotImplementedError("tmodbus has no UDP transport; use the pymodbus backend")
+    raise NotImplementedError("tmodbus has no UDP transport")
 
 
 async def connect_tls(
@@ -356,11 +354,10 @@ async def connect_tls(
 ) -> TmodbusConnection:
     """Modbus/TLS is not available over tmodbus.
 
-    tmodbus ships no TLS transport, so this always raises
-    ``NotImplementedError``. Use ``modbus_connection.pymodbus.connect_tls`` for
-    Modbus/TLS. Kept here so the backend's connect surface mirrors pymodbus's.
+    tmodbus ships no TLS transport, so this always raises ``NotImplementedError``.
+    Kept here so the backend's connect surface stays complete.
     """
-    raise NotImplementedError("tmodbus has no TLS transport; use the pymodbus backend")
+    raise NotImplementedError("tmodbus has no TLS transport")
 
 
 async def connect_serial(
