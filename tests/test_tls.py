@@ -24,6 +24,7 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import ModbusTlsServer
 
+from modbus_connection import ModbusError
 from modbus_connection.pymodbus import connect_tls as pymodbus_connect_tls
 from modbus_connection.tmodbus import connect_tls as tmodbus_connect_tls
 
@@ -59,6 +60,9 @@ def _make_cert(directory: Path) -> tuple[str, str]:
             "-nodes",
             "-subj",
             "/CN=localhost",
+            # SAN so hostname verification passes when a client pins this cert.
+            "-addext",
+            "subjectAltName=DNS:localhost,IP:127.0.0.1",
         ],
         check=True,
         capture_output=True,
@@ -67,8 +71,8 @@ def _make_cert(directory: Path) -> tuple[str, str]:
 
 
 @pytest.fixture
-async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int]]:
-    """A Modbus/TLS server with a self-signed cert and one known register."""
+async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
+    """A Modbus/TLS server with a self-signed cert; yields (host, port, certfile)."""
     certfile, keyfile = _make_cert(tmp_path)
     values = [0] * 10
     values[0] = 5579
@@ -85,7 +89,7 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int]]:
     task = asyncio.create_task(server.serve_forever())
     await asyncio.sleep(0.4)
     try:
-        yield host, port
+        yield host, port, certfile
     finally:
         await server.shutdown()
         task.cancel()
@@ -96,9 +100,11 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int]]:
 
 
 @openssl
-async def test_pymodbus_tls_reads(tls_server: tuple[str, int]) -> None:
-    host, port = tls_server
-    # The server cert is self-signed: use a non-verifying client context.
+async def test_tls_explicit_sslctx_overrides_verify(
+    tls_server: tuple[str, int, str],
+) -> None:
+    """A caller-supplied sslctx takes precedence over verify."""
+    host, port, _ = tls_server
     sslctx = AsyncModbusTlsClient.generate_ssl()
     sslctx.check_hostname = False
     sslctx.verify_mode = ssl.CERT_NONE
@@ -108,6 +114,55 @@ async def test_pymodbus_tls_reads(tls_server: tuple[str, int]) -> None:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
         await conn.close()
+
+
+@openssl
+async def test_tls_verifies_by_default(tls_server: tuple[str, int, str]) -> None:
+    """The default (verify=True) rejects a server whose cert isn't trusted."""
+    host, port, _ = tls_server
+    with pytest.raises(ModbusError):
+        await pymodbus_connect_tls(host, port=port, timeout=1)
+
+
+@openssl
+async def test_tls_verify_false_connects(tls_server: tuple[str, int, str]) -> None:
+    """verify=False accepts a self-signed server without an explicit sslctx."""
+    host, port, _ = tls_server
+    conn = await pymodbus_connect_tls(host, port=port, verify=False)
+    try:
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await conn.close()
+
+
+@openssl
+async def test_tls_verify_with_pinned_cafile(
+    tls_server: tuple[str, int, str],
+) -> None:
+    """verify=<path> pins the device's own cert as the CA to verify against."""
+    host, port, certfile = tls_server
+    conn = await pymodbus_connect_tls(host, port=port, verify=certfile)
+    try:
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await conn.close()
+
+
+def test_build_tls_context_hostname_and_verify_flags() -> None:
+    """check_hostname toggles name matching without dropping cert verification."""
+    from modbus_connection.pymodbus import _build_tls_context
+
+    verifying = _build_tls_context(True, True, None, None, None)
+    assert verifying.check_hostname is True
+    assert verifying.verify_mode is ssl.CERT_REQUIRED
+
+    no_hostname = _build_tls_context(True, False, None, None, None)
+    assert no_hostname.check_hostname is False
+    assert no_hostname.verify_mode is ssl.CERT_REQUIRED  # still verifies the cert
+
+    unverified = _build_tls_context(False, True, None, None, None)
+    assert unverified.check_hostname is False  # check_hostname ignored
+    assert unverified.verify_mode is ssl.CERT_NONE
 
 
 async def test_tmodbus_tls_not_implemented() -> None:
