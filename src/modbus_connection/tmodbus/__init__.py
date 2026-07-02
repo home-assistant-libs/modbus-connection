@@ -149,9 +149,6 @@ def _map_errors[**P, R](
         except (TimeoutError, RequestRetryFailedError) as err:
             raise ModbusTimeoutError(str(err)) from err
         except InvalidResponseError as err:
-            # A reply arrived but was not a valid frame (bad CRC/LRC, framing, or a
-            # mismatched header) — a protocol error, not a timeout. tmodbus 0.4.0
-            # standardized this as a single ``InvalidResponseError``.
             raise ModbusProtocolError(str(err)) from err
         except ModbusResponseError as err:
             raise ModbusExceptionError(int(err.error_code)) from err
@@ -251,7 +248,6 @@ class TmodbusUnit:
     async def read_file_record(
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
-        # read_file_record returns the record's raw data bytes (big-endian words).
         data = await self._client.read_file_record(file, record, length)
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 

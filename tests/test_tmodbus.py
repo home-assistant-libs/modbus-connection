@@ -1,10 +1,4 @@
-"""tmodbus-backend unit tests that don't need a live server.
-
-These exercise the seams the shared end-to-end suite can't: file records (the
-pymodbus test server ships a broken dummy file-record handler, so the wrapper's
-word<->byte conversion is verified here against a fake client) and the reactive
-connection-lost detection.
-"""
+"""tmodbus-backend unit tests that don't need a live server."""
 
 from __future__ import annotations
 
@@ -17,13 +11,7 @@ from modbus_connection.tmodbus import TmodbusConnection, TmodbusUnit
 
 
 class _FakeFileClient:
-    """A stand-in tmodbus client that records file-record calls.
-
-    tmodbus 0.4.0 exposes ``read_file_record`` / ``write_file_record`` directly
-    (no raw ``execute(pdu)`` seam): the read returns the record's raw data bytes
-    and the write takes the payload bytes. This captures the arguments and hands
-    back a canned read payload so the wrapper's word<->byte conversion is tested.
-    """
+    """A stand-in tmodbus client that records file-record calls."""
 
     def __init__(self, read_data: bytes = b"") -> None:
         self._read_data = read_data
@@ -70,9 +58,6 @@ class _InvalidResponseClient:
 
 
 async def test_invalid_response_maps_to_protocol_error() -> None:
-    # tmodbus 0.4.0 raises InvalidResponseError for any garbled/unparseable reply.
-    # A reply arrived but could not be parsed: that is a protocol error, not a
-    # timeout (no reply) nor a device exception (a valid error PDU).
     unit = TmodbusUnit(TmodbusConnection(object()), _InvalidResponseClient())  # type: ignore[arg-type]
 
     with pytest.raises(ModbusProtocolError):
