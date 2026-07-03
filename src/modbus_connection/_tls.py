@@ -15,9 +15,6 @@ def build_tls_context(
 ) -> ssl.SSLContext:
     """Build a client TLS context for ``connect_tls`` (blocking; run in a thread).
 
-    Both backends share this so they produce identical contexts from the same
-    arguments.
-
     ``verify`` / ``check_hostname`` are the *server* side (see ``connect_tls``);
     ``client_cert`` / ``client_key`` / ``client_key_password`` are the *client*
     certificate this side presents for mutual TLS, applied independently.

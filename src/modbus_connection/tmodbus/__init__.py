@@ -6,8 +6,6 @@ the design, three function codes have no tmodbus equivalent and raise
 get-comm-event-log (0x0C).
 
 tmodbus ships no UDP transport, so ``connect_udp`` raises ``NotImplementedError``.
-Modbus/TLS is MBAP framing over TLS, so ``connect_tls`` reuses the TCP client with
-an SSL context handed to ``asyncio.create_connection``.
 
 Requires the ``[tmodbus]`` extra.
 """
@@ -355,10 +353,8 @@ async def connect_tls(
 ) -> TmodbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection over tmodbus.
 
-    Modbus/TLS is native Modbus TCP (MBAP) framing wrapped in TLS, so this reuses
-    tmodbus's TCP client and hands the SSL context to ``asyncio.create_connection``
-    (which uses ``host`` as the ``server_hostname`` for verification). The argument
-    surface mirrors the pymodbus backend so the two are interchangeable.
+    The SSL context is handed to ``asyncio.create_connection`` (which uses ``host``
+    as the ``server_hostname`` for verification).
 
     Server verification — ``verify`` controls how the device's certificate is
     checked (the ``httpx`` convention):

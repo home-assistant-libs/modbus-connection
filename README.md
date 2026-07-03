@@ -126,8 +126,7 @@ ready-made `ssl.SSLContext` as `sslctx` for full control.
 
 tmodbus exposes the same functions, except `connect_udp` and
 `connect_tcp(framer="ascii")` — tmodbus has no UDP or ASCII-over-TCP transport, so
-those raise `NotImplementedError`; use the pymodbus backend for them. `connect_tls`
-works on both backends with the same arguments.
+those raise `NotImplementedError`; use the pymodbus backend for them.
 
 ## Exceptions
 
