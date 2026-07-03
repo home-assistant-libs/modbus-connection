@@ -69,18 +69,14 @@ class TmodbusConnection:
     it maps to tmodbus's native ``wait_between_requests``, enforced inside the
     client's communication lock — so this wrapper carries no pacing state.
 
-    ``on_connection_lost`` fires at most once per connection. tmodbus exposes no
-    transport-level disconnect hook, so a drop is detected *reactively* — on the
-    next request that fails — rather than proactively; an idle link that drops is
-    not noticed until the next request. Since the connection never self-reconnects
-    (the owner builds a new one on loss), the first detected failure fires the
-    callbacks and later failures are suppressed.
+    ``on_connection_lost`` callbacks fire once, as soon as the link drops — even
+    while no request is in flight — but not for a deliberate ``close()``.
     """
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
         self._lost_callbacks = CallbackRegistry()
-        self._lost_fired = False
+        self._closing = False
 
     @property
     def connected(self) -> bool:
@@ -93,40 +89,38 @@ class TmodbusConnection:
         return self._lost_callbacks.subscribe(callback)
 
     async def close(self) -> None:
+        self._closing = True
         try:
             await self._client.disconnect()
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(str(err)) from err
 
-    def _notify_lost(self) -> None:
-        # A request failed with a connection error. The link does not revive
-        # itself, so fire once and suppress the repeats from later failed requests.
-        if self._lost_fired:
+    def _on_connection_lost(self, exc: Exception | None) -> None:
+        # Our own close() also triggers this hook, which is not a lost connection.
+        if self._closing:
             return
-        self._lost_fired = True
         self._lost_callbacks.fire()
 
 
 async def _open(
-    make_client: Callable[[], AsyncModbusClient],
+    make_client: Callable[[Callable[[Exception | None], None]], AsyncModbusClient],
     error_message: str,
 ) -> TmodbusConnection:
     """Construct and connect a tmodbus client, wrapping the result.
 
-    Maps every backend failure onto the neutral hierarchy so callers never see
-    a raw tmodbus exception: a ``TimeoutError`` (the connect attempt did not
-    complete in time) stays a timeout, mirroring the operational path; every
-    other transport failure — a raising constructor or a raising ``connect()`` —
-    becomes ``ModbusConnectionError``.
+    ``make_client`` receives the connection's ``on_connection_lost`` hook and
+    returns the client wired to it.
     """
+    connection = TmodbusConnection.__new__(TmodbusConnection)
     try:
-        client = make_client()
+        client = make_client(connection._on_connection_lost)
+        TmodbusConnection.__init__(connection, client)
         await client.connect()
     except TimeoutError as err:
         raise ModbusTimeoutError(str(err)) from err
     except (TModbusError, OSError) as err:
         raise ModbusConnectionError(error_message) from err
-    return TmodbusConnection(client)
+    return connection
 
 
 def _map_errors[**P, R](
@@ -134,10 +128,7 @@ def _map_errors[**P, R](
 ) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
     """Map tmodbus exceptions onto the neutral hierarchy.
 
-    Decorates ``TmodbusUnit`` methods so each body just calls the client
-    directly; a connection-lost error also fires the owner's lost callbacks.
-    Inter-request spacing is handled by the client itself (see
-    ``TmodbusConnection``), so there is nothing to do here.
+    Decorates ``TmodbusUnit`` methods so each body just calls the client directly.
     """
 
     @functools.wraps(func)
@@ -145,7 +136,6 @@ def _map_errors[**P, R](
         try:
             return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
-            self._conn._notify_lost()
             raise ModbusConnectionError(str(err)) from err
         except (TimeoutError, RequestRetryFailedError) as err:
             raise ModbusTimeoutError(str(err)) from err
@@ -309,13 +299,14 @@ async def connect_tcp(
             f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
         )
     return await _open(
-        lambda: create(
+        lambda on_lost: create(
             host,
             port,
             unit_id=_PLACEHOLDER_UNIT_ID,
             timeout=timeout,
             auto_reconnect=False,
             wait_between_requests=message_spacing,
+            on_connection_lost=on_lost,
         ),
         f"could not connect to {host}:{port}",
     )
@@ -389,7 +380,7 @@ async def connect_tls(
         client_key_password,
     )
     return await _open(
-        lambda: create_async_tcp_client(
+        lambda on_lost: create_async_tcp_client(
             host,
             port,
             unit_id=_PLACEHOLDER_UNIT_ID,
@@ -397,6 +388,7 @@ async def connect_tls(
             auto_reconnect=False,
             wait_between_requests=message_spacing,
             ssl=context,
+            on_connection_lost=on_lost,
         ),
         f"could not connect to {host}:{port}",
     )
@@ -430,7 +422,7 @@ async def connect_serial(
     else:
         raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
     return await _open(
-        lambda: create(
+        lambda on_lost: create(
             port,
             unit_id=_PLACEHOLDER_UNIT_ID,
             baudrate=baudrate,
@@ -439,6 +431,7 @@ async def connect_serial(
             stopbits=stopbits,
             auto_reconnect=False,
             wait_between_requests=message_spacing,
+            on_connection_lost=on_lost,
         ),
         f"could not open serial port {port}",
     )
