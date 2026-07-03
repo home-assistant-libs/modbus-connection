@@ -377,7 +377,7 @@ async def connect_tls(
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
-    it. ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
+    it.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
