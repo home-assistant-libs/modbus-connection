@@ -124,10 +124,10 @@ certificate but not the hostname. `client_cert` / `client_key` /
 `client_key_password` present a client certificate for mutual TLS; pass a
 ready-made `ssl.SSLContext` as `sslctx` for full control.
 
-tmodbus exposes the same functions, except `connect_udp`, `connect_tls`, and
-`connect_tcp(framer="ascii")` — tmodbus has no UDP, TLS, or ASCII-over-TCP
-transport, so those raise `NotImplementedError`; use the pymodbus backend for
-them.
+tmodbus exposes the same functions, except `connect_udp` and
+`connect_tcp(framer="ascii")` — tmodbus has no UDP or ASCII-over-TCP transport, so
+those raise `NotImplementedError`; use the pymodbus backend for them. `connect_tls`
+works on both backends with the same arguments.
 
 ## Exceptions
 

@@ -1,7 +1,8 @@
-"""connect_tls talks Modbus over TLS (pymodbus only; tmodbus has no TLS).
+"""connect_tls talks Modbus over TLS on both backends.
 
 A self-signed certificate is generated with the ``openssl`` CLI so the test can
-stand up a real ``ModbusTlsServer`` and complete an actual TLS handshake.
+stand up a real ``ModbusTlsServer`` and complete an actual TLS handshake against
+either backend.
 """
 
 from __future__ import annotations
@@ -24,11 +25,22 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import ModbusTlsServer
 
-from modbus_connection import ModbusError
+from modbus_connection import ModbusConnection, ModbusError
 from modbus_connection.pymodbus import connect_tls as pymodbus_connect_tls
 from modbus_connection.tmodbus import connect_tls as tmodbus_connect_tls
 
 UNIT_ID = 1
+
+BACKENDS = ["pymodbus", "tmodbus"]
+
+
+def _connect_tls(backend: str, host: str, **kwargs: object) -> object:
+    """Return the awaitable connect_tls for the chosen backend."""
+    connect = pymodbus_connect_tls if backend == "pymodbus" else tmodbus_connect_tls
+    return connect(host, **kwargs)  # type: ignore[arg-type]
+
+
+backends = pytest.mark.parametrize("backend", BACKENDS)
 
 openssl = pytest.mark.skipif(
     shutil.which("openssl") is None, reason="openssl CLI not available"
@@ -100,15 +112,16 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
 
 
 @openssl
+@backends
 async def test_tls_explicit_sslctx_overrides_verify(
-    tls_server: tuple[str, int, str],
+    backend: str, tls_server: tuple[str, int, str]
 ) -> None:
     """A caller-supplied sslctx takes precedence over verify."""
     host, port, _ = tls_server
     sslctx = AsyncModbusTlsClient.generate_ssl()
     sslctx.check_hostname = False
     sslctx.verify_mode = ssl.CERT_NONE
-    conn = await pymodbus_connect_tls(host, port=port, sslctx=sslctx)
+    conn: ModbusConnection = await _connect_tls(backend, host, port=port, sslctx=sslctx)
     try:
         assert conn.connected is True
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
@@ -117,18 +130,24 @@ async def test_tls_explicit_sslctx_overrides_verify(
 
 
 @openssl
-async def test_tls_verifies_by_default(tls_server: tuple[str, int, str]) -> None:
+@backends
+async def test_tls_verifies_by_default(
+    backend: str, tls_server: tuple[str, int, str]
+) -> None:
     """The default (verify=True) rejects a server whose cert isn't trusted."""
     host, port, _ = tls_server
     with pytest.raises(ModbusError):
-        await pymodbus_connect_tls(host, port=port, timeout=1)
+        await _connect_tls(backend, host, port=port, timeout=1)
 
 
 @openssl
-async def test_tls_verify_false_connects(tls_server: tuple[str, int, str]) -> None:
+@backends
+async def test_tls_verify_false_connects(
+    backend: str, tls_server: tuple[str, int, str]
+) -> None:
     """verify=False accepts a self-signed server without an explicit sslctx."""
     host, port, _ = tls_server
-    conn = await pymodbus_connect_tls(host, port=port, verify=False)
+    conn: ModbusConnection = await _connect_tls(backend, host, port=port, verify=False)
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
@@ -136,21 +155,28 @@ async def test_tls_verify_false_connects(tls_server: tuple[str, int, str]) -> No
 
 
 @openssl
+@backends
 async def test_tls_verify_with_pinned_cafile(
-    tls_server: tuple[str, int, str],
+    backend: str, tls_server: tuple[str, int, str]
 ) -> None:
     """verify=<path> pins the device's own cert as the CA to verify against."""
     host, port, certfile = tls_server
-    conn = await pymodbus_connect_tls(host, port=port, verify=certfile)
+    conn: ModbusConnection = await _connect_tls(
+        backend, host, port=port, verify=certfile
+    )
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
         await conn.close()
 
 
-def test_build_tls_context_hostname_and_verify_flags() -> None:
+@backends
+def test_build_tls_context_hostname_and_verify_flags(backend: str) -> None:
     """check_hostname toggles name matching without dropping cert verification."""
-    from modbus_connection.pymodbus import _build_tls_context
+    if backend == "pymodbus":
+        from modbus_connection.pymodbus import _build_tls_context
+    else:
+        from modbus_connection.tmodbus import _build_tls_context
 
     verifying = _build_tls_context(True, True, None, None, None)
     assert verifying.check_hostname is True
@@ -163,9 +189,3 @@ def test_build_tls_context_hostname_and_verify_flags() -> None:
     unverified = _build_tls_context(False, True, None, None, None)
     assert unverified.check_hostname is False  # check_hostname ignored
     assert unverified.verify_mode is ssl.CERT_NONE
-
-
-async def test_tmodbus_tls_not_implemented() -> None:
-    """tmodbus ships no TLS transport: connect_tls raises NotImplementedError."""
-    with pytest.raises(NotImplementedError):
-        await tmodbus_connect_tls("127.0.0.1", port=802)

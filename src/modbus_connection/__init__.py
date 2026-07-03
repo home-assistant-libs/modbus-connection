@@ -10,7 +10,7 @@ Pick a backend to actually talk to a device:
   ``connect_tls`` / ``connect_serial`` over pymodbus (install the ``[pymodbus]``
   extra).
 - ``modbus_connection.tmodbus`` — the same over tmodbus (the ``[tmodbus]``
-  extra), except UDP and TLS, which tmodbus has no transport for.
+  extra), except UDP, which tmodbus has no transport for.
 """
 
 from ._protocol import ModbusConnection, ModbusUnit
