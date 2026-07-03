@@ -170,22 +170,18 @@ async def test_tls_verify_with_pinned_cafile(
         await conn.close()
 
 
-@backends
-def test_build_tls_context_hostname_and_verify_flags(backend: str) -> None:
+def test_build_tls_context_hostname_and_verify_flags() -> None:
     """check_hostname toggles name matching without dropping cert verification."""
-    if backend == "pymodbus":
-        from modbus_connection.pymodbus import _build_tls_context
-    else:
-        from modbus_connection.tmodbus import _build_tls_context
+    from modbus_connection._tls import build_tls_context
 
-    verifying = _build_tls_context(True, True, None, None, None)
+    verifying = build_tls_context(True, True, None, None, None)
     assert verifying.check_hostname is True
     assert verifying.verify_mode is ssl.CERT_REQUIRED
 
-    no_hostname = _build_tls_context(True, False, None, None, None)
+    no_hostname = build_tls_context(True, False, None, None, None)
     assert no_hostname.check_hostname is False
     assert no_hostname.verify_mode is ssl.CERT_REQUIRED  # still verifies the cert
 
-    unverified = _build_tls_context(False, True, None, None, None)
+    unverified = build_tls_context(False, True, None, None, None)
     assert unverified.check_hostname is False  # check_hostname ignored
     assert unverified.verify_mode is ssl.CERT_NONE

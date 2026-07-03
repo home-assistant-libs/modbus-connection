@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import os
 import ssl
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
@@ -38,6 +37,7 @@ from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
 from .._callbacks import CallbackRegistry
+from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
@@ -186,39 +186,6 @@ def _serial_framer(framer: SerialFraming) -> FramerType:
     if framer == "ascii":
         return FramerType.ASCII
     raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
-
-
-def _build_tls_context(
-    verify: bool | str,
-    check_hostname: bool,
-    client_cert: str | None,
-    client_key: str | None,
-    client_key_password: str | None,
-) -> ssl.SSLContext:
-    """Build a client TLS context for ``connect_tls`` (blocking; run in a thread).
-
-    ``verify`` / ``check_hostname`` are the *server* side (see ``connect_tls``);
-    ``client_cert`` / ``client_key`` / ``client_key_password`` are the *client*
-    certificate this side presents for mutual TLS, applied independently.
-
-    Reads the system trust store and any cert files from disk, so callers offload
-    it with :func:`asyncio.to_thread`.
-    """
-    if isinstance(verify, str):
-        if os.path.isdir(verify):
-            context = ssl.create_default_context(capath=verify)
-        else:
-            context = ssl.create_default_context(cafile=verify)
-    else:
-        context = ssl.create_default_context()
-        if not verify:
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-    if verify and not check_hostname:
-        context.check_hostname = False  # still verifies the cert, skips the name
-    if client_cert is not None:
-        context.load_cert_chain(client_cert, client_key, client_key_password)
-    return context
 
 
 class PymodbusConnection:
@@ -610,7 +577,7 @@ async def connect_tls(
     connection does not self-reconnect (``reconnect_delay=0``).
     """
     context = sslctx or await asyncio.to_thread(
-        _build_tls_context,
+        build_tls_context,
         verify,
         check_hostname,
         client_cert,
