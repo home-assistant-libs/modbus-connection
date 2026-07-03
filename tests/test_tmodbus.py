@@ -71,7 +71,16 @@ class _DroppingClient:
         raise TModbusConnectionError("link down")
 
 
-async def test_on_connection_lost_fires_once_across_repeated_failures() -> None:
+class _ClosableClient:
+    """A client whose ``disconnect`` succeeds without doing anything."""
+
+    async def disconnect(self) -> None:
+        pass
+
+
+async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> None:
+    # Loss is reported by the transport's on_connection_lost hook, not by a failed
+    # request, so a request that hits a dropped link only translates the error.
     conn = TmodbusConnection(object())  # type: ignore[arg-type]
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
@@ -81,4 +90,27 @@ async def test_on_connection_lost_fires_once_across_repeated_failures() -> None:
         with pytest.raises(ModbusConnectionError):
             await unit.read_holding_registers(0, 1)
 
-    assert calls == [1]  # detected reactively, fired once despite three failures
+    assert calls == []
+
+
+async def test_transport_hook_fires_registered_callbacks() -> None:
+    conn = TmodbusConnection(object())  # type: ignore[arg-type]
+    calls: list[int] = []
+    conn.on_connection_lost(lambda: calls.append(1))
+
+    conn._on_connection_lost(TModbusConnectionError("link down"))
+
+    assert calls == [1]
+
+
+async def test_close_suppresses_on_connection_lost_hook() -> None:
+    # A deliberate close() also triggers tmodbus's on_connection_lost hook (with a
+    # None cause); that is not a lost connection, so it must not fire callbacks.
+    conn = TmodbusConnection(_ClosableClient())  # type: ignore[arg-type]
+    calls: list[int] = []
+    conn.on_connection_lost(lambda: calls.append(1))
+
+    await conn.close()
+    conn._on_connection_lost(None)  # the hook close() would drive from the loop
+
+    assert calls == []
