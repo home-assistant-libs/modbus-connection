@@ -471,9 +471,7 @@ async def connect_tcp(
     it for devices that need a pause between frames; ``0`` (the default) disables
     pacing and leaves serialization entirely to pymodbus.
 
-    Raises ``ModbusConnectionError`` if the connection cannot be established. The
-    connection does not self-reconnect (``reconnect_delay=0``): on loss the owner
-    recreates it.
+    Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
     framer_type = _socket_framer(framer)
     return await _open(
@@ -512,8 +510,7 @@ async def connect_udp(
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
     disables pacing.
 
-    Raises ``ModbusConnectionError`` if the endpoint cannot be set up. The
-    connection does not self-reconnect (``reconnect_delay=0``).
+    Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
     framer_type = _socket_framer(framer)
     return await _open(
@@ -573,8 +570,7 @@ async def connect_tls(
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
     disables pacing.
 
-    Raises ``ModbusConnectionError`` if the connection cannot be established. The
-    connection does not self-reconnect (``reconnect_delay=0``).
+    Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
     context = sslctx or await asyncio.to_thread(
         build_tls_context,
@@ -621,8 +617,7 @@ async def connect_serial(
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
     disables pacing.
 
-    Raises ``ModbusConnectionError`` if the port cannot be opened. The connection
-    does not self-reconnect (``reconnect_delay=0``).
+    Raises ``ModbusConnectionError`` if the port cannot be opened.
     """
     framer_type = _serial_framer(framer)
     return await _open(
