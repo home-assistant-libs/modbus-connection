@@ -5,14 +5,14 @@ the design, three function codes have no tmodbus equivalent and raise
 ``NotImplementedError``: diagnostics (0x08), get-comm-event-counter (0x0B), and
 get-comm-event-log (0x0C).
 
-tmodbus ships no UDP or TLS transport, so ``connect_udp`` / ``connect_tls`` raise
-``NotImplementedError``.
+tmodbus ships no UDP transport, so ``connect_udp`` raises ``NotImplementedError``.
 
 Requires the ``[tmodbus]`` extra.
 """
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
@@ -36,6 +36,7 @@ from tmodbus.exceptions import (
 )
 
 from .._callbacks import CallbackRegistry
+from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
@@ -295,7 +296,6 @@ async def connect_tcp(
     tmodbus's native ``wait_between_requests``. Use it for devices that need a
     pause between frames; ``0`` (the default) disables it.
 
-    ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
     if framer == "socket":
@@ -341,19 +341,65 @@ async def connect_tls(
     host: str,
     *,
     port: int = 802,
+    verify: bool | str = True,
+    check_hostname: bool = True,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    client_key_password: str | None = None,
     sslctx: ssl.SSLContext | None = None,
-    certfile: str | None = None,
-    keyfile: str | None = None,
-    password: str | None = None,
     timeout: float = 3,
     message_spacing: float = 0.0,
 ) -> TmodbusConnection:
-    """Modbus/TLS is not available over tmodbus.
+    """Open a Modbus/TLS (Modbus Security) connection over tmodbus.
 
-    tmodbus ships no TLS transport, so this always raises ``NotImplementedError``.
-    Kept here so the backend's connect surface stays complete.
+    The SSL context is handed to ``asyncio.create_connection`` (which uses ``host``
+    as the ``server_hostname`` for verification).
+
+    Server verification — ``verify`` controls how the device's certificate is
+    checked (the ``httpx`` convention):
+
+    - ``True`` (default) — verify against the system trust store.
+    - ``False`` — do not verify, for a device with a self-signed certificate.
+    - a path (``str``) — verify against a CA bundle (a file) or a directory of
+      CAs, e.g. to pin a device's own self-signed certificate.
+
+    ``check_hostname`` (default ``True``) gates hostname matching while still
+    verifying the certificate — set it ``False`` for a device reached by an
+    address its certificate has no SAN for; ignored when ``verify`` is ``False``.
+
+    Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
+    ``client_key_password`` are this side's own certificate, presented to the
+    device; independent of the server-verification arguments.
+
+    Pass a fully-configured ``sslctx`` to take full control; it overrides every
+    argument above.
+
+    ``message_spacing`` is the minimum gap, in seconds, left after each request
+    before the next may start (see ``connect_tcp``); ``0`` (the default) disables
+    it.
+
+    Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    raise NotImplementedError("tmodbus has no TLS transport")
+    context = sslctx or await asyncio.to_thread(
+        build_tls_context,
+        verify,
+        check_hostname,
+        client_cert,
+        client_key,
+        client_key_password,
+    )
+    return await _open(
+        lambda: create_async_tcp_client(
+            host,
+            port,
+            unit_id=_PLACEHOLDER_UNIT_ID,
+            timeout=timeout,
+            auto_reconnect=False,
+            wait_between_requests=message_spacing,
+            ssl=context,
+        ),
+        f"could not connect to {host}:{port}",
+    )
 
 
 async def connect_serial(
@@ -375,7 +421,7 @@ async def connect_serial(
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
     it.
 
-    ``auto_reconnect`` is disabled. Raises ``ModbusConnectionError`` on failure.
+    Raises ``ModbusConnectionError`` on failure.
     """
     if framer == "rtu":
         create = create_async_rtu_client
