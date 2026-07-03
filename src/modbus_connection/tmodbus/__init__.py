@@ -296,7 +296,6 @@ async def connect_tcp(
     tmodbus's native ``wait_between_requests``. Use it for devices that need a
     pause between frames; ``0`` (the default) disables it.
 
-    ``auto_reconnect`` is disabled: on loss the owner recreates the connection.
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
     if framer == "socket":
@@ -422,7 +421,7 @@ async def connect_serial(
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
     it.
 
-    ``auto_reconnect`` is disabled. Raises ``ModbusConnectionError`` on failure.
+    Raises ``ModbusConnectionError`` on failure.
     """
     if framer == "rtu":
         create = create_async_rtu_client
