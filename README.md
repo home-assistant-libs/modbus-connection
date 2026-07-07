@@ -3,10 +3,11 @@
 A small, **backend-neutral** Modbus connection abstraction.
 
 The top-level `modbus_connection` package is a pure interface — the
-`ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html),
-the shared `WordOrder` type, and a tiny exception hierarchy. It imports **no**
-Modbus library, so consumers can type against it without committing to a
-backend.
+`ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html)
+and a tiny exception hierarchy. It also re-exports the shared `WordOrder`
+datatype (used by `decode` / `encode` / `model`) for convenient importing. It
+imports **no** Modbus library, so consumers can type against it without
+committing to a backend.
 
 Two interchangeable backends implement that interface:
 
