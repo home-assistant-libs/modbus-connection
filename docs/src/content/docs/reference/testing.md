@@ -103,4 +103,4 @@ The mock lets a device library's tests cover the hard part — the register map,
 scaling, the write sequencing, the pooled read plan — with plain `pytest` and no
 device. Keep that library separate from any Home Assistant integration and this is
 where nearly all your coverage lives; see
-[Custom integrations](/modbus-connection/home-assistant/custom-integration/).
+[Built-in integrations](/modbus-connection/home-assistant/built-in-integration/).

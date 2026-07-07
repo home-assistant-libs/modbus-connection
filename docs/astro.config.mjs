@@ -80,8 +80,8 @@ export default defineConfig({
               slug: "home-assistant/yaml-configuration",
             },
             {
-              label: "Custom integrations",
-              slug: "home-assistant/custom-integration",
+              label: "Built-in integrations",
+              slug: "home-assistant/built-in-integration",
             },
           ],
         },
