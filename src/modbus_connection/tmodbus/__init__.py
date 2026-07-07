@@ -15,7 +15,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-from collections.abc import Awaitable, Callable
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from types import CoroutineType
 from typing import Any, Concatenate
 
@@ -66,9 +68,10 @@ _PLACEHOLDER_UNIT_ID = 1
 class TmodbusConnection:
     """A live tmodbus connection.
 
-    Inter-request spacing (``message_spacing``) is the transport's own job here:
-    it maps to tmodbus's native ``wait_between_requests``, enforced inside the
-    client's communication lock — so this wrapper carries no pacing state.
+    Connection-wide spacing (``message_spacing``) is the transport's own job
+    here: it maps to tmodbus's native ``wait_between_requests``, enforced inside
+    the client's communication lock. Per-unit spacing has no native equivalent,
+    so this wrapper paces it itself — the only pacing state it carries.
 
     ``on_connection_lost`` callbacks fire once, as soon as the link drops — even
     while no request is in flight — but not for a deliberate ``close()``.
@@ -76,15 +79,50 @@ class TmodbusConnection:
 
     def __init__(self, client: AsyncModbusClient) -> None:
         self._client = client
+        self._request_lock = asyncio.Lock()
+        self._unit_spacing: dict[int, float] = {}
+        self._unit_last_finished_at: dict[int, float] = {}
         self._lost_callbacks = CallbackRegistry()
         self._closing = False
+
+    def _set_unit_spacing(self, unit_id: int, seconds: float) -> None:
+        """Set (or, with ``0``, clear) the per-unit gap for ``unit_id``."""
+        if seconds < 0:
+            raise ValueError("message_spacing must be non-negative")
+        if seconds:
+            self._unit_spacing[unit_id] = seconds
+        else:
+            self._unit_spacing.pop(unit_id, None)
+            self._unit_last_finished_at.pop(unit_id, None)
+
+    @asynccontextmanager
+    async def _paced(self, unit_id: int) -> AsyncIterator[None]:
+        """Hold each request until this unit's own gap has elapsed since the last
+        request to the same unit finished. Connection-wide spacing is left to the
+        transport's native ``wait_between_requests`` and composes on top.
+
+        No-op for a unit with no per-unit spacing configured.
+        """
+        unit_spacing = self._unit_spacing.get(unit_id, 0.0)
+        if not unit_spacing:
+            yield
+            return
+        async with self._request_lock:
+            last_unit = self._unit_last_finished_at.get(unit_id, 0.0)
+            wait = unit_spacing - (time.monotonic() - last_unit)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            try:
+                yield
+            finally:
+                self._unit_last_finished_at[unit_id] = time.monotonic()
 
     @property
     def connected(self) -> bool:
         return self._client.connected
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
-        return TmodbusUnit(self, self._client.for_unit_id(unit_id))
+        return TmodbusUnit(self, unit_id, self._client.for_unit_id(unit_id))
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._lost_callbacks.subscribe(callback)
@@ -135,7 +173,8 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            return await func(self, *args, **kwargs)
+            async with self._conn._paced(self._unit_id):
+                return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
             raise ModbusConnectionError(str(err)) from err
         except (TimeoutError, RequestRetryFailedError) as err:
@@ -154,14 +193,18 @@ class TmodbusUnit:
     """A stateless per-unit handle over a unit-bound tmodbus client."""
 
     def __init__(
-        self, connection: TmodbusConnection, client: AsyncModbusClient
+        self, connection: TmodbusConnection, unit_id: int, client: AsyncModbusClient
     ) -> None:
         self._conn = connection
+        self._unit_id = unit_id
         self._client = client
 
     @property
     def connected(self) -> bool:
         return self._conn.connected
+
+    def set_message_spacing(self, seconds: float) -> None:
+        self._conn._set_unit_spacing(self._unit_id, seconds)
 
     # -- raw register I/O -----------------------------------------------------
 

@@ -61,6 +61,17 @@ class ModbusUnit(Protocol):
     async def get_comm_event_counter(self) -> tuple[int, int]: ...  # 0x0B
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
+    def set_message_spacing(self, seconds: float) -> None:
+        """Set a minimum gap, in seconds, between consecutive requests to THIS
+        unit, layered on top of any connection-wide ``message_spacing``.
+
+        Keyed by unit id: the gap belongs to the unit, not the handle, so it
+        applies to every request to this unit on the connection — including ones
+        issued through other handles the owner hands out for the same id. Use it
+        for a single slow device on a link that other units share without needing
+        the pause. ``0`` clears it.
+        """
+
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
 

@@ -43,6 +43,13 @@ makes that sharing possible while keeping the backend swappable: the
   applies the same gap itself. It is the *spacing between* requests only; to
   delay the *first* request, the owner sleeps before issuing it. Default `0`
   disables it.
+- The gap above paces the *whole link*. When only one slow device on a shared
+  link needs the pause, call `unit.set_message_spacing(seconds)` for a
+  **per-unit** gap layered on top: requests to that unit wait for its own gap
+  too, while the other units keep polling at full speed. The gap belongs to the
+  **unit id**, not the handle — it applies to every request to that unit,
+  including through other handles the owner hands out for the same id. `0`
+  clears it.
 - The connection does **not** self-reconnect. On a drop it fires
   `on_connection_lost` (best-effort) and stops; recreating it is the owner's job.
 - Consumers receive a **`ModbusUnit`** (via `connection.for_unit(unit_id)`), a
