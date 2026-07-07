@@ -24,15 +24,16 @@ and a few edge behaviours:
 
 | | pymodbus | tmodbus |
 | --- | --- | --- |
-| TCP (native / RTU-over-TCP / ASCII-over-TCP) | ✅ all three | RTU-over-TCP only |
+| TCP (native / RTU-over-TCP / ASCII-over-TCP) | ✅ all three | native + RTU-over-TCP (no ASCII) |
 | UDP | ✅ | ❌ (raises `NotImplementedError`) |
 | Serial (RTU / ASCII) | ✅ | ✅ |
 | TLS (Modbus Security) | ✅ | ✅ |
-| Native `message_spacing` | emulated by this package | native (`wait_between_requests`) |
 | Distinguishes a garbled reply from a missing one | ❌ (both become a timeout) | ✅ (`ModbusProtocolError`) |
 
-If you need UDP or ASCII-over-TCP, use pymodbus. Otherwise the choice is yours;
-tmodbus reports protocol errors more precisely.
+Both backends do native Modbus TCP and RTU-over-TCP. tmodbus has no
+ASCII-over-TCP (ASCII exists only on the serial side) and no UDP — use pymodbus if
+you need either. Otherwise the choice is yours; tmodbus reports protocol errors
+more precisely.
 
 ## Verifying the install
 

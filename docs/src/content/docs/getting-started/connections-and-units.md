@@ -27,7 +27,7 @@ opening a competing socket.
   for the full request/response cycle, so concurrent unit calls on one connection
   can't interleave.
 - It does **not** self-reconnect. On a drop it fires `on_connection_lost`
-  (best-effort) and stops; recreating it is the owner's job.
+  and stops; recreating it is the owner's job.
 - **Only the owner holds it, and only the owner tears it down** with `close()`.
 
 ```python
