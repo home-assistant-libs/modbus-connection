@@ -1,6 +1,6 @@
 ---
-title: Built-in integrations
-description: How modbus-connection fits a Home Assistant built-in (core) integration, whose device logic must live in a separate PyPI library.
+title: Integrations
+description: How modbus-connection fits a Home Assistant integration, whose device logic must live in a separate PyPI library.
 ---
 
 modbus-connection is a clean foundation for a **built-in Home Assistant
@@ -72,6 +72,14 @@ async def async_setup_entry(hass, entry) -> bool:
     )
     device = MyDevice(unit)          # your device library's entrypoint
 
+    # The connection does not self-reconnect: when the shared link drops, reload
+    # this entry so setup re-runs and picks up a fresh unit once it is back.
+    entry.async_on_unload(
+        unit.on_connection_lost(
+            lambda: hass.config_entries.async_schedule_reload(entry.entry_id)
+        )
+    )
+
     coordinator = MyCoordinator(hass, entry, device)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
@@ -81,6 +89,10 @@ async def async_setup_entry(hass, entry) -> bool:
 Your config flow stores just those two values — the connection entry id and the
 unit id — not a host or port; the connection details live in the shared
 `modbus_connection` entry.
+
+`unit.on_connection_lost` returns an unsubscribe, so registering it with
+`entry.async_on_unload` detaches the callback automatically when the entry
+unloads.
 
 This is the whole point of the connection / unit split: **one physical Modbus link
 is shared across every device integration on it**, rather than each opening a
