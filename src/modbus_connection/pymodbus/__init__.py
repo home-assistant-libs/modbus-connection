@@ -13,9 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from types import CoroutineType
 from typing import Any, Concatenate
 
@@ -38,6 +36,7 @@ from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
 from .._callbacks import CallbackRegistry
+from .._pacing import Pacer
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -69,7 +68,7 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            async with self._conn._paced(self._unit_id):
+            async with self._conn._pacer.paced(self._unit_id):
                 return await func(self, *args, **kwargs)
         except ConnectionException as err:
             raise ModbusConnectionError(str(err)) from err
@@ -197,61 +196,15 @@ class PymodbusConnection:
     pymodbus's job: its transaction manager already holds a per-client lock for
     the full request/response cycle, so this wrapper adds none of its own.
 
-    Inter-request spacing is the exception: pymodbus has no native
-    ``wait_between_requests`` (tmodbus does), so when ``message_spacing`` is set
-    ``_paced`` reproduces it here, mirroring how tmodbus enforces it internally —
-    a lock makes the wait atomic across every unit on the link, and the gap is
-    measured from each request finishing.
+    Inter-request spacing is the exception: pymodbus has no native pacing, so a
+    shared :class:`~modbus_connection._pacing.Pacer` enforces the connection-wide
+    and per-unit gaps here.
     """
 
     def __init__(self, client: ModbusBaseClient, message_spacing: float = 0.0) -> None:
-        if message_spacing < 0:
-            raise ValueError("message_spacing must be non-negative")
         self._client = client
-        self._message_spacing = message_spacing
-        self._request_lock = asyncio.Lock()
-        self._last_request_finished_at = 0.0
-        self._unit_spacing: dict[int, float] = {}
-        self._unit_last_finished_at: dict[int, float] = {}
+        self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
-
-    def _set_unit_spacing(self, unit_id: int, seconds: float) -> None:
-        """Set (or, with ``0``, clear) the per-unit gap for ``unit_id``."""
-        if seconds < 0:
-            raise ValueError("message_spacing must be non-negative")
-        if seconds:
-            self._unit_spacing[unit_id] = seconds
-        else:
-            self._unit_spacing.pop(unit_id, None)
-            self._unit_last_finished_at.pop(unit_id, None)
-
-    @asynccontextmanager
-    async def _paced(self, unit_id: int) -> AsyncIterator[None]:
-        """Hold each request until both the connection-wide gap (since the last
-        request on the link) and this unit's own gap (since the last request to
-        the same unit) have elapsed, serializing so the waits stay atomic.
-
-        No-op when neither the link nor the unit has spacing configured.
-        """
-        unit_spacing = self._unit_spacing.get(unit_id, 0.0)
-        if not self._message_spacing and not unit_spacing:
-            yield
-            return
-        async with self._request_lock:
-            now = time.monotonic()
-            wait = self._message_spacing - (now - self._last_request_finished_at)
-            if unit_spacing:
-                last_unit = self._unit_last_finished_at.get(unit_id, 0.0)
-                wait = max(wait, unit_spacing - (now - last_unit))
-            if wait > 0:
-                await asyncio.sleep(wait)
-            try:
-                yield
-            finally:
-                finished = time.monotonic()
-                self._last_request_finished_at = finished
-                if unit_spacing:
-                    self._unit_last_finished_at[unit_id] = finished
 
     # -- spec surface ---------------------------------------------------------
 
@@ -292,7 +245,7 @@ class PymodbusUnit:
         return self._conn.connected
 
     def set_message_spacing(self, seconds: float) -> None:
-        self._conn._set_unit_spacing(self._unit_id, seconds)
+        self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
 
     # -- raw register I/O -----------------------------------------------------
 
