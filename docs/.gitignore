@@ -1,0 +1,8 @@
+# Astro / Node
+node_modules/
+dist/
+.astro/
+
+# Build/env
+.env
+.DS_Store
