@@ -5,9 +5,11 @@ description: The ModbusConnection and ModbusUnit protocols, the connect function
 
 The top-level `modbus_connection` package is a **pure interface**. It defines two
 [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) —
-`ModbusConnection` and `ModbusUnit` — the shared `WordOrder` type, and a small
-exception hierarchy. It imports no Modbus library, so you can type against it
-without committing to a backend.
+`ModbusConnection` and `ModbusUnit` — and a small exception hierarchy. It also
+re-exports the shared `WordOrder` datatype (used by `decode` / `encode` and the
+`model` framework) for convenient importing — it is not part of the connection
+surface. The package imports no Modbus library, so you can type against it without
+committing to a backend.
 
 ## The connection / unit split
 
