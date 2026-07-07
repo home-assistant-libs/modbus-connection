@@ -190,12 +190,8 @@ def add_connection_args(
         default=3.0,
         help="per-request timeout in seconds (default: 3)",
     )
-    group.add_argument(
-        "--message-spacing",
-        type=float,
-        default=0.0,
-        help="minimum gap in seconds left after each request (default: 0)",
-    )
+    # Note: message spacing is a fixed property of the device, not a CLI knob, so
+    # it is deliberately not exposed here.
 
     if serial_ok:
         serial = parser.add_argument_group("Modbus serial")
@@ -239,7 +235,7 @@ async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
     # Imported lazily so the module (and --help) loads without the backend.
     from .tmodbus import connect_serial, connect_tcp, connect_tls, connect_udp
 
-    common = {"timeout": args.timeout, "message_spacing": args.message_spacing}
+    common = {"timeout": args.timeout}
     # port/framer may be omitted for a narrowed argument set (see
     # add_connection_args); fall back to the backend default.
     port = getattr(args, "port", None)
