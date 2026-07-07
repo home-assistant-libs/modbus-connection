@@ -16,15 +16,16 @@ value printing every time:
 | Building block | What it does |
 | --- | --- |
 | `add_connection_args(parser, connections=…)` | Add the connection arguments (target, transport, framer, port, timeout, serial/TLS options) to an `argparse` parser. |
-| `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over the tmodbus backend). |
+| `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over whichever backend is installed). |
 | `CountingUnit` | Wrap a `ModbusUnit` to count the block reads an update performs. |
 | `print_component(component, *, title=None, file=None)` | Print every field on a component by reflection. |
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
 
 :::note[Backend]
-Only `connect_from_args` needs a backend — it uses **tmodbus**, so install the
-`[tmodbus]` extra. The counter and the printer are backend-neutral, so `--help`
-and argument parsing work without one.
+Only `connect_from_args` needs a backend. It picks whichever is installed —
+**tmodbus** if present, otherwise **pymodbus** — so install the `[tmodbus]` or
+`[pymodbus]` extra; with neither it raises `ModbusError`. The counter and the
+printer are backend-neutral, so `--help` and argument parsing work without one.
 :::
 
 ## A complete query script
@@ -109,18 +110,19 @@ produces is read back by `connect_from_args`, so the two always stay in step.
 ### `connect_from_args`
 
 Opens the connection the parsed arguments describe, dispatching to
-`connect_tcp` / `connect_udp` / `connect_tls` / `connect_serial` on the tmodbus
-backend (imported lazily, so importing the module needs no backend). Pass
-`message_spacing=` for a device that needs a gap between frames — it's a fixed
-device property, so the tool sets it rather than exposing it as a CLI argument:
+`connect_tcp` / `connect_udp` / `connect_tls` / `connect_serial` on whichever
+backend is installed — tmodbus first, then pymodbus (resolved lazily, so
+importing the module needs no backend). Pass `message_spacing=` for a device
+that needs a gap between frames — it's a fixed device property, so the tool sets
+it rather than exposing it as a CLI argument:
 
 ```python
 conn = await connect_from_args(args, message_spacing=0.1)
 ```
 
-It raises `ModbusConnectionError` if the link can't be opened, and
-`NotImplementedError` for `--transport udp` (tmodbus has no UDP transport — use a
-pymodbus-based script if you need it).
+It raises `ModbusError` if no backend is installed, `ModbusConnectionError` if
+the link can't be opened, and `NotImplementedError` for `--transport udp` on
+tmodbus (it has no UDP transport — install pymodbus, which does, if you need it).
 
 ### `CountingUnit`
 

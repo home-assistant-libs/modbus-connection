@@ -473,14 +473,15 @@ tool when bringing up a new device library, since it checks a physical
 controller with no application around it. Rather than re-implement the plumbing
 in every library, import it from `modbus_connection.cli_helper`. The package
 never imports this module, so it stays out of normal application code; only
-`connect_from_args` needs a backend (the `[tmodbus]` extra), so `--help` and the
+`connect_from_args` needs a backend — it uses whichever is installed, tmodbus
+first then pymodbus (the `[tmodbus]` or `[pymodbus]` extra), so `--help` and the
 argument parsing work without one.
 
 Three pieces:
 
 | Import | Does |
 | --- | --- |
-| `add_connection_args(parser)` / `connect_from_args(args)` | add the connection-specifying arguments (`target`, `--transport tcp/udp/tls/serial`, `--port`, `--framer`, serial and TLS options), then open the connection they describe (`--transport udp` raises `NotImplementedError` — tmodbus has no UDP transport) |
+| `add_connection_args(parser)` / `connect_from_args(args)` | add the connection-specifying arguments (`target`, `--transport tcp/udp/tls/serial`, `--port`, `--framer`, serial and TLS options), then open the connection they describe over the installed backend — tmodbus first, then pymodbus (`ModbusError` if neither is installed; `--transport udp` raises `NotImplementedError` on tmodbus, which has no UDP transport) |
 | `CountingUnit(unit)` | wrap a `ModbusUnit` to count the reads it performs — a sanity check that your `ranges` / `max_gap` collapse fields into as few round-trips as the plan allows |
 | `print_component(component)` / `field_rows(component)` | print (or return) every field on a modelled component by reflection — register/coil/discrete fields and computed `@property` values, each annotated with its `unit`; no hand-listing |
 
