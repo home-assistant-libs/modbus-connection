@@ -10,12 +10,12 @@ from __future__ import annotations
 import argparse
 import io
 from enum import IntEnum
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
 import modbus_connection.tmodbus as tmodbus_backend
-from modbus_connection import ModbusConnectionError, ModbusUnit
+from modbus_connection import ModbusConnectionError
 from modbus_connection.cli_helper import (
     CountingUnit,
     add_connection_args,
@@ -64,7 +64,7 @@ async def test_connect_from_args_dispatches_by_transport(
         calls["name"], calls["target"], calls["kwargs"] = name, target, kwargs
         return "conn"
 
-    for func in ("connect_tcp", "connect_tls", "connect_serial"):
+    for func in ("connect_tcp", "connect_udp", "connect_tls", "connect_serial"):
         monkeypatch.setattr(
             tmodbus_backend,
             func,
@@ -92,12 +92,93 @@ async def test_connect_from_args_dispatches_by_transport(
     assert calls["kwargs"]["framer"] == "rtu"
     assert calls["kwargs"]["port"] == 1502
 
+    await connect_from_args(_parse(["1.2.3.4", "--transport", "udp"]))
+    assert calls["name"] == "connect_udp"
+
+
+async def test_connect_udp_raises_not_implemented() -> None:
+    # tmodbus has no UDP transport; the transport is offered but connect_udp
+    # surfaces the NotImplementedError unchanged.
+    with pytest.raises(NotImplementedError):
+        await connect_from_args(_parse(["1.2.3.4", "--transport", "udp"]))
+
 
 def test_unset_port_and_framer_left_to_backend() -> None:
     # Left unset so the backend default applies rather than being forced here.
     args = _parse(["dev.local"])
     assert args.port is None
     assert args.framer is None
+
+
+# -- narrowing transports / framers -------------------------------------------
+
+
+def test_single_transport_drops_the_flag() -> None:
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("serial",))
+    args = parser.parse_args(["/dev/ttyUSB0"])
+    assert args.transport == "serial"  # fixed, no flag needed
+    with pytest.raises(SystemExit):
+        parser.parse_args(["/dev/ttyUSB0", "--transport", "tcp"])
+
+
+def test_serial_only_omits_network_and_tls_args() -> None:
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("serial",))
+    args = parser.parse_args(["/dev/ttyUSB0", "--baudrate", "19200"])
+    assert args.baudrate == 19200
+    assert not hasattr(args, "port")
+    assert not hasattr(args, "tls_ca")
+
+
+def test_tcp_only_omits_serial_and_tls_groups() -> None:
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("tcp",))
+    args = parser.parse_args(["host"])
+    assert hasattr(args, "port")
+    assert not hasattr(args, "baudrate")
+    assert not hasattr(args, "tls_ca")
+
+
+def test_single_framer_is_fixed_not_offered() -> None:
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("tcp",), framers=("rtu",))
+    assert parser.parse_args(["host"]).framer == "rtu"  # fixed default
+    with pytest.raises(SystemExit):
+        parser.parse_args(["host", "--framer", "socket"])
+
+
+def test_restricted_framers_limits_choices() -> None:
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("tcp",), framers=("socket", "rtu"))
+    assert parser.parse_args(["host", "--framer", "rtu"]).framer == "rtu"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["host", "--framer", "ascii"])  # dropped from choices
+
+
+async def test_fixed_framer_is_passed_to_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake(target: str, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "conn"
+
+    monkeypatch.setattr(tmodbus_backend, "connect_tcp", lambda t, **k: fake(t, **k))
+    parser = argparse.ArgumentParser()
+    add_connection_args(parser, transports=("tcp",), framers=("rtu",))
+    await connect_from_args(parser.parse_args(["host"]))
+    assert captured["framer"] == "rtu"
+
+
+def test_invalid_transport_or_framer_raises() -> None:
+    with pytest.raises(ValueError, match="transports"):
+        add_connection_args(argparse.ArgumentParser(), transports=("bogus",))
+    with pytest.raises(ValueError, match="transports"):
+        add_connection_args(argparse.ArgumentParser(), transports=())
+    with pytest.raises(ValueError, match="framers"):
+        add_connection_args(argparse.ArgumentParser(), framers=("bogus",))
 
 
 # -- CountingUnit -------------------------------------------------------------
@@ -108,7 +189,7 @@ async def test_counting_unit_counts_reads_and_delegates() -> None:
     unit.holding.update({0: 11, 1: 22})
     unit.coils.update({0: True})
 
-    counting = CountingUnit(cast(ModbusUnit, unit))
+    counting = CountingUnit(unit)  # no cast: CountingUnit is a ModbusUnit
     assert await counting.read_holding_registers(0, 2) == [11, 22]
     assert await counting.read_coils(0, 1) == [True]
     assert counting.reads == 2
@@ -141,8 +222,8 @@ async def test_counting_unit_tallies_a_component_update() -> None:
     unit.holding.update({0: 235, 1: 7, 2: 1})
     unit.coils.update({0: True})
 
-    counting = CountingUnit(cast(ModbusUnit, unit))
-    meter = _Meter(cast(ModbusUnit, counting))
+    counting = CountingUnit(unit)
+    meter = _Meter(counting)  # CountingUnit drops in wherever a ModbusUnit goes
     await meter.async_update()
 
     # Contiguous holding registers pool into one read; coils are a second space.

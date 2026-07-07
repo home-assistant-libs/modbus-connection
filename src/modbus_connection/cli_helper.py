@@ -20,9 +20,8 @@ A minimal query script::
 
     import argparse
     import asyncio
-    from typing import cast
 
-    from modbus_connection import ModbusError, ModbusUnit
+    from modbus_connection import ModbusError
     from modbus_connection.cli_helper import (
         CountingUnit,
         add_connection_args,
@@ -44,7 +43,7 @@ A minimal query script::
             return 1
         counting = CountingUnit(conn.for_unit(args.unit))
         try:
-            device = MyDevice(cast(ModbusUnit, counting))  # your modelled component
+            device = MyDevice(counting)  # your modelled component
             await device.async_update()
         finally:
             await conn.close()
@@ -66,6 +65,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import sys
+from collections.abc import Callable, Iterable
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
@@ -83,45 +83,88 @@ __all__ = [
     "print_component",
 ]
 
+# The transports and framings ``add_connection_args`` knows about, in the order
+# they appear in ``--help``. A caller may narrow to a subset (see below).
+_TRANSPORTS = ("tcp", "udp", "tls", "serial")
+_FRAMERS = ("socket", "rtu", "ascii")
+
 
 # -- connection from arguments -----------------------------------------------
 
 
-def add_connection_args(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
+def add_connection_args(
+    parser: argparse.ArgumentParser,
+    *,
+    transports: Iterable[str] = _TRANSPORTS,
+    framers: Iterable[str] = _FRAMERS,
+) -> argparse._ArgumentGroup:
     """Add the connection-specifying arguments to *parser*.
 
     The arguments land in their own "Modbus connection" group, so they read as a
     block in ``--help`` and stay clear of the CLI's own options. Returns the
     group in case the caller wants to tweak it.
 
-    ``connect_from_args`` consumes exactly what this adds; keep the two together.
+    A library that only speaks one transport (or one framing) can narrow what is
+    exposed: pass *transports* / *framers* as the subset it supports and only
+    those arguments appear — a serial-only tool gets no ``--port`` or TLS
+    options. With a single transport the ``--transport`` flag is dropped and that
+    transport is used; likewise a lone framing is fixed rather than offered as a
+    choice. ``connect_from_args`` reads whatever this adds, so the two stay in
+    step. Raises ``ValueError`` for an unknown or empty transport/framer set.
     """
+    transports = tuple(dict.fromkeys(transports))  # de-dupe, keep order
+    framers = tuple(dict.fromkeys(framers))
+    if not transports or any(t not in _TRANSPORTS for t in transports):
+        raise ValueError(f"transports must be a non-empty subset of {_TRANSPORTS}")
+    if any(f not in _FRAMERS for f in framers):
+        raise ValueError(f"framers must be a subset of {_FRAMERS}")
+
+    network = any(t in ("tcp", "udp") for t in transports)
+    serial_ok = "serial" in transports
+    tls_ok = "tls" in transports
+    # Framings valid for the chosen transports, canonical order: socket is
+    # network-only; rtu/ascii serve network and serial alike.
+    valid_framers = [
+        f
+        for f in _FRAMERS
+        if f in framers and (network if f == "socket" else network or serial_ok)
+    ]
+
+    if serial_ok and (network or tls_ok):
+        target_help = "host or IP for tcp/udp/tls, or the serial device path"
+    elif serial_ok:
+        target_help = "serial device path, e.g. /dev/ttyUSB0"
+    else:
+        target_help = "host or IP of the device"
+
+    primary = transports[0]
     group = parser.add_argument_group("Modbus connection")
-    group.add_argument(
-        "target",
-        help="host or IP for tcp/tls, or the serial device path for serial",
-    )
-    group.add_argument(
-        "--transport",
-        choices=("tcp", "tls", "serial"),
-        default="tcp",
-        help="wire transport (default: tcp)",
-    )
-    group.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="TCP/TLS port (default: 502 for tcp, 802 for tls)",
-    )
-    group.add_argument(
-        "--framer",
-        choices=("socket", "rtu", "ascii"),
-        default=None,
-        help=(
-            "wire framing for tcp (socket/rtu) or serial (rtu/ascii); "
-            "backend default if unset"
-        ),
-    )
+    group.add_argument("target", help=target_help)
+    if len(transports) > 1:
+        group.add_argument(
+            "--transport",
+            choices=transports,
+            default=primary,
+            help=f"wire transport (default: {primary})",
+        )
+    else:
+        parser.set_defaults(transport=primary)
+    if network or tls_ok:
+        group.add_argument(
+            "--port",
+            type=int,
+            default=None,
+            help="TCP/UDP/TLS port (default: 502 for tcp/udp, 802 for tls)",
+        )
+    if len(valid_framers) > 1:
+        group.add_argument(
+            "--framer",
+            choices=tuple(valid_framers),
+            default=None,
+            help="wire framing (backend default if unset)",
+        )
+    elif len(valid_framers) == 1:
+        parser.set_defaults(framer=valid_framers[0])
     group.add_argument(
         "--timeout",
         type=float,
@@ -135,46 +178,53 @@ def add_connection_args(parser: argparse.ArgumentParser) -> argparse._ArgumentGr
         help="minimum gap in seconds left after each request (default: 0)",
     )
 
-    serial = parser.add_argument_group("Modbus serial")
-    serial.add_argument("--baudrate", type=int, default=9600)
-    serial.add_argument("--bytesize", type=int, choices=(7, 8), default=8)
-    serial.add_argument("--parity", choices=("N", "E", "O"), default="N")
-    serial.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
+    if serial_ok:
+        serial = parser.add_argument_group("Modbus serial")
+        serial.add_argument("--baudrate", type=int, default=9600)
+        serial.add_argument("--bytesize", type=int, choices=(7, 8), default=8)
+        serial.add_argument("--parity", choices=("N", "E", "O"), default="N")
+        serial.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
 
-    tls = parser.add_argument_group("Modbus/TLS")
-    tls.add_argument(
-        "--tls-no-verify",
-        action="store_true",
-        help="do not verify the server certificate (self-signed devices)",
-    )
-    tls.add_argument(
-        "--tls-ca",
-        default=None,
-        help="verify against this CA bundle file or directory instead",
-    )
-    tls.add_argument(
-        "--tls-no-check-hostname",
-        action="store_true",
-        help="verify the certificate but not the hostname",
-    )
-    tls.add_argument("--tls-client-cert", default=None, help="client cert for mTLS")
-    tls.add_argument("--tls-client-key", default=None, help="client key for mTLS")
-    tls.add_argument("--tls-client-key-password", default=None)
+    if tls_ok:
+        tls = parser.add_argument_group("Modbus/TLS")
+        tls.add_argument(
+            "--tls-no-verify",
+            action="store_true",
+            help="do not verify the server certificate (self-signed devices)",
+        )
+        tls.add_argument(
+            "--tls-ca",
+            default=None,
+            help="verify against this CA bundle file or directory instead",
+        )
+        tls.add_argument(
+            "--tls-no-check-hostname",
+            action="store_true",
+            help="verify the certificate but not the hostname",
+        )
+        tls.add_argument("--tls-client-cert", default=None, help="client cert for mTLS")
+        tls.add_argument("--tls-client-key", default=None, help="client key for mTLS")
+        tls.add_argument("--tls-client-key-password", default=None)
     return group
 
 
 async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
     """Open the connection described by *args* (as parsed by ``add_connection_args``).
 
-    Dispatches to ``connect_tcp`` / ``connect_tls`` / ``connect_serial`` on the
-    tmodbus backend, imported here so importing this module needs no backend.
-    Raises ``ModbusConnectionError`` if the connection cannot be established, or
-    ``ValueError`` for a bad framer/transport combination.
+    Dispatches to ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` /
+    ``connect_serial`` on the tmodbus backend, imported here so importing this
+    module needs no backend. Raises ``ModbusConnectionError`` if the connection
+    cannot be established, ``ValueError`` for a bad framer/transport combination,
+    or ``NotImplementedError`` for ``--transport udp`` (tmodbus has no UDP).
     """
     # Imported lazily so the module (and --help) loads without the backend.
-    from .tmodbus import connect_serial, connect_tcp, connect_tls
+    from .tmodbus import connect_serial, connect_tcp, connect_tls, connect_udp
 
     common = {"timeout": args.timeout, "message_spacing": args.message_spacing}
+    # port/framer may be omitted for a narrowed argument set (see
+    # add_connection_args); fall back to the backend default.
+    port = getattr(args, "port", None)
+    framer = getattr(args, "framer", None)
 
     if args.transport == "serial":
         return await connect_serial(
@@ -183,7 +233,7 @@ async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
             bytesize=args.bytesize,
             parity=args.parity,
             stopbits=args.stopbits,
-            **({"framer": args.framer} if args.framer else {}),
+            **({"framer": framer} if framer else {}),
             **common,
         )
 
@@ -202,14 +252,17 @@ async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
             client_cert=args.tls_client_cert,
             client_key=args.tls_client_key,
             client_key_password=args.tls_client_key_password,
-            **({"port": args.port} if args.port is not None else {}),
+            **({"port": port} if port is not None else {}),
             **common,
         )
 
-    return await connect_tcp(
+    # udp shares tcp's arguments; tmodbus has no UDP transport, so connect_udp
+    # raises NotImplementedError — surfaced to the caller unchanged.
+    connect = connect_udp if args.transport == "udp" else connect_tcp
+    return await connect(
         args.target,
-        **({"port": args.port} if args.port is not None else {}),
-        **({"framer": args.framer} if args.framer else {}),
+        **({"port": port} if port is not None else {}),
+        **({"framer": framer} if framer else {}),
         **common,
     )
 
@@ -218,20 +271,27 @@ async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
 
 
 class CountingUnit:
-    """Wrap a ``ModbusUnit`` to count the reads it performs.
+    """A ``ModbusUnit`` wrapper that counts the block reads it performs.
 
     Pass ``connection.for_unit(id)`` through here before handing it to a
-    component; ``reads`` then tallies every read the update issued — a quick
-    sanity check that your ``ranges`` and ``max_gap`` are collapsing fields into
-    as few Modbus round-trips as the plan allows. The four read methods are
-    counted; every other ``ModbusUnit`` method is delegated untouched, so it
-    satisfies the protocol structurally (``cast`` it to ``ModbusUnit`` for a type
-    checker).
+    component; ``reads`` then tallies every block read the update issued (the
+    four FC01/02/03/04 reads the pooled plan uses) — a quick sanity check that
+    your ``ranges`` and ``max_gap`` are collapsing fields into as few Modbus
+    round-trips as the plan allows. Every other call is delegated untouched.
+
+    It implements ``ModbusUnit`` in full, so it drops in wherever one is expected
+    with no cast.
     """
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
         self.reads = 0
+
+    @property
+    def connected(self) -> bool:
+        return self._unit.connected
+
+    # -- counted block reads --------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         self.reads += 1
@@ -249,8 +309,69 @@ class CountingUnit:
         self.reads += 1
         return await self._unit.read_discrete_inputs(address, count)
 
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._unit, name)
+    # -- delegated pass-through -----------------------------------------------
+
+    async def write_register(self, address: int, value: int) -> None:
+        await self._unit.write_register(address, value)
+
+    async def write_registers(self, address: int, values: list[int]) -> None:
+        await self._unit.write_registers(address, values)
+
+    async def write_coil(self, address: int, value: bool) -> None:
+        await self._unit.write_coil(address, value)
+
+    async def write_coils(self, address: int, values: list[bool]) -> None:
+        await self._unit.write_coils(address, values)
+
+    async def read_exception_status(self) -> int:
+        return await self._unit.read_exception_status()
+
+    async def report_server_id(self) -> bytes:
+        return await self._unit.report_server_id()
+
+    async def mask_write_register(
+        self, address: int, and_mask: int, or_mask: int
+    ) -> None:
+        await self._unit.mask_write_register(address, and_mask, or_mask)
+
+    async def read_write_registers(
+        self,
+        read_address: int,
+        read_count: int,
+        write_address: int,
+        write_values: list[int],
+    ) -> list[int]:
+        return await self._unit.read_write_registers(
+            read_address, read_count, write_address, write_values
+        )
+
+    async def read_fifo_queue(self, address: int) -> list[int]:
+        return await self._unit.read_fifo_queue(address)
+
+    async def read_device_identification(self) -> dict[int, bytes]:
+        return await self._unit.read_device_identification()
+
+    async def read_file_record(
+        self, file: int, record: int, length: int
+    ) -> list[int]:
+        return await self._unit.read_file_record(file, record, length)
+
+    async def write_file_record(
+        self, file: int, record: int, values: list[int]
+    ) -> None:
+        await self._unit.write_file_record(file, record, values)
+
+    async def diagnostics(self, sub_function: int, data: int = 0) -> int:
+        return await self._unit.diagnostics(sub_function, data)
+
+    async def get_comm_event_counter(self) -> tuple[int, int]:
+        return await self._unit.get_comm_event_counter()
+
+    async def get_comm_event_log(self) -> bytes:
+        return await self._unit.get_comm_event_log()
+
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
+        return self._unit.on_connection_lost(callback)
 
 
 # -- field reflection --------------------------------------------------------

@@ -479,7 +479,7 @@ Three pieces:
 
 | Import | Does |
 | --- | --- |
-| `add_connection_args(parser)` / `connect_from_args(args)` | add the connection-specifying arguments (`target`, `--transport tcp/tls/serial`, `--port`, `--framer`, serial and TLS options), then open the connection they describe |
+| `add_connection_args(parser)` / `connect_from_args(args)` | add the connection-specifying arguments (`target`, `--transport tcp/udp/tls/serial`, `--port`, `--framer`, serial and TLS options), then open the connection they describe (`--transport udp` raises `NotImplementedError` — tmodbus has no UDP transport) |
 | `CountingUnit(unit)` | wrap a `ModbusUnit` to count the reads it performs — a sanity check that your `ranges` / `max_gap` collapse fields into as few round-trips as the plan allows |
 | `print_component(component)` / `field_rows(component)` | print (or return) every field on a modelled component by reflection — register/coil/discrete fields and computed `@property` values, each annotated with its `unit`; no hand-listing |
 
@@ -488,9 +488,8 @@ A whole query script:
 ```python
 import argparse
 import asyncio
-from typing import cast
 
-from modbus_connection import ModbusError, ModbusUnit
+from modbus_connection import ModbusError
 from modbus_connection.cli_helper import (
     CountingUnit,
     add_connection_args,
@@ -512,7 +511,7 @@ async def main() -> int:
         return 1
     counting = CountingUnit(conn.for_unit(args.unit))
     try:
-        device = Meter(cast(ModbusUnit, counting))  # your modelled component
+        device = Meter(counting)  # your modelled component
         await device.async_update()
     finally:
         await conn.close()
@@ -540,6 +539,16 @@ Meter
 The read count is the payoff of pooled planning — dozens of fields read in a
 handful of Modbus round-trips. The unit id is not part of connecting, so the
 script adds `--unit` itself alongside the connection arguments.
+
+A device that only speaks one transport need not expose all of them. Pass
+`transports` (and, if you like, `framers`) to narrow what `add_connection_args`
+adds — a single transport drops the `--transport` flag entirely and a single
+framing is fixed rather than offered:
+
+```python
+# A serial-only, RTU-only tool: just `target` plus the serial and timing options.
+add_connection_args(parser, transports=("serial",), framers=("rtu",))
+```
 
 ## Testing
 
