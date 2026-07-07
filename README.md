@@ -30,7 +30,7 @@ attributes and reads the whole device in as few Modbus calls as possible.
 ```python
 import asyncio
 
-from modbus_connection.pymodbus import connect_tcp
+from modbus_connection.tmodbus import connect_tcp
 from modbus_connection.model import Component, gauge, uint32, coil
 
 
