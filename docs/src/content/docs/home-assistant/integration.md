@@ -101,6 +101,20 @@ and never call `close()` — the shared integration does all of that. You work
 entirely in terms of the `ModbusUnit` you were handed, exactly as the device
 library does.
 
+:::tip[If your device needs a pause between frames]
+Connection-wide `message_spacing` is set by the connection owner, which you are
+not — and forcing it on the shared link would slow every other device on it. When
+only *your* device needs the gap, pace your own unit instead:
+
+```python
+unit.set_message_spacing(0.05)   # ≥50 ms between requests to this unit
+```
+
+The gap is keyed by unit id, so it holds across the shared connection no matter
+which handle issues the request. See
+[Per-unit spacing](/modbus-connection/getting-started/connections-and-units/#per-unit-spacing).
+:::
+
 ## The coordinator
 
 A `DataUpdateCoordinator._async_update_data` becomes a one-liner: refresh the
