@@ -1,8 +1,9 @@
 """modbus_connection — a small, backend-neutral Modbus connection abstraction.
 
 The top-level package is the pure interface: the ``ModbusConnection`` /
-``ModbusUnit`` Protocols, the shared ``WordOrder`` type, and the exception
-hierarchy. It imports no Modbus backend.
+``ModbusUnit`` Protocols and the exception hierarchy. It also re-exports the
+shared ``WordOrder`` datatype used by ``decode`` / ``encode`` / ``model`` for a
+convenient public import. It imports no Modbus backend.
 
 Pick a backend to actually talk to a device:
 
