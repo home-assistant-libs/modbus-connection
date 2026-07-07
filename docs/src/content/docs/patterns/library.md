@@ -151,18 +151,27 @@ await device.async_update()
 
 Writing to industrial devices is often gated. A common pattern is a global
 "writing enabled" switch the consumer flips explicitly, so a write can never
-happen by accident:
+happen by accident. Many devices back this with a **lock register** — write `1`
+to unlock writes, `0` to lock them again — so the switch is just a register write:
 
 ```python
+# The device's write-enable register (1 = unlocked, 0 = locked).
+_WRITE_LOCK_ADDRESS = 100
+
+
 class Trovis557x:
-    async def async_enable_writing(self, access_code: int = DEFAULT_CODE) -> None:
-        await _enable_writing(self._unit, access_code)
+    async def async_enable_writing(self) -> None:
+        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 1)
         self._writing_enabled = True
 
     async def async_disable_writing(self) -> None:
-        await _disable_writing(self._unit)
+        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 0)
         self._writing_enabled = False
 ```
+
+Some devices instead expect an access code rather than a plain `1`; write that
+value to the same register. Either way it's an ordinary Modbus write — no special
+helper needed.
 
 ```python
 await device.async_enable_writing()
