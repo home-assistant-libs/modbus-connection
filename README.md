@@ -556,6 +556,19 @@ add_connection_args(parser, connections=(("serial", "rtu"),))
 add_connection_args(parser, connections=(("tcp", "rtu"), ("serial", "rtu")))
 ```
 
+An `esphome://` URL works as a serial target too. An ESPHome device running the
+[`serial_proxy`](https://esphome.io/components/serial_proxy/) component exposes a
+UART over its native API, so pointing the serial transport at it reads a Modbus
+device wired to the ESP over the network — no local serial port required:
+
+```console
+$ python query.py "esphome://basement.local/?port_name=modbus" --transport serial --unit 246
+```
+
+This needs the **tmodbus** backend (its serial layer resolves the scheme; pymodbus
+rejects it) with [`aioesphomeapi`](https://github.com/esphome/aioesphomeapi)
+installed (`pip install aioesphomeapi`); the query script itself is unchanged.
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an

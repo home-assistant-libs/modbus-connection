@@ -85,6 +85,38 @@ python query.py /dev/ttyUSB0 --transport serial --unit 246 --baudrate 19200
 python query.py --help          # works without a backend installed
 ```
 
+## Through an ESPHome serial proxy
+
+The machine running the query helper doesn't need a serial port of its own. An
+ESPHome device running the [`serial_proxy`](https://esphome.io/components/serial_proxy/)
+component exposes a UART over its native API, so a Modbus device wired to the ESP is
+reachable over the network. Point the **serial** transport at it with an `esphome://`
+URL in place of a device path — nothing else about the script changes:
+
+```bash
+python query.py "esphome://basement.local/?port_name=modbus" \
+    --transport serial --unit 246 --baudrate 19200
+```
+
+The URL is just the connection target, so the serial options carry through to the
+ESP's UART — `--baudrate` / `--parity` / `--stopbits` are applied remotely by the
+proxy. RTU is the serial default, so no `--framer` is needed.
+
+:::note[Requires the tmodbus backend + aioesphomeapi]
+`esphome://` is resolved by **tmodbus**'s serial layer, so it works only when the
+tmodbus backend is the one in use (`connect_from_args` tries it first) and
+[`aioesphomeapi`](https://github.com/esphome/aioesphomeapi) is installed:
+`pip install aioesphomeapi`. The pymodbus backend has no ESPHome handler and
+rejects the scheme. Your query script is unchanged either way — it's the same
+serial path, just a different target URL.
+:::
+
+**URL format** — `esphome://<host>[:<port>]/?port_name=<name>`, where `<port>`
+defaults to `6053` (the ESPHome API port) and `<name>` is the `serial_proxy`
+instance's name. For an encrypted or password-protected device, add a `noise_psk=`
+(or `password=`) query parameter. A device with a single unnamed proxy also accepts
+the numeric form `esphome://<host>/<instance>`.
+
 ## The building blocks
 
 ### `add_connection_args`
