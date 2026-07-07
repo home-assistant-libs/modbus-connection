@@ -1,0 +1,96 @@
+---
+title: modbus-connection
+description: A small, backend-neutral Modbus connection abstraction and device-modelling framework for Python.
+template: splash
+hero:
+  tagline: A small, backend-neutral Modbus connection abstraction — and a typed device-modelling framework on top of it.
+  actions:
+    - text: Get started
+      link: /modbus-connection/getting-started/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/home-assistant-libs/modbus-connection
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+**modbus-connection** is two things in one package:
+
+1. A **connection abstraction** — the `ModbusConnection` and `ModbusUnit`
+   [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
+   lets you type against Modbus without committing to a backend. Two
+   interchangeable backends, [pymodbus](https://github.com/pymodbus-dev/pymodbus)
+   and [tmodbus](https://github.com/wlcrs/tmodbus), implement it.
+2. An optional **device-modelling framework** (`modbus_connection.model`) that
+   maps a device's registers and coils to typed Python attributes and reads the
+   whole device — or one sub-system — in as few Modbus calls as possible.
+
+It imports no Modbus library at the top level and nothing from Home Assistant, so
+you can build a device library once and let the consumer choose the backend.
+
+## The two classes to know
+
+<CardGrid>
+  <Card title="ModbusConnection" icon="random">
+    The shared, already-connected link to a Modbus network. One physical link
+    addresses many units (1–247). It is **transient and owner-held**: a backend
+    connect function returns a live instance — there is no `connect()`. Only the
+    owner ever holds it, and only the owner tears it down with `close()`.
+  </Card>
+  <Card title="ModbusUnit" icon="puzzle">
+    A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
+    It has no lifecycle methods — a consumer cannot connect or close the link it
+    rides on. Every method **raises** on failure; it never returns `None`.
+  </Card>
+</CardGrid>
+
+Requests on one connection are serialized by the backend, so concurrent unit
+calls can't interleave. Sharing a single connection across many consumers is
+strictly better than each opening a competing socket — and that is exactly what
+this abstraction makes possible while keeping the backend swappable.
+
+[Read more about connections and units →](/modbus-connection/getting-started/connections-and-units/)
+
+## Explore the docs
+
+<CardGrid>
+  <LinkCard
+    title="Connections and units"
+    description="Connect functions, transports, TLS, message spacing, and the raw ModbusUnit surface."
+    href="/modbus-connection/getting-started/connections-and-units/"
+  />
+  <LinkCard
+    title="Device modelling"
+    description="Map registers and coils to typed attributes with Component and the field factories."
+    href="/modbus-connection/modelling/overview/"
+  />
+  <LinkCard
+    title="Built-in fields"
+    description="Every generic field type — integers, gauges, floats, strings, enums, coils — in one place."
+    href="/modbus-connection/modelling/fields/"
+  />
+  <LinkCard
+    title="SunSpec"
+    description="Point types pre-wired with their unimplemented sentinels and scale-factor registers."
+    href="/modbus-connection/modelling/sunspec/"
+  />
+  <LinkCard
+    title="Building a library"
+    description="How a device library's entrypoint and a standalone query helper come together."
+    href="/modbus-connection/patterns/library/"
+  />
+  <LinkCard
+    title="Home Assistant"
+    description="Turn Home Assistant Modbus YAML into fields, and build a custom integration."
+    href="/modbus-connection/home-assistant/yaml-configuration/"
+  />
+</CardGrid>
+
+:::note[Not Home Assistant specific]
+This library is a general-purpose Modbus toolkit. It ships helpers and patterns
+that make it a good fit for Home Assistant — and there is a whole section on that
+— but the core has no dependency on Home Assistant and works in any async Python
+program.
+:::

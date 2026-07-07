@@ -1,0 +1,64 @@
+---
+name: Docs
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs for the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: 🏗 Install documentation dependencies
+        working-directory: docs
+        run: npm ci
+      - name: 🚀 Build the Astro site
+        working-directory: docs
+        run: npm run build
+      - name: 📦 Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [build]
+    # Production only: publish on pushes to main in the canonical repo (or a
+    # manual dispatch on main), never from a fork. The artifact comes from the
+    # build job above, so nothing is rebuilt here.
+    if: >-
+      github.repository == 'home-assistant-libs/modbus-connection'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish to GitHub Pages
+      id-token: write # OIDC token the deploy-pages action verifies
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

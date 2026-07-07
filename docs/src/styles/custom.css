@@ -1,0 +1,40 @@
+/* =====================================================================
+   Styling for the modbus-connection documentation.
+   A calm industrial blue accent over Starlight's defaults, with the Inter
+   variable font (loaded via @fontsource-variable/inter). Kept deliberately
+   small: accent colors and typography only, so it stays robust across
+   Starlight upgrades.
+   ===================================================================== */
+
+:root {
+  --sl-font: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Accent used for links, active nav, and focus rings. A saturated Modbus
+     blue, lightened for the dark theme so link text keeps its contrast. */
+  --sl-color-accent-low: #182b3a;
+  --sl-color-accent: #2f9fd6;
+  --sl-color-accent-high: #b9dcef;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d9eaf5;
+  --sl-color-accent: #1173a8;
+  --sl-color-accent-high: #0c3d59;
+}
+
+/* Card icons: use one soft brand tone for every card rather than Starlight's
+   rotating rainbow, so the landing grid reads as one system. */
+.sl-markdown-content .card .icon {
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+}
+
+/* Soften the aside fills so a note/tip does not sit heavily on the page,
+   while keeping the semantic left border and title color. */
+.sl-markdown-content .starlight-aside {
+  background-color: color-mix(
+    in srgb,
+    var(--sl-color-asides-border) 10%,
+    transparent
+  );
+}
