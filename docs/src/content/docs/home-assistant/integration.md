@@ -1,5 +1,5 @@
 ---
-title: Integrations
+title: Integration structure
 description: How modbus-connection fits a Home Assistant integration, whose device logic must live in a separate PyPI library.
 ---
 

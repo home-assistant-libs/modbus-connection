@@ -80,7 +80,7 @@ export default defineConfig({
               slug: "home-assistant/yaml-configuration",
             },
             {
-              label: "Integrations",
+              label: "Integration structure",
               slug: "home-assistant/integration",
             },
           ],
