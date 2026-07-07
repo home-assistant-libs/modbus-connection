@@ -1,192 +1,160 @@
 ---
 title: Query helper
-description: A standalone command-line script that connects to a real device, reads it once, and prints every value — no application required.
+description: Build a standalone CLI that reads a real device once and prints every value, using the modbus_connection.cli_helper building blocks.
 ---
 
 A **query helper** is a small standalone script that connects to a real device,
 reads it once, and dumps every value to the terminal. It's the single most useful
 tool when bringing up a new device library — you can check a physical controller
-without any application around it. This page shows how one comes together, based
-on the `script/query.py` in
-[`trovis-modbus`](https://github.com/Tom-Bom-badil/trovis-modbus).
+without any application around it.
 
-## Parsing transports
+You don't have to hand-roll the plumbing. The library ships the building blocks in
+**`modbus_connection.cli_helper`**, so a query script imports the pieces it needs
+instead of re-implementing argument parsing, connection setup, read counting and
+value printing every time:
 
-Use `argparse` sub-commands so one script covers both TCP and serial, with the
-shared options (like `--unit`) available on each:
+| Building block | What it does |
+| --- | --- |
+| `add_connection_args(parser, connections=…)` | Add the connection arguments (target, transport, framer, port, timeout, serial/TLS options) to an `argparse` parser. |
+| `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over the tmodbus backend). |
+| `CountingUnit` | Wrap a `ModbusUnit` to count the block reads an update performs. |
+| `print_component(component, *, title=None, file=None)` | Print every field on a component by reflection. |
+| `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
+
+:::note[Backend]
+Only `connect_from_args` needs a backend — it uses **tmodbus**, so install the
+`[tmodbus]` extra. The counter and the printer are backend-neutral, so `--help`
+and argument parsing work without one.
+:::
+
+## A complete query script
+
+That's the whole thing — parse, connect, wrap, read, print:
 
 ```python
 import argparse
-
-
-def _parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Query a device and print values.")
-    sub = parser.add_subparsers(dest="transport", required=True)
-
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--unit", type=int, default=1, help="Modbus unit id")
-
-    tcp = sub.add_parser("tcp", parents=[common], help="connect over Modbus TCP")
-    tcp.add_argument("host")
-    tcp.add_argument("--port", type=int, default=502)
-    tcp.add_argument("--framer", choices=("rtu", "socket"), default="socket")
-
-    serial = sub.add_parser("serial", parents=[common], help="connect over serial")
-    serial.add_argument("device", help="e.g. /dev/ttyUSB0")
-    serial.add_argument("--baudrate", type=int, default=19200)
-
-    return parser.parse_args(argv)
-```
-
-## Opening the connection lazily
-
-Import the backend **inside** the open function, not at module top level, so
-`--help` works even without a backend installed and the script stays
-backend-agnostic until it actually connects:
-
-```python
-from modbus_connection import ModbusConnection
-
-
-async def _open(args) -> ModbusConnection:
-    # Imported here so the module loads (and --help works) without a backend.
-    from modbus_connection.pymodbus import connect_serial, connect_tcp
-
-    if args.transport == "serial":
-        return await connect_serial(args.device, baudrate=args.baudrate)
-    return await connect_tcp(args.host, port=args.port, framer=args.framer)
-```
-
-## Counting the Modbus reads
-
-Wrapping the `ModbusUnit` in a tiny counting proxy tells you how well the pooled
-read plan collapses your fields — a great sanity check that your ranges and
-`max_gap` are doing their job. It implements the read methods, delegates the rest
-with `__getattr__`, and satisfies `ModbusUnit` structurally:
-
-```python
-from modbus_connection import ModbusUnit
-
-
-class _CountingUnit:
-    """Wraps a ModbusUnit to count the reads it performs."""
-
-    def __init__(self, unit: ModbusUnit) -> None:
-        self._unit = unit
-        self.reads = 0
-
-    async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        self.reads += 1
-        return await self._unit.read_holding_registers(address, count)
-
-    async def read_input_registers(self, address: int, count: int) -> list[int]:
-        self.reads += 1
-        return await self._unit.read_input_registers(address, count)
-
-    async def read_coils(self, address: int, count: int) -> list[bool]:
-        self.reads += 1
-        return await self._unit.read_coils(address, count)
-
-    async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        self.reads += 1
-        return await self._unit.read_discrete_inputs(address, count)
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._unit, name)
-```
-
-## Printing every field by reflection
-
-You don't have to hand-list every attribute. Walk the component's public
-attributes, skip methods, and read the [field metadata](/modbus-connection/modelling/fields/)
-(the `unit`) off the descriptor to annotate values:
-
-```python
-import inspect
-from enum import IntEnum
-
-from modbus_connection.model import Component, RegisterField
-
-
-def _format(value: object) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, IntEnum):
-        return value.name.lower()
-    return str(value)
-
-
-def _values(component: Component) -> list[tuple[str, str, str]]:
-    """(name, value, unit) rows for a sub-system."""
-    rows = []
-    cls = type(component)
-    for name in dir(component):
-        if name.startswith("_"):
-            continue
-        static = inspect.getattr_static(cls, name, None)
-        # Skip methods/coroutines; keep field descriptors, properties, constants.
-        if callable(static) and not isinstance(static, property):
-            continue
-        value = getattr(component, name)
-        if callable(value):
-            continue
-        unit = static.unit or "" if isinstance(static, RegisterField) else ""
-        rows.append((name, _format(value), unit))
-    return rows
-```
-
-## Tying it together
-
-Connect, wrap the unit in the counter, read the device once, print, and report the
-timing and read count:
-
-```python
 import asyncio
-import sys
-import time
-from typing import cast
 
-from modbus_connection import ModbusError, ModbusUnit
+from modbus_connection import ModbusError
+from modbus_connection.cli_helper import (
+    CountingUnit,
+    add_connection_args,
+    connect_from_args,
+    print_component,
+)
+
+from my_device import MyDevice   # your modelled Component / device entrypoint
 
 
-async def _run(args) -> int:
+async def main() -> int:
+    parser = argparse.ArgumentParser(description="Query a device and print values.")
+    add_connection_args(parser)
+    # The unit id is not part of connecting — it varies per device and per tool —
+    # so add whatever the CLI needs alongside the connection arguments.
+    parser.add_argument("--unit", type=int, default=1, help="Modbus unit id")
+    args = parser.parse_args()
+
     try:
-        connection = await _open(args)
+        conn = await connect_from_args(args)
     except ModbusError as err:
-        print(f"Could not connect: {err}", file=sys.stderr)
+        print(f"Could not connect: {err}")
         return 1
 
-    counting = _CountingUnit(connection.for_unit(args.unit))
+    counting = CountingUnit(conn.for_unit(args.unit))
     try:
-        device = Trovis557x(cast(ModbusUnit, counting))
-        start = time.monotonic()
+        device = MyDevice(counting)
         await device.async_update()
-        elapsed = time.monotonic() - start
-    except ModbusError as err:
-        print(f"Error reading device: {err}", file=sys.stderr)
-        return 1
     finally:
-        await connection.close()
+        await conn.close()
 
-    _print(device)
-    print(f"\nQueried in {elapsed * 1000:.0f} ms ({counting.reads} Modbus reads)")
+    print_component(device)
+    print(f"\n{counting.reads} Modbus reads")
     return 0
 
 
-def main() -> int:
-    return asyncio.run(_run(_parse_args()))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+raise SystemExit(asyncio.run(main()))
 ```
 
-Run it against a device:
+Run it against a device — `add_connection_args` gives you a full connection CLI
+for free:
 
 ```bash
-python query.py tcp 192.168.1.50 --unit 246 --framer rtu
-python query.py serial /dev/ttyUSB0 --unit 246 --baudrate 19200
+python query.py 192.168.1.50 --unit 246 --framer rtu
+python query.py /dev/ttyUSB0 --transport serial --unit 246 --baudrate 19200
+python query.py --help          # works without a backend installed
 ```
+
+## The building blocks
+
+### `add_connection_args`
+
+Adds the connection-specifying arguments in their own **"Modbus connection"**
+group (plus serial and TLS groups when those transports are offered), so they read
+as a block in `--help` and stay clear of your CLI's own options — like the
+`--unit` you add yourself.
+
+By default it offers every transport and framing. Pass `connections=` the
+`(transport, framer)` pairs your device actually supports and the CLI narrows to
+match — a device that only speaks RTU-over-TCP needs no serial, TLS, `--transport`
+or `--framer` clutter:
+
+```python
+# Only RTU-over-TCP: no --transport flag, --framer fixed to rtu, no serial/TLS args.
+add_connection_args(parser, connections=(("tcp", "rtu"),))
+```
+
+A `None` framer means the backend default (and is required for TLS). The parser it
+produces is read back by `connect_from_args`, so the two always stay in step.
+
+### `connect_from_args`
+
+Opens the connection the parsed arguments describe, dispatching to
+`connect_tcp` / `connect_udp` / `connect_tls` / `connect_serial` on the tmodbus
+backend (imported lazily, so importing the module needs no backend). Pass
+`message_spacing=` for a device that needs a gap between frames — it's a fixed
+device property, so the tool sets it rather than exposing it as a CLI argument:
+
+```python
+conn = await connect_from_args(args, message_spacing=0.1)
+```
+
+It raises `ModbusConnectionError` if the link can't be opened, and
+`NotImplementedError` for `--transport udp` (tmodbus has no UDP transport — use a
+pymodbus-based script if you need it).
+
+### `CountingUnit`
+
+Wrap `connection.for_unit(id)` in a `CountingUnit` before handing it to a
+component. Its `reads` attribute then tallies every block read the update issued —
+a quick sanity check that your [`ranges`](/modbus-connection/modelling/overview/#readable-address-ranges)
+and `max_gap` are collapsing fields into as few Modbus round-trips as the plan
+allows. It implements `ModbusUnit` in full, so it drops in wherever one is
+expected with **no cast**:
+
+```python
+counting = CountingUnit(conn.for_unit(args.unit))
+device = MyDevice(counting)
+await device.async_update()
+print(counting.reads)      # e.g. 6
+```
+
+### `print_component` and `field_rows`
+
+`print_component` walks a component's public attributes by reflection and prints
+each modelled field — register/coil/discrete fields and computed `@property`
+values — under a heading, values aligned, with each field's `unit` appended. A new
+field shows up with no change to the script. Read the component first; unread
+fields render as `—`:
+
+```python
+print_component(device.sensors, title="Sensors")
+```
+
+If you want to format the output yourself (JSON, a table, grouping by section),
+`field_rows(component)` returns the `(name, value)` rows and you take it from
+there.
+
+## Sample output
 
 ```text
 Sensors
@@ -195,8 +163,10 @@ Sensors
   flow_1     58.1 °C
   return_1   41.0 °C
 
-Queried in 84 ms (6 Modbus reads)
+6 Modbus reads
 ```
 
-The read count at the end is the payoff of pooled planning — dozens of fields read
-in a handful of Modbus round-trips.
+The read count is the payoff of [pooled planning](/modbus-connection/modelling/overview/#reads-are-pooled-into-blocks)
+— dozens of fields read in a handful of Modbus round-trips. If you model your
+device as a [`ComponentGroup`](/modbus-connection/modelling/component-group/),
+loop over its components and `print_component` each one.
