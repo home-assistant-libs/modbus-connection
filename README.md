@@ -101,6 +101,15 @@ Swapping to tmodbus is a one-line import change:
 from modbus_connection.tmodbus import connect_tcp
 ```
 
+When one device on a shared link needs a pause between frames but the others
+don't, pace just that unit — the gap follows the unit id, so every reader of it
+is paced while the rest of the link runs at full speed:
+
+```python
+slow = conn.for_unit(7)
+slow.set_message_spacing(0.05)  # ≥50 ms between requests to unit 7
+```
+
 ## Transports
 
 Each backend ships a set of connect functions, one per wire transport:
