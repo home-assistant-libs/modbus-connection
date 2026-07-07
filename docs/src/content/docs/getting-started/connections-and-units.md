@@ -142,10 +142,9 @@ that gap has elapsed since the previous one **finished**:
 conn = await connect_serial("/dev/ttyUSB0", message_spacing=0.1)
 ```
 
-tmodbus enforces it natively (`wait_between_requests`); pymodbus has no such knob,
-so the package applies the same gap itself. It is the spacing *between* requests
-only — to delay the *first* request, sleep before issuing it. The default `0`
-disables it.
+The package applies the gap itself, so it works the same across backends. It is
+the spacing *between* requests only — to delay the *first* request, sleep before
+issuing it. The default `0` disables it.
 
 ## The raw ModbusUnit surface
 
