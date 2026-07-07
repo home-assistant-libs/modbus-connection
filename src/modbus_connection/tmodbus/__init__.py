@@ -15,7 +15,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable
+from types import CoroutineType
 from typing import Any, Concatenate
 
 from tmodbus import (
@@ -125,7 +126,7 @@ async def _open(
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
+) -> Callable[Concatenate[TmodbusUnit, P], CoroutineType[Any, Any, R]]:
     """Map tmodbus exceptions onto the neutral hierarchy.
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client directly.

@@ -14,8 +14,9 @@ import asyncio
 import functools
 import ssl
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from types import CoroutineType
 from typing import Any, Concatenate
 
 from pymodbus import FramerType
@@ -58,7 +59,7 @@ __all__ = [
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
+) -> Callable[Concatenate[PymodbusUnit, P], CoroutineType[Any, Any, R]]:
     """Map pymodbus transport exceptions onto the neutral hierarchy.
 
     Also paces the request so a configured inter-request gap is honored across
