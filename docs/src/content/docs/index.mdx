@@ -30,6 +30,42 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 It imports no Modbus library at the top level and nothing from Home Assistant, so
 you can build a device library once and let the consumer choose the backend.
 
+## Example
+
+Model a device once, then connect, update, read, and write it. The optional
+`modbus_connection.model` framework maps a device's registers and coils to typed
+attributes and reads the whole device in as few Modbus calls as possible.
+
+```python
+import asyncio
+
+from modbus_connection.tmodbus import connect_tcp
+from modbus_connection.model import Component, gauge, uint32, coil
+
+
+class Meter(Component):
+    voltage = gauge(0, 0.1, unit="V")     # scaled 16-bit register
+    current = gauge(1, 0.1, unit="A")
+    energy = uint32(2, unit="Wh")         # 32-bit over two registers
+    relay = coil(0, writable=True)
+
+
+async def main() -> None:
+    conn = await connect_tcp("192.168.1.50", port=502)
+    try:
+        meter = Meter(conn.for_unit(1))
+
+        await meter.async_update()        # one pooled block read
+        print(meter.voltage, meter.current, meter.energy, meter.relay)
+
+        await meter.write("relay", True)  # write a writable field
+    finally:
+        await conn.close()
+
+
+asyncio.run(main())
+```
+
 ## The two classes to know
 
 <CardGrid>
