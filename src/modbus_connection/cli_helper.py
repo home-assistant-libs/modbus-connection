@@ -83,10 +83,23 @@ __all__ = [
     "print_component",
 ]
 
-# The transports and framings ``add_connection_args`` knows about, in the order
-# they appear in ``--help``. A caller may narrow to a subset (see below).
-_TRANSPORTS = ("tcp", "udp", "tls", "serial")
+# The framings each transport accepts. A framer of ``None`` means "no framing
+# choice" — the backend default (and the only option for TLS).
 _FRAMERS = ("socket", "rtu", "ascii")
+_TRANSPORT_FRAMERS: dict[str, tuple[str, ...]] = {
+    "tcp": _FRAMERS,
+    "udp": _FRAMERS,
+    "tls": (),
+    "serial": ("rtu", "ascii"),
+}
+# Every valid ``(transport, framer)`` connection, in ``--help`` order. A caller
+# passes the subset it supports (see ``add_connection_args``).
+_DEFAULT_CONNECTIONS: tuple[tuple[str, str | None], ...] = (
+    *(("tcp", f) for f in _FRAMERS),
+    *(("udp", f) for f in _FRAMERS),
+    ("tls", None),
+    *(("serial", f) for f in ("rtu", "ascii")),
+)
 
 
 # -- connection from arguments -----------------------------------------------
@@ -95,8 +108,7 @@ _FRAMERS = ("socket", "rtu", "ascii")
 def add_connection_args(
     parser: argparse.ArgumentParser,
     *,
-    transports: Iterable[str] = _TRANSPORTS,
-    framers: Iterable[str] = _FRAMERS,
+    connections: Iterable[tuple[str, str | None]] = _DEFAULT_CONNECTIONS,
 ) -> argparse._ArgumentGroup:
     """Add the connection-specifying arguments to *parser*.
 
@@ -104,34 +116,41 @@ def add_connection_args(
     block in ``--help`` and stay clear of the CLI's own options. Returns the
     group in case the caller wants to tweak it.
 
-    A library that only speaks one transport (or one framing) can narrow what is
-    exposed: pass *transports* / *framers* as the subset it supports and only
-    those arguments appear — a serial-only tool gets no ``--port`` or TLS
-    options. With a single transport the ``--transport`` flag is dropped and that
-    transport is used; likewise a lone framing is fixed rather than offered as a
-    choice. ``connect_from_args`` reads whatever this adds, so the two stay in
-    step. Raises ``ValueError`` for an unknown or empty transport/framer set.
+    *connections* is the ``(transport, framer)`` pairs the tool supports —
+    transport and framing are coupled (serial has no ``socket`` framing, TLS has
+    no framing at all), so they travel together. A device that only speaks, say,
+    RTU-over-TCP passes ``(("tcp", "rtu"),)`` and only the arguments that make
+    sense appear: no serial or TLS options, no ``--transport`` flag (a lone
+    transport is fixed), and ``--framer`` fixed to ``rtu`` rather than offered.
+    A ``None`` framer means the backend default (and is required for TLS).
+    ``connect_from_args`` reads whatever this adds, so the two stay in step.
+    Raises ``ValueError`` for an empty or invalid connection set.
     """
-    transports = tuple(dict.fromkeys(transports))  # de-dupe, keep order
-    framers = tuple(dict.fromkeys(framers))
-    if not transports or any(t not in _TRANSPORTS for t in transports):
-        raise ValueError(f"transports must be a non-empty subset of {_TRANSPORTS}")
-    if any(f not in _FRAMERS for f in framers):
-        raise ValueError(f"framers must be a subset of {_FRAMERS}")
+    pairs = tuple(connections)
+    if not pairs:
+        raise ValueError("connections must be non-empty")
+    for transport, framer in pairs:
+        if transport not in _TRANSPORT_FRAMERS:
+            raise ValueError(
+                f"unknown transport {transport!r}; expected one of "
+                f"{tuple(_TRANSPORT_FRAMERS)}"
+            )
+        if framer is not None and framer not in _TRANSPORT_FRAMERS[transport]:
+            raise ValueError(
+                f"framer {framer!r} is not valid for transport {transport!r}"
+            )
+
+    transports = tuple(dict.fromkeys(t for t, _ in pairs))
+    chosen_framers = {f for _, f in pairs if f is not None}
+    framer_choices = tuple(f for f in _FRAMERS if f in chosen_framers)
 
     network = any(t in ("tcp", "udp") for t in transports)
     serial_ok = "serial" in transports
     tls_ok = "tls" in transports
-    # Framings valid for the chosen transports, canonical order: socket is
-    # network-only; rtu/ascii serve network and serial alike.
-    valid_framers = [
-        f
-        for f in _FRAMERS
-        if f in framers and (network if f == "socket" else network or serial_ok)
-    ]
 
-    if serial_ok and (network or tls_ok):
-        target_help = "host or IP for tcp/udp/tls, or the serial device path"
+    net_names = [t for t in ("tcp", "udp", "tls") if t in transports]
+    if net_names and serial_ok:
+        target_help = f"host or IP for {'/'.join(net_names)}, or the serial device path"
     elif serial_ok:
         target_help = "serial device path, e.g. /dev/ttyUSB0"
     else:
@@ -156,15 +175,15 @@ def add_connection_args(
             default=None,
             help="TCP/UDP/TLS port (default: 502 for tcp/udp, 802 for tls)",
         )
-    if len(valid_framers) > 1:
+    if len(framer_choices) > 1:
         group.add_argument(
             "--framer",
-            choices=tuple(valid_framers),
+            choices=framer_choices,
             default=None,
             help="wire framing (backend default if unset)",
         )
-    elif len(valid_framers) == 1:
-        parser.set_defaults(framer=valid_framers[0])
+    elif len(framer_choices) == 1:
+        parser.set_defaults(framer=framer_choices[0])
     group.add_argument(
         "--timeout",
         type=float,

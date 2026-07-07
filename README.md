@@ -541,13 +541,17 @@ handful of Modbus round-trips. The unit id is not part of connecting, so the
 script adds `--unit` itself alongside the connection arguments.
 
 A device that only speaks one transport need not expose all of them. Pass
-`transports` (and, if you like, `framers`) to narrow what `add_connection_args`
-adds — a single transport drops the `--transport` flag entirely and a single
-framing is fixed rather than offered:
+`connections` — the `(transport, framer)` pairs the tool supports, since
+transport and framing are coupled — to narrow what `add_connection_args` adds. A
+single transport drops the `--transport` flag entirely and a single framing is
+fixed rather than offered:
 
 ```python
 # A serial-only, RTU-only tool: just `target` plus the serial and timing options.
-add_connection_args(parser, transports=("serial",), framers=("rtu",))
+add_connection_args(parser, connections=(("serial", "rtu"),))
+
+# RTU-over-TCP or RTU serial: --transport picks, framing fixed to rtu either way.
+add_connection_args(parser, connections=(("tcp", "rtu"), ("serial", "rtu")))
 ```
 
 ## Testing
