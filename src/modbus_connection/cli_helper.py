@@ -190,8 +190,6 @@ def add_connection_args(
         default=3.0,
         help="per-request timeout in seconds (default: 3)",
     )
-    # Note: message spacing is a fixed property of the device, not a CLI knob, so
-    # it is deliberately not exposed here.
 
     if serial_ok:
         serial = parser.add_argument_group("Modbus serial")
@@ -223,19 +221,24 @@ def add_connection_args(
     return group
 
 
-async def connect_from_args(args: argparse.Namespace) -> ModbusConnection:
+async def connect_from_args(
+    args: argparse.Namespace, *, message_spacing: float = 0.0
+) -> ModbusConnection:
     """Open the connection described by *args* (as parsed by ``add_connection_args``).
 
     Dispatches to ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` /
     ``connect_serial`` on the tmodbus backend, imported here so importing this
-    module needs no backend. Raises ``ModbusConnectionError`` if the connection
-    cannot be established, ``ValueError`` for a bad framer/transport combination,
-    or ``NotImplementedError`` for ``--transport udp`` (tmodbus has no UDP).
+    module needs no backend. *message_spacing* is the minimum gap in seconds left
+    after each request — a fixed device property, so it is passed here by the tool
+    rather than exposed as a CLI argument. Raises ``ModbusConnectionError`` if the
+    connection cannot be established, ``ValueError`` for a bad framer/transport
+    combination, or ``NotImplementedError`` for ``--transport udp`` (tmodbus has
+    no UDP).
     """
     # Imported lazily so the module (and --help) loads without the backend.
     from .tmodbus import connect_serial, connect_tcp, connect_tls, connect_udp
 
-    common = {"timeout": args.timeout}
+    common = {"timeout": args.timeout, "message_spacing": message_spacing}
     # port/framer may be omitted for a narrowed argument set (see
     # add_connection_args); fall back to the backend default.
     port = getattr(args, "port", None)

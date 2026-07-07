@@ -172,6 +172,21 @@ async def test_fixed_framer_is_passed_to_connect(
     assert captured["framer"] == "rtu"
 
 
+async def test_message_spacing_is_passed_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # message_spacing is a device property the tool sets, not a CLI argument.
+    captured: dict[str, Any] = {}
+
+    async def fake(target: str, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "conn"
+
+    monkeypatch.setattr(tmodbus_backend, "connect_tcp", lambda t, **k: fake(t, **k))
+    await connect_from_args(_parse(["host"]), message_spacing=0.05)
+    assert captured["message_spacing"] == 0.05
+
+
 def test_invalid_connections_raise() -> None:
     with pytest.raises(ValueError, match="non-empty"):
         add_connection_args(argparse.ArgumentParser(), connections=())
