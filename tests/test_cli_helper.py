@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import argparse
 import io
+import sys
 from enum import IntEnum
 from typing import Any
 
 import pytest
 
+import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
-from modbus_connection import ModbusConnectionError
+from modbus_connection import ModbusConnectionError, ModbusError
 from modbus_connection.cli_helper import (
     CountingUnit,
+    _load_backend,
     add_connection_args,
     connect_from_args,
     field_rows,
@@ -108,6 +111,54 @@ def test_unset_port_and_framer_left_to_backend() -> None:
     args = _parse(["dev.local"])
     assert args.port is None
     assert args.framer is None
+
+
+# -- backend detection --------------------------------------------------------
+
+
+def test_load_backend_prefers_tmodbus() -> None:
+    # Both backends are installed in dev; tmodbus wins.
+    assert _load_backend() is tmodbus_backend
+
+
+def test_load_backend_falls_back_to_pymodbus(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A None entry makes ``import modbus_connection.tmodbus`` raise ImportError,
+    # standing in for the tmodbus dependency not being installed.
+    monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
+    assert _load_backend() is pymodbus_backend
+
+
+def test_load_backend_errors_when_none_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
+    monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
+    with pytest.raises(ModbusError, match="no Modbus backend installed"):
+        _load_backend()
+
+
+async def test_connect_from_args_uses_pymodbus_when_tmodbus_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
+    captured: dict[str, Any] = {}
+
+    async def fake(target: str, **kwargs: Any) -> str:
+        captured["target"] = target
+        return "conn"
+
+    monkeypatch.setattr(pymodbus_backend, "connect_tcp", lambda t, **k: fake(t, **k))
+    assert await connect_from_args(_parse(["host"])) == "conn"
+    assert captured["target"] == "host"
+
+
+async def test_connect_from_args_errors_without_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
+    monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
+    with pytest.raises(ModbusError, match="no Modbus backend installed"):
+        await connect_from_args(_parse(["host"]))
 
 
 # -- narrowing transports / framers -------------------------------------------
