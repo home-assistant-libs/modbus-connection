@@ -465,6 +465,96 @@ ranges are per-table kwargs — `holding_ranges` / `input_ranges` / `coil_ranges
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
 ```
 
+## Query helper (`modbus_connection.cli_helper`)
+
+A *query helper* is a small standalone script that connects to a real device,
+reads it once, and dumps every value to the terminal — the single most useful
+tool when bringing up a new device library, since it checks a physical
+controller with no application around it. Rather than re-implement the plumbing
+in every library, import it from `modbus_connection.cli_helper`. The package
+never imports this module, so it stays out of normal application code; only
+`connect_from_args` needs a backend (the `[tmodbus]` extra), so `--help` and the
+argument parsing work without one.
+
+Three pieces:
+
+| Import | Does |
+| --- | --- |
+| `add_connection_args(parser)` / `connect_from_args(args)` | add the connection-specifying arguments (`target`, `--transport tcp/udp/tls/serial`, `--port`, `--framer`, serial and TLS options), then open the connection they describe (`--transport udp` raises `NotImplementedError` — tmodbus has no UDP transport) |
+| `CountingUnit(unit)` | wrap a `ModbusUnit` to count the reads it performs — a sanity check that your `ranges` / `max_gap` collapse fields into as few round-trips as the plan allows |
+| `print_component(component)` / `field_rows(component)` | print (or return) every field on a modelled component by reflection — register/coil/discrete fields and computed `@property` values, each annotated with its `unit`; no hand-listing |
+
+A whole query script:
+
+```python
+import argparse
+import asyncio
+
+from modbus_connection import ModbusError
+from modbus_connection.cli_helper import (
+    CountingUnit,
+    add_connection_args,
+    connect_from_args,
+    print_component,
+)
+
+
+async def main() -> int:
+    parser = argparse.ArgumentParser(description="Query a device.")
+    add_connection_args(parser)
+    parser.add_argument("--unit", type=int, default=1, help="Modbus unit id")
+    args = parser.parse_args()
+
+    try:
+        conn = await connect_from_args(args)
+    except ModbusError as err:
+        print(f"Could not connect: {err}")
+        return 1
+    counting = CountingUnit(conn.for_unit(args.unit))
+    try:
+        device = Meter(counting)  # your modelled component
+        await device.async_update()
+    finally:
+        await conn.close()
+
+    print_component(device, title="Meter")
+    print(f"\n{counting.reads} Modbus reads")
+    return 0
+
+
+raise SystemExit(asyncio.run(main()))
+```
+
+```console
+$ python query.py 192.168.1.50 --unit 246 --framer rtu
+Meter
+-----
+  voltage  231.4 V
+  current  4.2 A
+  energy   70000 Wh
+  relay    True
+
+4 Modbus reads
+```
+
+The read count is the payoff of pooled planning — dozens of fields read in a
+handful of Modbus round-trips. The unit id is not part of connecting, so the
+script adds `--unit` itself alongside the connection arguments.
+
+A device that only speaks one transport need not expose all of them. Pass
+`connections` — the `(transport, framer)` pairs the tool supports, since
+transport and framing are coupled — to narrow what `add_connection_args` adds. A
+single transport drops the `--transport` flag entirely and a single framing is
+fixed rather than offered:
+
+```python
+# A serial-only, RTU-only tool: just `target` plus the serial and timing options.
+add_connection_args(parser, connections=(("serial", "rtu"),))
+
+# RTU-over-TCP or RTU serial: --transport picks, framing fixed to rtu either way.
+add_connection_args(parser, connections=(("tcp", "rtu"), ("serial", "rtu")))
+```
+
 ## Testing
 
 An in-memory mock backend ships as a `pytest` plugin (auto-registered via an
