@@ -7,7 +7,7 @@ the group classifications and read the folded targets.
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ._planning import RegisterItem
 from .component_group import ComponentGroup
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from ._planning import BitItem, RegisterSpace
     from .component import Component, RepeatingGroupField
+    from .fields import RegisterField
 
 
 class _RepeatingGroups:
@@ -31,9 +32,14 @@ class _RepeatingGroups:
 
     _unit: ModbusUnit
     _base_offset: int = 0
-    _count_space: RegisterSpace = "holding"
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
+
+    @property
+    def _count_space(self) -> RegisterSpace:
+        # the register space a group's count register is read from; Component
+        # overrides this to track its own ``register_space``.
+        return "holding"
 
     def _build_groups(self) -> None:
         """Initialise group state and build the fixed-count (static) instances."""
@@ -41,7 +47,9 @@ class _RepeatingGroups:
         self._counts: dict[str, int | None] = {}
         self._instance_group: ComponentGroup | None = None
         for name, field in self._static_groups.items():
-            self._groups[name] = self._build_instances(field, 0, field.count)
+            # a static group's count is a fixed int (Component splits the two kinds)
+            count = cast("int", field.count)
+            self._groups[name] = self._build_instances(field, 0, count)
 
     def _build_instances(
         self, field: RepeatingGroupField[Any], start: int, stop: int
@@ -58,7 +66,8 @@ class _RepeatingGroups:
         """Read targets for each register-count group's count register."""
         items = []
         for name, field in self._repeating_fields.items():
-            count_field = field.count
+            # a register-count group's count is a RegisterField (see the split above)
+            count_field = cast("RegisterField[int]", field.count)
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
                 RegisterItem(

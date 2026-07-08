@@ -72,9 +72,15 @@ uv sync --extra pymodbus
 uv run pytest
 ```
 
-Formatting/linting is [ruff](https://docs.astral.sh/ruff/), enforced in CI. Install
-the commit hook with [prek](https://github.com/j178/prek) so code is formatted on
-commit:
+Formatting/linting is [ruff](https://docs.astral.sh/ruff/) and type-checking is
+[mypy](https://mypy-lang.org/), both enforced in CI. Run them locally with:
+
+```bash
+uv run mypy
+```
+
+Install the commit hook with [prek](https://github.com/j178/prek) so code is
+formatted on commit:
 
 ```bash
 uvx prek install          # set up the git hook

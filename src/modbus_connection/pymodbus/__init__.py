@@ -13,8 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-from collections.abc import Awaitable, Callable
-from types import CoroutineType
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
 from pymodbus import FramerType
@@ -58,7 +57,7 @@ __all__ = [
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[PymodbusUnit, P], CoroutineType[Any, Any, R]]:
+) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
     """Map pymodbus transport exceptions onto the neutral hierarchy.
 
     Also paces the request so a configured inter-request gap is honored across
@@ -317,7 +316,9 @@ class PymodbusUnit:
     @_map_errors
     async def report_server_id(self) -> bytes:  # 0x11
         response = _check(await self._client.report_device_id(device_id=self._unit_id))
-        return bytes(response.identifier)
+        # pymodbus types every response as the base ModbusPDU; the concrete
+        # response subclass carries the function-code-specific attribute.
+        return bytes(response.identifier)  # type: ignore[attr-defined]
 
     @_map_errors
     async def mask_write_register(
@@ -356,14 +357,14 @@ class PymodbusUnit:
         response = _check(
             await self._client.read_fifo_queue(address=address, device_id=self._unit_id)
         )
-        return response.values
+        return response.values  # type: ignore[attr-defined]  # concrete response attr
 
     @_map_errors
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
         response = _check(
             await self._client.read_device_information(device_id=self._unit_id)
         )
-        return response.information
+        return response.information  # type: ignore[attr-defined]  # concrete response attr
 
     @_map_errors
     async def read_file_record(
@@ -377,7 +378,7 @@ class PymodbusUnit:
                 records=[request_record], device_id=self._unit_id
             )
         )
-        data = response.records[0].record_data
+        data = response.records[0].record_data  # type: ignore[attr-defined]  # concrete response attr
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
     @_map_errors
@@ -402,7 +403,7 @@ class PymodbusUnit:
         request = _build_diagnostic(sub_function, data)
         request.dev_id = self._unit_id
         response = _check(await self._client.execute(False, request))
-        message = response.message
+        message = response.message  # type: ignore[attr-defined]  # concrete response attr
         if isinstance(message, (bytes, bytearray)):
             return int.from_bytes(message, "big")
         if isinstance(message, (list, tuple)):
@@ -421,7 +422,10 @@ class PymodbusUnit:
         response = _check(
             await self._client.diag_get_comm_event_log(device_id=self._unit_id)
         )
-        return b"".join(int(event).to_bytes(1, "big") for event in response.events)
+        return b"".join(
+            int(event).to_bytes(1, "big")
+            for event in response.events  # type: ignore[attr-defined]  # concrete response attr
+        )
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
@@ -549,13 +553,17 @@ async def connect_tls(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    context = sslctx or await asyncio.to_thread(
-        build_tls_context,
-        verify,
-        check_hostname,
-        client_cert,
-        client_key,
-        client_key_password,
+    context = (
+        sslctx
+        if sslctx is not None
+        else await asyncio.to_thread(
+            build_tls_context,
+            verify,
+            check_hostname,
+            client_cert,
+            client_key,
+            client_key_password,
+        )
     )
     return await _open(
         lambda trace: AsyncModbusTlsClient(

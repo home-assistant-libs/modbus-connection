@@ -8,7 +8,7 @@ the results back. Not part of the public API — use :class:`Component` /
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Hashable, Iterable
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from .._types import BitSpace
 from ..decode import decode_int16
@@ -129,7 +129,11 @@ def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
     """The ``(address, width)`` spans a register read must cover (values + sunssf)."""
     spans: list[tuple[int, int]] = []
     for item in items:
-        spans.append((item.address, item.field.count))
+        # ``item.field`` reads the stored RegisterField off the NamedTuple; since
+        # RegisterField is a descriptor, mypy applies its instance-access overload
+        # and widens the value to ``T | None``, so pin it back to the real type.
+        field = cast("RegisterField[Any]", item.field)
+        spans.append((item.address, field.count))
         if item.scale_address is not None:
             spans.append((item.scale_address, 1))
     return spans
@@ -231,7 +235,7 @@ async def _bulk_read_registers(
         blocks,
     )
     for item in items:
-        field = item.field
+        field = cast("RegisterField[Any]", item.field)  # descriptor widening, see above
         keys = [(item.space, item.address + offset) for offset in range(field.count)]
         if any(key in failed for key in keys):
             item.store[field.name] = None
