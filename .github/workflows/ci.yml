@@ -18,6 +18,8 @@ jobs:
         run: uvx ruff format --check .
       - name: Ruff lint
         run: uvx ruff check .
+      - name: mypy
+        run: uv run mypy
 
   test:
     runs-on: ubuntu-latest

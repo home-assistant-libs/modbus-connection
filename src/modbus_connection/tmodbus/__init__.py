@@ -15,8 +15,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-from collections.abc import Awaitable, Callable
-from types import CoroutineType
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
 from tmodbus import (
@@ -130,7 +129,7 @@ async def _open(
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[TmodbusUnit, P], CoroutineType[Any, Any, R]]:
+) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
     """Map tmodbus exceptions onto the neutral hierarchy.
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client directly.
@@ -431,14 +430,17 @@ async def connect_serial(
         create = create_async_ascii_client
     else:
         raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
+    # tmodbus' SerialXOptions under-declares the serial options serialx accepts at
+    # runtime: it omits ``bytesize`` and types ``parity``/``stopbits`` as enums
+    # though serialx also takes the str/int forms we pass here.
     return await _open(
-        lambda on_lost: create(
+        lambda on_lost: create(  # type: ignore[call-arg]
             port,
             unit_id=_PLACEHOLDER_UNIT_ID,
             baudrate=baudrate,
             bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
+            parity=parity,  # type: ignore[arg-type]
+            stopbits=stopbits,  # type: ignore[arg-type]
             auto_reconnect=False,
             on_connection_lost=on_lost,
         ),
