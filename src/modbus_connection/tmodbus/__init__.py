@@ -37,6 +37,7 @@ from tmodbus.exceptions import (
 )
 
 from .._callbacks import CallbackRegistry
+from .._pacing import Pacer
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -66,16 +67,18 @@ _PLACEHOLDER_UNIT_ID = 1
 class TmodbusConnection:
     """A live tmodbus connection.
 
-    Inter-request spacing (``message_spacing``) is the transport's own job here:
-    it maps to tmodbus's native ``wait_between_requests``, enforced inside the
-    client's communication lock — so this wrapper carries no pacing state.
+    Inter-request spacing (connection-wide ``message_spacing`` and per-unit gaps)
+    is enforced by a shared :class:`~modbus_connection._pacing.Pacer`, not by
+    tmodbus's native ``wait_between_requests`` — so both backends pace requests
+    identically.
 
     ``on_connection_lost`` callbacks fire once, as soon as the link drops — even
     while no request is in flight — but not for a deliberate ``close()``.
     """
 
-    def __init__(self, client: AsyncModbusClient) -> None:
+    def __init__(self, client: AsyncModbusClient, message_spacing: float = 0.0) -> None:
         self._client = client
+        self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
         self._closing = False
 
@@ -84,7 +87,7 @@ class TmodbusConnection:
         return self._client.connected
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
-        return TmodbusUnit(self, self._client.for_unit_id(unit_id))
+        return TmodbusUnit(self, unit_id, self._client.for_unit_id(unit_id))
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._lost_callbacks.subscribe(callback)
@@ -106,6 +109,7 @@ class TmodbusConnection:
 async def _open(
     make_client: Callable[[Callable[[Exception | None], None]], AsyncModbusClient],
     error_message: str,
+    message_spacing: float = 0.0,
 ) -> TmodbusConnection:
     """Construct and connect a tmodbus client, wrapping the result.
 
@@ -115,7 +119,7 @@ async def _open(
     connection = TmodbusConnection.__new__(TmodbusConnection)
     try:
         client = make_client(connection._on_connection_lost)
-        TmodbusConnection.__init__(connection, client)
+        TmodbusConnection.__init__(connection, client, message_spacing)
         await client.connect()
     except TimeoutError as err:
         raise ModbusTimeoutError(str(err)) from err
@@ -135,7 +139,8 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            return await func(self, *args, **kwargs)
+            async with self._conn._pacer.paced(self._unit_id):
+                return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
             raise ModbusConnectionError(str(err)) from err
         except (TimeoutError, RequestRetryFailedError) as err:
@@ -154,14 +159,18 @@ class TmodbusUnit:
     """A stateless per-unit handle over a unit-bound tmodbus client."""
 
     def __init__(
-        self, connection: TmodbusConnection, client: AsyncModbusClient
+        self, connection: TmodbusConnection, unit_id: int, client: AsyncModbusClient
     ) -> None:
         self._conn = connection
+        self._unit_id = unit_id
         self._client = client
 
     @property
     def connected(self) -> bool:
         return self._conn.connected
+
+    def set_message_spacing(self, seconds: float) -> None:
+        self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
 
     # -- raw register I/O -----------------------------------------------------
 
@@ -283,9 +292,9 @@ async def connect_tcp(
     tmodbus has no ASCII-over-TCP transport.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
-    before the next may start — applied across every unit sharing the link, via
-    tmodbus's native ``wait_between_requests``. Use it for devices that need a
-    pause between frames; ``0`` (the default) disables it.
+    before the next may start — applied across every unit sharing the link. Use
+    it for devices that need a pause between frames; ``0`` (the default) disables
+    it.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
@@ -306,10 +315,10 @@ async def connect_tcp(
             unit_id=_PLACEHOLDER_UNIT_ID,
             timeout=timeout,
             auto_reconnect=False,
-            wait_between_requests=message_spacing,
             on_connection_lost=on_lost,
         ),
         f"could not connect to {host}:{port}",
+        message_spacing,
     )
 
 
@@ -387,11 +396,11 @@ async def connect_tls(
             unit_id=_PLACEHOLDER_UNIT_ID,
             timeout=timeout,
             auto_reconnect=False,
-            wait_between_requests=message_spacing,
             ssl=context,
             on_connection_lost=on_lost,
         ),
         f"could not connect to {host}:{port}",
+        message_spacing,
     )
 
 
@@ -431,8 +440,8 @@ async def connect_serial(
             parity=parity,
             stopbits=stopbits,
             auto_reconnect=False,
-            wait_between_requests=message_spacing,
             on_connection_lost=on_lost,
         ),
         f"could not open serial port {port}",
+        message_spacing,
     )

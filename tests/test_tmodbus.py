@@ -33,7 +33,7 @@ class _FakeFileClient:
 
 async def test_read_file_record_decodes_to_words() -> None:
     client = _FakeFileClient(b"\x00\x2a\x01\x00")  # words 42 and 256
-    unit = TmodbusUnit(object(), client)  # type: ignore[arg-type]
+    unit = TmodbusUnit(TmodbusConnection(object()), 1, client)  # type: ignore[arg-type]
 
     words = await unit.read_file_record(file=4, record=1, length=2)
 
@@ -43,7 +43,7 @@ async def test_read_file_record_decodes_to_words() -> None:
 
 async def test_write_file_record_encodes_words_to_payload() -> None:
     client = _FakeFileClient()
-    unit = TmodbusUnit(object(), client)  # type: ignore[arg-type]
+    unit = TmodbusUnit(TmodbusConnection(object()), 1, client)  # type: ignore[arg-type]
 
     await unit.write_file_record(file=7, record=9, values=[42, 256])
 
@@ -58,7 +58,7 @@ class _InvalidResponseClient:
 
 
 async def test_invalid_response_maps_to_protocol_error() -> None:
-    unit = TmodbusUnit(TmodbusConnection(object()), _InvalidResponseClient())  # type: ignore[arg-type]
+    unit = TmodbusUnit(TmodbusConnection(object()), 1, _InvalidResponseClient())  # type: ignore[arg-type]
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
@@ -84,7 +84,7 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> No
     conn = TmodbusConnection(object())  # type: ignore[arg-type]
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
-    unit = TmodbusUnit(conn, _DroppingClient())  # type: ignore[arg-type]
+    unit = TmodbusUnit(conn, 1, _DroppingClient())  # type: ignore[arg-type]
 
     for _ in range(3):
         with pytest.raises(ModbusConnectionError):

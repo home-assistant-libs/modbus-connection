@@ -13,9 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from types import CoroutineType
 from typing import Any, Concatenate
 
@@ -38,6 +36,7 @@ from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
 from .._callbacks import CallbackRegistry
+from .._pacing import Pacer
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -69,7 +68,7 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         try:
-            async with self._conn._paced():
+            async with self._conn._pacer.paced(self._unit_id):
                 return await func(self, *args, **kwargs)
         except ConnectionException as err:
             raise ModbusConnectionError(str(err)) from err
@@ -197,41 +196,15 @@ class PymodbusConnection:
     pymodbus's job: its transaction manager already holds a per-client lock for
     the full request/response cycle, so this wrapper adds none of its own.
 
-    Inter-request spacing is the exception: pymodbus has no native
-    ``wait_between_requests`` (tmodbus does), so when ``message_spacing`` is set
-    ``_paced`` reproduces it here, mirroring how tmodbus enforces it internally —
-    a lock makes the wait atomic across every unit on the link, and the gap is
-    measured from each request finishing.
+    Inter-request spacing is the exception: pymodbus has no native pacing, so a
+    shared :class:`~modbus_connection._pacing.Pacer` enforces the connection-wide
+    and per-unit gaps here.
     """
 
     def __init__(self, client: ModbusBaseClient, message_spacing: float = 0.0) -> None:
-        if message_spacing < 0:
-            raise ValueError("message_spacing must be non-negative")
         self._client = client
-        self._message_spacing = message_spacing
-        self._request_lock = asyncio.Lock()
-        self._last_request_finished_at = 0.0
+        self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
-
-    @asynccontextmanager
-    async def _paced(self) -> AsyncIterator[None]:
-        """Hold each request until ``message_spacing`` has elapsed since the last
-        one finished, serializing so the gap holds across every unit on the link.
-
-        No-op when spacing is disabled (``0``).
-        """
-        if not self._message_spacing:
-            yield
-            return
-        async with self._request_lock:
-            elapsed = time.monotonic() - self._last_request_finished_at
-            wait = self._message_spacing - elapsed
-            if wait > 0:
-                await asyncio.sleep(wait)
-            try:
-                yield
-            finally:
-                self._last_request_finished_at = time.monotonic()
 
     # -- spec surface ---------------------------------------------------------
 
@@ -270,6 +243,9 @@ class PymodbusUnit:
     @property
     def connected(self) -> bool:
         return self._conn.connected
+
+    def set_message_spacing(self, seconds: float) -> None:
+        self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
 
     # -- raw register I/O -----------------------------------------------------
 

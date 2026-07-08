@@ -148,6 +148,24 @@ The package applies the gap itself, so it works the same across backends. It is
 the spacing *between* requests only — to delay the *first* request, sleep before
 issuing it. The default `0` disables it.
 
+### Per-unit spacing
+
+`message_spacing` paces the *whole link*. When only one slow device on a shared
+connection needs the pause — and forcing it on every unit would needlessly slow
+the rest — set the gap on that unit instead:
+
+```python
+slow = conn.for_unit(7)
+slow.set_message_spacing(0.05)   # ≥50 ms between requests to unit 7
+```
+
+It layers on top of any connection-wide `message_spacing`: a request to the unit
+waits for whichever gap is longer. The gap belongs to the **unit id**, not the
+handle — it applies to every request to that unit, including through other
+handles handed out for the same id (as when a
+[connection owner](/modbus-connection/home-assistant/integration/) lends units to
+consumers). Pass `0` to clear it.
+
 ## The raw ModbusUnit surface
 
 `ModbusUnit` exposes the full 19-function-code Modbus surface, not just the common

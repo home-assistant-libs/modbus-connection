@@ -251,3 +251,21 @@ async def test_set_response_value_and_callable(
     mock_modbus_unit.set_response("read_exception_status", lambda: next(counter))
     assert await mock_modbus_unit.read_exception_status() == 1
     assert await mock_modbus_unit.read_exception_status() == 2
+
+
+# -- per-unit spacing ---------------------------------------------------------
+
+
+def test_set_message_spacing_records_the_value(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    assert mock_modbus_unit.message_spacing == 0.0
+    mock_modbus_unit.set_message_spacing(0.25)
+    assert mock_modbus_unit.message_spacing == 0.25
+
+
+def test_set_message_spacing_rejects_negative(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    with pytest.raises(ValueError):
+        mock_modbus_unit.set_message_spacing(-0.1)

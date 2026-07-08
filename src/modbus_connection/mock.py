@@ -144,10 +144,19 @@ class MockModbusUnit:
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
         self._responses: dict[str, object] = {}
+        self.message_spacing = 0.0
 
     @property
     def connected(self) -> bool:
         return self._conn.connected
+
+    def set_message_spacing(self, seconds: float) -> None:
+        """Record the per-unit gap. The mock does no real timing, so this only
+        stores the value (readable as ``message_spacing``) for tests to assert on.
+        """
+        if seconds < 0:
+            raise ValueError("message_spacing must be non-negative")
+        self.message_spacing = seconds
 
     def _ensure_connected(self) -> None:
         if not self._conn.connected:
