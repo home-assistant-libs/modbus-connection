@@ -414,6 +414,9 @@ class CountingUnit:
     async def get_comm_event_log(self) -> bytes:
         return await self._unit.get_comm_event_log()
 
+    def set_message_spacing(self, seconds: float) -> None:
+        self._unit.set_message_spacing(seconds)
+
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._unit.on_connection_lost(callback)
 

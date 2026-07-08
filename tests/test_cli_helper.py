@@ -18,6 +18,7 @@ import pytest
 import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusConnectionError, ModbusError
+from modbus_connection._protocol import ModbusUnit
 from modbus_connection.cli_helper import (
     CountingUnit,
     _load_backend,
@@ -252,6 +253,16 @@ def test_invalid_connections_raise() -> None:
 
 
 # -- CountingUnit -------------------------------------------------------------
+
+
+def test_counting_unit_delegates_every_protocol_member() -> None:
+    # A CountingUnit must forward the whole ModbusUnit surface — every method it
+    # doesn't define itself silently disappears from the wrapped unit. Enumerate
+    # the protocol so a newly added member (set_message_spacing was once missed)
+    # fails here until it gets a matching delegate.
+    members = {name for name in dir(ModbusUnit) if not name.startswith("_")}
+    missing = members - set(dir(CountingUnit))
+    assert not missing, f"CountingUnit is missing delegates for: {sorted(missing)}"
 
 
 async def test_counting_unit_counts_reads_and_delegates() -> None:
