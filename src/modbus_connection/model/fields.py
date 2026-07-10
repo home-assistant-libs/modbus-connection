@@ -200,13 +200,27 @@ class _ScaledField[T](RegisterField[T]):
         self._decimals = max(_decimals(scale), _decimals(offset))
 
     def _scale(self, value: float, scale_exponent: int | None) -> Any:
-        """Apply this field's scale (incl. optional 10**sf) and offset, then round."""
+        """Apply this field's scale (incl. optional 10**sf) and offset, then round.
+
+        A dynamic ``scale_exponent`` comes from a device register, so it may be
+        anything. When it, or the scaled result, is too large or small to
+        represent as a finite number, the value cannot be scaled, so it decodes
+        to None rather than raising or returning a wrong number.
+        """
         factor = self.scale
         if scale_exponent is not None:
-            factor *= 10.0**scale_exponent
+            try:
+                dynamic = 10.0**scale_exponent
+            except OverflowError:
+                return None  # exponent too large to represent as a float
+            if dynamic == 0.0:
+                return None  # exponent underflowed to an unusable zero factor
+            factor *= dynamic
         if factor == 1.0 and self.offset == 0.0:
             return value  # keep ints integral when there is nothing to scale
         scaled = value * factor + self.offset
+        if not math.isfinite(scaled):
+            return None  # scaled beyond the representable range
         if scale_exponent is None:
             decimals = self._decimals
         else:
