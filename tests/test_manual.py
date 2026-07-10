@@ -160,6 +160,45 @@ async def test_dynamic_scale_register() -> None:
     assert mc.get("current") == pytest.approx(12.34)
 
 
+@pytest.mark.parametrize("scale_factor", [309, 1000, -1000, 0x8000])
+async def test_uncomputable_scale_factor_decodes_none(scale_factor: int) -> None:
+    """A scale exponent that overflows or underflows 10**sf decodes to None.
+
+    The exponent comes from a device register, so it can be anything; when it is
+    too large or too small to represent, the value cannot be scaled and is
+    unknown rather than a crash (0x8000, the SunSpec sentinel, underflows here).
+    """
+    unit = _unit()
+    unit.holding.update({0: 1234, 5: scale_factor & 0xFFFF})
+    mc = ManualComponent(unit)
+    mc.add("current", uint16(0, scale_register=5))
+    await mc.async_update()
+    assert mc.get("current") is None
+
+
+async def test_scaled_value_overflow_decodes_none() -> None:
+    """A value scaled past the representable range decodes to None, not a crash.
+
+    Here ``10**308`` is itself representable, but ``1234 * 10**308`` overflows.
+    """
+    unit = _unit()
+    unit.holding.update({0: 1234, 5: 308})
+    mc = ManualComponent(unit)
+    mc.add("current", uint16(0, scale_register=5))
+    await mc.async_update()
+    assert mc.get("current") is None
+
+
+async def test_large_representable_scale_factor_still_computes() -> None:
+    """A large but representable exponent is scaled, not rejected."""
+    unit = _unit()
+    unit.holding.update({0: 2, 5: 15})  # 10**15 is large but finite
+    mc = ManualComponent(unit)
+    mc.add("value", uint16(0, scale_register=5))
+    await mc.async_update()
+    assert mc.get("value") == 2 * 10**15
+
+
 async def test_write_register_and_coil() -> None:
     unit = _unit()
     mc = ManualComponent(unit)
