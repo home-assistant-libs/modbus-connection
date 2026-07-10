@@ -15,8 +15,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import ssl
-from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, Concatenate
+from collections.abc import Awaitable, Callable
+from typing import Concatenate
 
 from tmodbus import (
     AsyncModbusClient,
@@ -129,10 +129,18 @@ async def _open(
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
+):
     """Map tmodbus exceptions onto the neutral hierarchy.
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client directly.
+
+    The return type is left to inference on purpose. Spelling it out forces a
+    choice between ``Coroutine`` and ``CoroutineType``, and mypy and ty disagree
+    on which one an ``async def`` produces: annotating ``Coroutine`` makes ty
+    reject ``TmodbusUnit`` against the ``async def`` members of the ``ModbusUnit``
+    protocol (it wants the concrete ``CoroutineType``), while annotating
+    ``CoroutineType`` makes mypy reject ``wrapper`` here. Inference lets each
+    checker apply its own model, so both agree.
     """
 
     @functools.wraps(func)
