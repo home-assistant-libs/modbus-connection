@@ -74,6 +74,15 @@ the group handles it: the pooled read fetches each member's own fields plus any
 repeating-group counts, then a second pass sizes and reads each member's
 register-count groups. So runtime-counted repeats refresh inside the group too.
 
+## When a block read fails
+
+Group updates fail the same way individual ones do: if the device answers one of
+the pooled block reads with a Modbus exception response, `async_update()` raises
+[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) — here
+for *any* block across the pooled members. See [When a block read
+fails](/modbus-connection/modelling/overview/#when-a-block-read-fails) for what the
+exception carries.
+
 ## Reading without notifying
 
 Pass `notify=False` to read every component without firing their listeners, for a

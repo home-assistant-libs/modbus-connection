@@ -214,6 +214,13 @@ class Component(_RepeatingGroups):
         A :func:`repeating_group` field needs a second pass: the first read
         fetches the count (it is part of :attr:`register_items`), then
         :meth:`async_update_repeating_groups` reads the sized-out instances.
+
+        If the device answers one of the block reads with a Modbus exception
+        response (e.g. illegal data address), this raises
+        :class:`~modbus_connection.exceptions.BlockReadError` and the update is not
+        partially applied — an exception on any block fails the whole update. A
+        device with genuinely optional blocks should read those on a separate
+        component so their absence doesn't fail this update.
         """
         await _bulk_read_registers(
             self._unit, self.register_items, self._register_blocks

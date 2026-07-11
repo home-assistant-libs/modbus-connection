@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from modbus_connection.exceptions import ModbusExceptionError
+from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
@@ -266,20 +266,24 @@ async def test_add_and_remove_invalidate_plan() -> None:
     assert mc.get("a") is None
 
 
-async def test_block_exception_sets_covered_keys_none() -> None:
+async def test_block_exception_raises_block_read_error() -> None:
     unit = _unit()
 
     def boom() -> int:
         raise ModbusExceptionError(2)  # illegal data address
 
     unit.holding[0] = boom
-    unit.input[0] = 7
     mc = ManualComponent(unit)
     mc.add("bad", integer(0))  # its holding block raises
-    mc.add("good", integer(0), space="input")  # a different table still reads
-    await mc.async_update()
-    assert mc.get("bad") is None
-    assert mc.get("good") == 7
+    with pytest.raises(BlockReadError) as exc_info:
+        await mc.async_update()
+    err = exc_info.value
+    assert err.space == "holding"
+    assert err.address == 0
+    assert err.count == 1
+    assert err.exception_code == 2  # illegal data address, carried through
+    assert isinstance(err, ModbusExceptionError)  # a device exception, enriched
+    assert isinstance(err.__cause__, ModbusExceptionError)
 
 
 async def test_listeners_fire_on_update() -> None:
