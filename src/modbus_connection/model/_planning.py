@@ -202,9 +202,7 @@ async def _read_blocks_by_space[S: str, E](
             try:
                 got = await read(start, count)
             except ModbusExceptionError as err:
-                raise BlockReadError(
-                    space, start, count, err.exception_code
-                ) from err
+                raise BlockReadError(space, start, count, err.exception_code) from err
             for offset in range(count):
                 values[(space, start + offset)] = got[offset]
     return values
