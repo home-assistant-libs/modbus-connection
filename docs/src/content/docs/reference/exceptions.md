@@ -11,8 +11,9 @@ Every `ModbusUnit` method raises on failure — it never returns `None`.
 ModbusError
 ├── ModbusConnectionError
 ├── ModbusTimeoutError        (also a builtin TimeoutError)
-├── ModbusExceptionError      (.exception_code)
-└── ModbusProtocolError
+├── ModbusProtocolError
+└── ModbusExceptionError      (.exception_code)
+    └── BlockReadError        (.space, .address, .count) — device-modelling layer
 ```
 
 Import them from the top-level package:
@@ -24,6 +25,7 @@ from modbus_connection import (
     ModbusTimeoutError,
     ModbusExceptionError,
     ModbusProtocolError,
+    BlockReadError,
 )
 ```
 
@@ -71,6 +73,16 @@ except ModbusExceptionError as err:
     if err.exception_code == 3:      # illegal data value
         ...
 ```
+
+### `BlockReadError`
+
+Raised by the [device-modelling layer](/modbus-connection/modelling/overview/), not
+a backend: when a component's pooled `async_update()` hits a Modbus exception
+response on one of its planned block reads, it surfaces as a `BlockReadError`. It
+**subclasses** `ModbusExceptionError`, so `except ModbusExceptionError` catches it and
+`.exception_code` still says why the device refused the read; it adds `.space`,
+`.address`, and `.count` for which block failed. See [When a block read
+fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
 
 ### `ModbusProtocolError`
 

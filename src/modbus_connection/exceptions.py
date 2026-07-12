@@ -44,3 +44,26 @@ class ModbusExceptionError(ModbusError):
         super().__init__(
             message or f"Device returned Modbus exception code {exception_code}"
         )
+
+
+class BlockReadError(ModbusExceptionError):
+    """A device exception response on one block of a component's pooled read.
+
+    Enriches :class:`ModbusExceptionError` with the block that failed: ``space`` is
+    the register/bit space it was read from, ``address`` the first address of the
+    block, and ``count`` how many addresses it covered. The inherited
+    ``exception_code`` is why the device refused the read; the original
+    :class:`ModbusExceptionError` is chained as ``__cause__``.
+    """
+
+    def __init__(
+        self, space: str, address: int, count: int, exception_code: int | None
+    ) -> None:
+        self.space = space
+        self.address = address
+        self.count = count
+        super().__init__(
+            exception_code,
+            f"{space} block read at address {address} (count {count}) "
+            f"returned Modbus exception code {exception_code}",
+        )

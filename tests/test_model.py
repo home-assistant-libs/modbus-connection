@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from modbus_connection.decode import decode_float32
-from modbus_connection.exceptions import ModbusExceptionError
+from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
@@ -860,7 +860,7 @@ async def test_write_to_discrete_input_raises() -> None:
         await Sensors(unit).write("alarm", True)
 
 
-async def test_discrete_input_modbus_exception_decodes_to_none() -> None:
+async def test_discrete_input_modbus_exception_raises() -> None:
     class Failing:
         async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
             raise ModbusExceptionError(2, "illegal data address")
@@ -872,8 +872,11 @@ async def test_discrete_input_modbus_exception_decodes_to_none() -> None:
         alarm = discrete_input(0)
 
     sensors = Sensors(Failing())  # type: ignore[arg-type]
-    await sensors.async_update()
-    assert sensors.alarm is None
+    with pytest.raises(BlockReadError) as exc_info:
+        await sensors.async_update()
+    assert exc_info.value.space == "discrete"
+    assert exc_info.value.exception_code == 2
+    assert isinstance(exc_info.value.__cause__, ModbusExceptionError)
 
 
 async def test_group_pools_discrete_inputs() -> None:

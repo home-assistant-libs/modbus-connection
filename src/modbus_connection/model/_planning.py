@@ -7,12 +7,12 @@ the results back. Not part of the public API — use :class:`Component` /
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Hashable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from .._types import BitSpace
 from ..decode import decode_int16
-from ..exceptions import ModbusExceptionError
+from ..exceptions import BlockReadError, ModbusExceptionError
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -184,31 +184,28 @@ def _plan_bit_blocks(
     }
 
 
-async def _read_blocks_by_space[S: Hashable, E](
+async def _read_blocks_by_space[S: str, E](
     readers: dict[S, Callable[[int, int], Awaitable[list[E]]]],
     blocks: dict[S, list[tuple[int, int]]],
-) -> tuple[dict[tuple[S, int], E], set[tuple[S, int]]]:
-    """Read every block per space, returning values and the addresses that failed.
+) -> dict[tuple[S, int], E]:
+    """Read every block per space, keyed by ``(space, address)``.
 
     The shared core of the bulk readers: each space's blocks are read with that
-    space's reader, keyed by ``(space, address)``. A ``ModbusExceptionError`` on a
-    block marks all its addresses failed (the caller stores ``None`` for any field
-    they cover) and reading continues; any other error propagates so the caller
-    can mark the device down.
+    space's reader. A ``ModbusExceptionError`` on a block is re-raised as a
+    :class:`BlockReadError` naming the block that failed; any other error propagates
+    unchanged so the caller can mark the device down.
     """
     values: dict[tuple[S, int], E] = {}
-    failed: set[tuple[S, int]] = set()
     for space, space_blocks in blocks.items():
         read = readers[space]
         for start, count in space_blocks:
             try:
                 got = await read(start, count)
-            except ModbusExceptionError:
-                failed.update((space, start + offset) for offset in range(count))
-                continue
+            except ModbusExceptionError as err:
+                raise BlockReadError(space, start, count, err.exception_code) from err
             for offset in range(count):
                 values[(space, start + offset)] = got[offset]
-    return values, failed
+    return values
 
 
 async def _bulk_read_registers(
@@ -224,28 +221,22 @@ async def _bulk_read_registers(
     (FC04) for ``"input"``, ``read_holding_registers`` (FC03) for ``"holding"`` —
     and a field's ``sunssf`` scale register (read from the same space) is fetched
     in the same pass and applied at decode. Each field's decoded value lands in
-    its ``store`` under ``field.name``; a Modbus exception covering a field's
-    registers sets it to ``None`` (other errors propagate so the caller can mark
+    its ``store`` under ``field.name``. A block answering with a Modbus exception
+    raises :class:`BlockReadError` (other errors propagate so the caller can mark
     the device down).
     """
     if not items:
         return
-    words, failed = await _read_blocks_by_space(
+    words = await _read_blocks_by_space(
         {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
         blocks,
     )
     for item in items:
         field = cast("RegisterField[Any]", item.field)  # descriptor widening, see above
         keys = [(item.space, item.address + offset) for offset in range(field.count)]
-        if any(key in failed for key in keys):
-            item.store[field.name] = None
-            continue
         scale_exponent: int | None = None
         if item.scale_address is not None:
             scale_key = (item.space, item.scale_address)
-            if scale_key in failed:
-                item.store[field.name] = None
-                continue
             scale_exponent = decode_int16([words[scale_key]])
         field_words = [words[key] for key in keys]
         item.store[field.name] = field.decode(field_words, scale_exponent)
@@ -258,15 +249,14 @@ async def _bulk_read_bits(
 ) -> None:
     """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
 
-    The bit counterpart of :func:`_bulk_read_registers`; a Modbus exception
-    covering a bit sets its field to ``None``.
+    The bit counterpart of :func:`_bulk_read_registers`; a block answering with a
+    Modbus exception raises :class:`BlockReadError`.
     """
     if not items:
         return
-    bits, failed = await _read_blocks_by_space(
+    bits = await _read_blocks_by_space(
         {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
         blocks,
     )
     for address, field, store in items:
-        key = (field.space, address)
-        store[field.name] = None if key in failed else bool(bits[key])
+        store[field.name] = bool(bits[(field.space, address)])

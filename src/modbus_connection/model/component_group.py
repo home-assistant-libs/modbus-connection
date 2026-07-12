@@ -130,6 +130,11 @@ class ComponentGroup:
         The pooled read fetches each member's own fields plus any
         :func:`repeating_group` counts; a second pass then sizes and reads each
         member's register-count groups, so those refresh inside the group too.
+
+        Like :meth:`Component.async_update`, a block answering with a Modbus
+        exception response raises
+        :class:`~modbus_connection.exceptions.BlockReadError` and fails the whole
+        update — here that is any block across the pooled members.
         """
         await _bulk_read_registers(
             self._unit, self._register_items, self._register_blocks

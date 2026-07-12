@@ -49,6 +49,31 @@ The read plan is derived from the static field layout and **cached on the first
 `async_update`**. The fields and ranges are read once then; to change the layout,
 build a new component.
 
+## When a block read fails
+
+An `async_update()` either applies fully or raises — it never applies a block read
+part-way. If the device answers one of the block reads with a Modbus **exception
+response** (an illegal data address, say, because a block it used to serve stopped
+answering), the update raises
+[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror). It is a
+[`ModbusExceptionError`](/modbus-connection/reference/exceptions/#modbusexceptionerror),
+so `.exception_code` says *why* the read was refused, plus `.space`, `.address`, and
+`.count` for *which* block:
+
+```python
+from modbus_connection import BlockReadError
+
+try:
+    await meter.async_update()
+except BlockReadError as err:
+    log.warning("block read failed at %s %d: code %s", err.space, err.address, err.exception_code)
+```
+
+If some blocks are legitimately optional on a device, read them on a separate
+component so a missing one doesn't fail the rest of the update. The same applies to
+a [`ComponentGroup`](/modbus-connection/modelling/component-group/): any block
+across its pooled members failing raises `BlockReadError` for the whole group.
+
 ## Readable address ranges
 
 Many devices only answer reads inside specific ranges, and a read that crosses a
