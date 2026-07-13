@@ -37,8 +37,10 @@ class Meter(Component):
 ```
 
 The scale register is read for you by the planner; you also declare it as a
-`sunssf` field if you want to read its raw value directly. Writing a
-dynamically-scaled point is unsupported.
+`sunssf` field if you want to read its raw value directly. Writing a scaled
+point works too: pass the engineering value and the scale factor is read
+fresh in the same write, so a factor the device shifted meanwhile cannot
+mis-scale it. A not-implemented factor raises `ValueError`.
 
 ## Numeric points
 

@@ -259,7 +259,12 @@ For registers, `write()` picks FC06 for a single word and FC16 for multiple. Pas
 
 `scale_register` points at a separate register whose signed int16 value is read
 alongside the field and applied as `10**sf` — the SunSpec `sunssf` convention.
-Writing a dynamically-scaled field is unsupported (it raises). See the
+
+A `write()` on a dynamically-scaled field takes the engineering value: the
+scale factor is read fresh in the same write and the value is snapped to the
+precision the factor grants before encoding, so `12.349` with a `10**-2`
+factor writes raw `1235`. A not-implemented scale factor (`0x8000`) raises
+`ValueError` — a write never guesses a scale. See the
 [SunSpec page](/modbus-connection/modelling/sunspec/) for the pre-wired point
 types built on this.
 
