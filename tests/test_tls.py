@@ -16,17 +16,13 @@ from pathlib import Path
 
 import pytest
 from pymodbus import FramerType
-from pymodbus.client import AsyncModbusTlsClient
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
 from pymodbus.server import ModbusTlsServer
 
 from modbus_connection import ModbusError
 from modbus_connection.pymodbus import connect_tls as pymodbus_connect_tls
 from modbus_connection.tmodbus import connect_tls as tmodbus_connect_tls
+
+from .conftest import sim_holding_device
 
 UNIT_ID = 1
 
@@ -82,15 +78,16 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
     certfile, keyfile = _make_cert(tmp_path)
     values = [0] * 10
     values[0] = 5579
-    device = ModbusDeviceContext(ir=ModbusSequentialDataBlock(1, values))
-    context = ModbusServerContext(devices=device)
+    context = sim_holding_device(values)
     host, port = "127.0.0.1", _free_port()
+    # pymodbus 3.14 dropped the certfile=/keyfile= kwargs; pass a ready sslctx.
+    server_sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_sslctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
     server = ModbusTlsServer(
         context,
         framer=FramerType.TLS,
         address=(host, port),
-        certfile=certfile,
-        keyfile=keyfile,
+        sslctx=server_sslctx,
     )
     task = asyncio.create_task(server.serve_forever())
     await asyncio.sleep(0.4)
@@ -112,7 +109,7 @@ async def test_tls_explicit_sslctx_overrides_verify(
 ) -> None:
     """A caller-supplied sslctx takes precedence over verify."""
     host, port, _ = tls_server
-    sslctx = AsyncModbusTlsClient.generate_ssl()
+    sslctx = ssl.create_default_context()
     sslctx.check_hostname = False
     sslctx.verify_mode = ssl.CERT_NONE
     conn = await connect_tls(host, port=port, sslctx=sslctx)

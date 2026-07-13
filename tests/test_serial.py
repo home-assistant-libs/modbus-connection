@@ -16,15 +16,12 @@ from typing import Any
 
 import pytest
 from pymodbus import FramerType
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
 from pymodbus.server import ModbusSerialServer
 
 from modbus_connection.pymodbus import connect_serial as pymodbus_connect_serial
 from modbus_connection.tmodbus import connect_serial as tmodbus_connect_serial
+
+from .conftest import sim_holding_device
 
 UNIT_ID = 1
 
@@ -67,8 +64,7 @@ async def serial_port() -> AsyncIterator[Callable[[FramerType], Any]]:
         server_port, client_port, masters = _make_bridge(loop)
         values = [0] * 10
         values[0] = 5579
-        device = ModbusDeviceContext(ir=ModbusSequentialDataBlock(1, values))
-        context = ModbusServerContext(devices=device)
+        context = sim_holding_device(values)
         server = ModbusSerialServer(
             context, framer=framer, port=server_port, baudrate=9600
         )
