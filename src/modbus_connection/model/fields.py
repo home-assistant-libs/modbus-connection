@@ -288,25 +288,29 @@ class NumberField[T](_ScaledField[T]):
         """Map a raw value through ``convert``; unknown values warn once -> None."""
         convert = self.convert
         assert convert is not None
+        if isinstance(convert, Mapping):
+            if raw in convert:
+                return convert[raw]
+            return self._unknown_value(raw)
         try:
-            if isinstance(convert, Mapping):
-                return convert[raw]  # a missing key means "unknown"
             return convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
-        except (KeyError, ValueError) as err:
-            if isinstance(err, KeyError) and not isinstance(convert, Mapping):
-                raise  # a callable signals "unknown" only via ValueError
-            # key by id: mappings aren't hashable, and converters live as long
-            # as their field (a class attribute), so ids are stable
-            key = (id(convert), raw)
-            if key not in _warned_unknown_value:
-                _warned_unknown_value.add(key)
-                _LOGGER.warning(
-                    "Field %r: %s has no mapping for value %d; decoding as None",
-                    self.name,
-                    getattr(convert, "__name__", repr(convert)),
-                    raw,
-                )
-            return None
+        except ValueError:
+            return self._unknown_value(raw)
+
+    def _unknown_value(self, raw: int) -> None:
+        """Decode an unknown raw value to None, warned once per distinct value."""
+        # key by id: mappings aren't hashable, and converters live as long as
+        # their field (a class attribute), so ids are stable
+        key = (id(self.convert), raw)
+        if key not in _warned_unknown_value:
+            _warned_unknown_value.add(key)
+            _LOGGER.warning(
+                "Field %r: %s has no mapping for value %d; decoding as None",
+                self.name,
+                getattr(self.convert, "__name__", repr(self.convert)),
+                raw,
+            )
+        return None
 
     def encode(self, value: Any) -> list[int]:
         if self.scale_register is not None:
