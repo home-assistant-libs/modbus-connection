@@ -345,12 +345,61 @@ async def test_generic_enum_unknown_value_is_none() -> None:
     class Dev(Component):
         mode = enum(0, Mode)
 
-    fields._warned_unknown_enum.clear()
+    fields._warned_unknown_value.clear()
     unit = MockModbusConnection().for_unit(1)
     unit.holding[0] = 9  # not a Mode member
     dev = Dev(unit)
     await dev.async_update()
     assert dev.mode is None
+
+
+async def test_convert_function(caplog: pytest.LogCaptureFixture) -> None:
+    """Any callable works as ``convert``; a ValueError decodes to None, warned once."""
+    import logging
+
+    from modbus_connection.model import fields
+
+    def parity(raw: int) -> str:
+        if raw > 2:
+            raise ValueError(raw)
+        return "even" if raw % 2 == 0 else "odd"
+
+    class Dev(Component):
+        first: NumberField[str] = NumberField(0, convert=parity)
+        second: NumberField[str] = NumberField(1, convert=parity)
+
+    fields._warned_unknown_value.clear()
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 2, 1: 9})  # 9 is rejected by the converter
+    dev = Dev(unit)
+    with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
+        await dev.async_update()
+        assert dev.first == "even"
+        assert dev.second is None
+        await dev.async_update()  # second poll: no second warning
+    warnings = [r for r in caplog.records if "no mapping for value 9" in r.message]
+    assert len(warnings) == 1
+    assert "parity" in warnings[0].message
+
+
+async def test_enum_type_is_an_alias_for_convert() -> None:
+    """The pre-``convert`` kwarg keeps working; passing both is rejected."""
+
+    class Mode(IntEnum):
+        OFF = 0
+        ON = 1
+
+    class Dev(Component):
+        mode: NumberField[Mode] = NumberField(0, signed=False, enum_type=Mode)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 1
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.mode is Mode.ON
+
+    with pytest.raises(ValueError, match="either convert or enum_type"):
+        NumberField(0, convert=Mode, enum_type=Mode)
 
 
 # -- writes -------------------------------------------------------------------

@@ -135,14 +135,14 @@ async def test_enum_write_accepts_member() -> None:
 async def test_unknown_enum_decodes_to_none_and_warns_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    fields._warned_unknown_enum.clear()
+    fields._warned_unknown_value.clear()
     dev = _device({0: 7})  # 7 is not a Mode member
     with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
         await dev.async_update()
         assert dev.mode is None
         await dev.async_update()  # second poll: still None, no second warning
         assert dev.mode is None
-    warnings = [r for r in caplog.records if "no member for value 7" in r.message]
+    warnings = [r for r in caplog.records if "no mapping for value 7" in r.message]
     assert len(warnings) == 1
 
 
