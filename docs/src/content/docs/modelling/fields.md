@@ -191,6 +191,30 @@ class Device(Component):
 `signed` interprets the code as two's-complement for devices with negative enum
 codes (e.g. `-1` sent as `0xFFFF`); the default is unsigned.
 
+Under the hood both factories pass the enum class to `NumberField(convert=...)`,
+which accepts any `Callable[[int], T]` — an enum class is just a callable that
+raises `ValueError` for unknown codes — or a `Mapping[int, T]`, where a missing
+key means the same. Either way an unknown value decodes to `None`, warned once
+per distinct value. For a mapping an enum class can't express (e.g. onto a
+`StrEnum`), pass the dict inline:
+
+```python
+from enum import StrEnum
+
+class State(StrEnum):
+    OFF = "off"
+    RUNNING = "running"
+
+class Device(Component):
+    state: NumberField[State] = NumberField(
+        5, signed=False, convert={1: State.OFF, 4: State.RUNNING}
+    )
+```
+
+A callable converter signals an unknown value only by raising `ValueError`;
+any other exception (including `KeyError`) is a bug and propagates, failing
+the read.
+
 ## Bit fields
 
 Single-bit fields decode to `bool | None`. Each carries its own space, so a

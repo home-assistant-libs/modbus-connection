@@ -72,6 +72,7 @@ from .component import (
 from .component_group import ComponentGroup
 from .fields import (
     CoilField,
+    Converter,
     DiscreteInputField,
     RegisterField,
     WriteValidator,
@@ -97,6 +98,7 @@ __all__ = [
     "CoilField",
     "Component",
     "ComponentGroup",
+    "Converter",
     "DiscreteInputField",
     "ManualComponent",
     "Range",

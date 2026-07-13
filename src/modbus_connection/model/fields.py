@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
@@ -34,6 +34,7 @@ from ..encode import encode_float32, encode_float64, encode_int, encode_string
 
 __all__ = [
     "CoilField",
+    "Converter",
     "DiscreteInputField",
     "Eui48Field",
     "FloatField",
@@ -69,9 +70,16 @@ _LOGGER = logging.getLogger(__name__)
 # with no validation.
 WriteValidator = Callable[[Any], Any]
 
-# (enum class, raw value) pairs we have already warned about, so an unrecognized
-# enum code is logged only once per distinct value rather than on every poll.
-_warned_unknown_enum: set[tuple[type, int]] = set()
+# A ``convert`` value maps the decoded integer to the field's Python value:
+# a callable taking the raw (sign-decoded) int — an ``IntEnum`` / ``IntFlag``
+# class or a plain function — or a mapping looked up by that int. A callable
+# raising ``ValueError``, or a mapping missing the key, decodes the value to
+# ``None`` (warned once per distinct value); any other exception propagates.
+Converter = Callable[[int], Any] | Mapping[int, Any]
+
+# (converter, raw value) pairs we have already warned about, so a rejected
+# value is logged only once per distinct value rather than on every poll.
+_warned_unknown_value: set[tuple[Any, int]] = set()
 
 
 def _decimals(scale: float) -> int:
@@ -233,11 +241,13 @@ class _ScaledField[T](RegisterField[T]):
 
 
 class NumberField[T](_ScaledField[T]):
-    """A scaled integer, optionally signed, sentinel-checked or enum-mapped.
+    """A scaled integer, optionally signed, sentinel-checked or value-mapped.
 
-    ``enum_type`` maps the raw value through an ``IntEnum`` / ``IntFlag``: an
-    ``IntEnum`` code with no member decodes to ``None`` (warned once per value),
-    while ``IntFlag`` keeps any unknown bits.
+    ``convert`` maps the raw value through a callable — typically an ``IntEnum``
+    / ``IntFlag`` class — or looks it up in a mapping. An unknown value (the
+    callable raises ``ValueError``, or the key is missing) decodes to ``None``
+    (warned once per value); an ``IntFlag`` keeps any unknown bits.
+    ``enum_type`` is the former name of ``convert`` and is kept as an alias.
     """
 
     def __init__(
@@ -245,45 +255,59 @@ class NumberField[T](_ScaledField[T]):
         address: int,
         *,
         signed: bool = True,
+        convert: Converter | None = None,
         enum_type: type[Enum] | None = None,
         word_order: WordOrder = "big",
         **kwargs: Any,
     ) -> None:
         super().__init__(address, **kwargs)
         self.signed = signed
-        # IntEnum / IntFlag to map the raw value through; None returns the raw int.
-        self.enum_type = enum_type
+        if enum_type is not None:
+            if convert is not None:
+                raise ValueError("pass either convert or enum_type, not both")
+            convert = enum_type  # an enum class is just a converter
+        # Callable or mapping applied to the raw value (an IntEnum / IntFlag
+        # class, a plain function, or a dict); None returns the raw int.
+        self.convert = convert
         self.word_order = word_order
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         raw = combine_words(words, word_order=self.word_order)
         if self.nan is not None and raw == self.nan:
             return None
-        if self.enum_type is not None:
+        if self.convert is not None:
             # Map the signed or unsigned code, per the field's `signed` flag; the
             # nan check above still matches the raw (unsigned) sentinel pattern.
-            return self._to_enum(
+            return self._convert(
                 decode_int(words, signed=self.signed, word_order=self.word_order)
             )
         value = decode_int(words, signed=self.signed, word_order=self.word_order)
         return self._scale(value, scale_exponent)
 
-    def _to_enum(self, raw: int) -> Any:
-        """Map a raw value through ``enum_type``; unknown IntEnum codes warn once."""
-        assert self.enum_type is not None
-        try:
-            return self.enum_type(raw)  # IntFlag keeps unknown bits; IntEnum may raise
-        except ValueError:
-            key = (self.enum_type, raw)
-            if key not in _warned_unknown_enum:
-                _warned_unknown_enum.add(key)
-                _LOGGER.warning(
-                    "Field %r: %s has no member for value %d; decoding as None",
-                    self.name,
-                    self.enum_type.__name__,
-                    raw,
-                )
-            return None
+    def _convert(self, raw: int) -> Any:
+        """Map a raw value through ``convert``; unknown values warn once -> None."""
+        convert = self.convert
+        assert convert is not None
+        if isinstance(convert, Mapping):
+            if raw in convert:
+                return convert[raw]
+        else:
+            try:
+                return convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
+            except ValueError:
+                pass
+        # key by id: mappings aren't hashable, and converters live as long as
+        # their field (a class attribute), so ids are stable
+        key = (id(convert), raw)
+        if key not in _warned_unknown_value:
+            _warned_unknown_value.add(key)
+            _LOGGER.warning(
+                "Field %r: %s has no mapping for value %d; decoding as None",
+                self.name,
+                getattr(convert, "__name__", repr(convert)),
+                raw,
+            )
+        return None
 
     def encode(self, value: Any) -> list[int]:
         if self.scale_register is not None:
@@ -723,12 +747,16 @@ def enum[E: IntEnum](
     an optional raw sentinel that also decodes to ``None``. ``signed`` interprets
     the code as two's-complement for devices with negative enum codes (e.g. -1
     sent as 0xFFFF); the default is unsigned.
+
+    For a mapping an enum class can't express (e.g. onto a ``StrEnum``), pass
+    any :data:`Converter` to ``NumberField(convert=...)`` directly — raising
+    ``ValueError`` decodes to ``None`` the same way.
     """
     return NumberField(
         address,
         count=count,
         signed=signed,
-        enum_type=enum_type,
+        convert=enum_type,
         word_order=word_order,
         nan=nan,
         stride=stride,
@@ -757,7 +785,7 @@ def flags[F: IntFlag](
         address,
         count=count,
         signed=signed,
-        enum_type=flag_type,
+        convert=flag_type,
         word_order=word_order,
         nan=nan,
         stride=stride,

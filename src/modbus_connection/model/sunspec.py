@@ -21,7 +21,8 @@ with ``sf`` read alongside on each update::
 
 Word order is big-endian throughout, per the SunSpec spec. Enum and bitfield
 points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
-to map them to members natively.
+to map them to members natively (a value with no member decodes to ``None``,
+warned once).
 """
 
 from __future__ import annotations
@@ -329,7 +330,7 @@ def enum16(
         count=1,
         signed=False,
         nan=_UINT16_NAN,
-        enum_type=enum,
+        convert=enum,
         stride=stride,
         writable=writable,
     )
@@ -363,7 +364,7 @@ def enum32(
         count=2,
         signed=False,
         nan=_UINT32_NAN,
-        enum_type=enum,
+        convert=enum,
         stride=stride,
         writable=writable,
     )
@@ -397,7 +398,7 @@ def bitfield16(
         count=1,
         signed=False,
         nan=_UINT16_NAN,
-        enum_type=flags,
+        convert=flags,
         stride=stride,
         writable=writable,
     )
@@ -431,7 +432,7 @@ def bitfield32(
         count=2,
         signed=False,
         nan=_UINT32_NAN,
-        enum_type=flags,
+        convert=flags,
         stride=stride,
         writable=writable,
     )
@@ -465,7 +466,7 @@ def bitfield64(
         count=4,
         signed=False,
         nan=_UINT64_NAN,
-        enum_type=flags,
+        convert=flags,
         stride=stride,
         writable=writable,
     )
