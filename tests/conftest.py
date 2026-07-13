@@ -13,12 +13,8 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pymodbus import ModbusDeviceIdentification
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
 from pymodbus.server import ModbusTcpServer
+from pymodbus.simulator import DataType, SimData, SimDevice
 
 UNIT_ID = 1
 
@@ -40,6 +36,41 @@ DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
 # (0 VendorName, 1 ProductCode, 2 MajorMinorRevision).
 DEVICE_ID: dict[int, bytes] = {0: b"Acme", 1: b"PC-1", 2: b"1.2"}
 
+# Addresses outside a SimData block answer with an exception, so make the
+# blocks comfortably larger than any address the tests touch.
+_BLOCK_SIZE = 2200
+
+
+def _register_block(mapping: dict[int, int]) -> list[SimData]:
+    """A register block: ``_BLOCK_SIZE`` words, zero unless set in ``mapping``."""
+    values = [0] * _BLOCK_SIZE
+    for address, value in mapping.items():
+        values[address] = int(value) & 0xFFFF
+    return [SimData(0, values=values, datatype=DataType.REGISTERS)]
+
+
+def _bit_block(mapping: dict[int, bool]) -> list[SimData]:
+    """A coil / discrete-input block, one bool per address."""
+    values = [False] * _BLOCK_SIZE
+    for address, value in mapping.items():
+        values[address] = bool(value)
+    return [SimData(0, values=values, datatype=DataType.BITS)]
+
+
+def sim_holding_device(values: list[int]) -> SimDevice:
+    """A device serving ``values`` as holding registers 0..len-1.
+
+    The shared datastore for the transport tests (UDP, serial, TLS, framer
+    variants), which only need a couple of known holding registers. ``id=0``
+    serves every unit id.
+    """
+    words = [v & 0xFFFF for v in values]
+    holding = [SimData(0, values=words, datatype=DataType.REGISTERS)]
+    return SimDevice(
+        0,
+        simdata=(_bit_block({}), _bit_block({}), holding, _register_block({})),
+    )
+
 
 def _device_identity() -> ModbusDeviceIdentification:
     ident = ModbusDeviceIdentification()
@@ -47,21 +78,6 @@ def _device_identity() -> ModbusDeviceIdentification:
     ident.ProductCode = DEVICE_ID[1].decode()
     ident.MajorMinorRevision = DEVICE_ID[2].decode()
     return ident
-
-
-def _block_from(
-    mapping: dict[int, int | bool], size: int = 2200
-) -> ModbusSequentialDataBlock:
-    # ModbusSequentialDataBlock(address, values) stores values starting at the
-    # 1-based `address` (internally SimData(address - 1)), so block address 1 maps
-    # protocol register N to values[N]. Its datatype packs each word as a *signed*
-    # 16-bit int, so store the two's-complement equivalent (same bytes on the wire,
-    # so unsigned reads round-trip unchanged); coil 0/1 values are unaffected.
-    values = [0] * (size + 1)
-    for address, value in mapping.items():
-        word = int(value) & 0xFFFF
-        values[address] = word - 0x10000 if word >= 0x8000 else word
-    return ModbusSequentialDataBlock(1, values)
 
 
 def _free_port() -> int:
@@ -73,21 +89,19 @@ def _free_port() -> int:
 @pytest.fixture
 async def modbus_server() -> AsyncIterator[tuple[str, int]]:
     """Start a Modbus TCP server with the known datastore; yield (host, port)."""
-    # pymodbus 3.13's deprecated ModbusDeviceContext crosses input and holding:
-    # FC03 (holding) is served from the `ir` slot and FC04 (input) from `hr`, so
-    # pass the blocks swapped to land each on the right function code.
-    device = ModbusDeviceContext(
-        di=_block_from(DISCRETE),
-        co=_block_from(COILS),
-        ir=_block_from(HOLDING),
-        hr=_block_from(INPUT),
+    # Non-shared blocks, ordered (coils, discrete inputs, holding, input).
+    # id=0 serves every unit id (incl. UNIT_ID).
+    device = SimDevice(
+        0,
+        simdata=(
+            _bit_block(COILS),
+            _bit_block(DISCRETE),
+            _register_block(HOLDING),
+            _register_block(INPUT),
+        ),
     )
-    # Pass the device directly (not a {id: device} dict): the dict path of the
-    # deprecated ModbusServerContext mis-wires SimCore in pymodbus 3.13. A single
-    # device is registered at id 0 and served for any unit id (incl. UNIT_ID).
-    context = ModbusServerContext(devices=device)
     host, port = "127.0.0.1", _free_port()
-    server = ModbusTcpServer(context, identity=_device_identity(), address=(host, port))
+    server = ModbusTcpServer(device, identity=_device_identity(), address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     # Wait until the listener is actually accepting connections.
     for _ in range(100):

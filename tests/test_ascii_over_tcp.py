@@ -11,15 +11,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pymodbus import FramerType
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
 from pymodbus.server import ModbusTcpServer
 
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
+
+from .conftest import sim_holding_device
 
 UNIT_ID = 1
 
@@ -35,10 +32,7 @@ async def ascii_tcp_server() -> AsyncIterator[tuple[str, int]]:
     """A TCP server that frames Modbus ASCII over the stream."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
-    # pymodbus 3.13: block address is 1-based and FC03 (holding) is served from
-    # the `ir` slot; the device must be passed directly (not a {id: device} dict).
-    device = ModbusDeviceContext(ir=ModbusSequentialDataBlock(1, values))
-    context = ModbusServerContext(devices=device)
+    context = sim_holding_device(values)
     host, port = "127.0.0.1", _free_port()
     server = ModbusTcpServer(context, framer=FramerType.ASCII, address=(host, port))
     task = asyncio.create_task(server.serve_forever())

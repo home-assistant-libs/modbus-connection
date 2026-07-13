@@ -8,15 +8,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pymodbus import FramerType
-from pymodbus.datastore import (
-    ModbusDeviceContext,
-    ModbusSequentialDataBlock,
-    ModbusServerContext,
-)
 from pymodbus.server import ModbusUdpServer
 
 from modbus_connection.pymodbus import connect_udp as pymodbus_connect_udp
 from modbus_connection.tmodbus import connect_udp as tmodbus_connect_udp
+
+from .conftest import sim_holding_device
 
 UNIT_ID = 1
 
@@ -32,10 +29,7 @@ async def udp_server() -> AsyncIterator[tuple[str, int]]:
     """A Modbus UDP server with one known holding register."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
-    # pymodbus 3.13: block address is 1-based, FC03 (holding) is served from the
-    # `ir` slot, and the device must be passed directly (not a {id: device} dict).
-    device = ModbusDeviceContext(ir=ModbusSequentialDataBlock(1, values))
-    context = ModbusServerContext(devices=device)
+    context = sim_holding_device(values)
     host, port = "127.0.0.1", _free_udp_port()
     server = ModbusUdpServer(context, framer=FramerType.SOCKET, address=(host, port))
     task = asyncio.create_task(server.serve_forever())
