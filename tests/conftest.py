@@ -2,10 +2,8 @@
 
 Both backends connect to the *same* server, so the test suite validates real
 end-to-end behavior and cross-backend parity rather than mock interactions.
-
 The server datastore is built on pymodbus's native ``SimData`` / ``SimDevice``
-API (the deprecated ``ModbusDeviceContext`` / ``ModbusSequentialDataBlock``
-shims changed behavior across releases and are removed in pymodbus 4).
+API.
 """
 
 from __future__ import annotations
@@ -53,9 +51,8 @@ DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
 # (0 VendorName, 1 ProductCode, 2 MajorMinorRevision).
 DEVICE_ID: dict[int, bytes] = {0: b"Acme", 1: b"PC-1", 2: b"1.2"}
 
-# Addresses outside a SimData block answer with an exception instead of the
-# zeros the old sequential block returned, so make the blocks comfortably
-# larger than any address the tests touch.
+# Addresses outside a SimData block answer with an exception, so make the
+# blocks comfortably larger than any address the tests touch.
 _BLOCK_SIZE = 2200
 
 

@@ -80,7 +80,6 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
     values[0] = 5579
     context = sim_holding_device(values)
     host, port = "127.0.0.1", _free_port()
-    # pymodbus 3.14 dropped the certfile=/keyfile= kwargs; pass a ready sslctx.
     server_sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     server_sslctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
     server = ModbusTlsServer(
