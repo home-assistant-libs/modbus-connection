@@ -15,23 +15,10 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pymodbus import ModbusDeviceIdentification
-from pymodbus import __version__ as pymodbus_version
 from pymodbus.server import ModbusTcpServer
 from pymodbus.simulator import DataType, SimData, SimDevice
 
 UNIT_ID = 1
-
-# pymodbus < 3.14 packs DataType.REGISTERS as signed int16, >= 3.14 as unsigned.
-_SIGNED_WORDS = tuple(map(int, pymodbus_version.split(".")[:2])) < (3, 14)
-
-
-def _word(value: int) -> int:
-    """A register word in the representation the installed pymodbus packs."""
-    word = int(value) & 0xFFFF
-    if _SIGNED_WORDS and word >= 0x8000:
-        return word - 0x10000
-    return word
-
 
 # Known holding-register contents, shared by the raw-read and parity tests.
 HOLDING: dict[int, int] = {0: 1234, 1: 0xFFFF}
@@ -60,7 +47,7 @@ def _register_block(mapping: dict[int, int]) -> list[SimData]:
     """A register block: ``_BLOCK_SIZE`` words, zero unless set in ``mapping``."""
     values = [0] * _BLOCK_SIZE
     for address, value in mapping.items():
-        values[address] = _word(value)
+        values[address] = int(value) & 0xFFFF
     return [SimData(0, values=values, datatype=DataType.REGISTERS)]
 
 
@@ -79,7 +66,7 @@ def sim_holding_device(values: list[int]) -> SimDevice:
     variants), which only need a couple of known holding registers. ``id=0``
     serves every unit id.
     """
-    words = [_word(v) for v in values]
+    words = [v & 0xFFFF for v in values]
     holding = [SimData(0, values=words, datatype=DataType.REGISTERS)]
     return SimDevice(
         0,
