@@ -2,8 +2,6 @@
 
 Both backends connect to the *same* server, so the test suite validates real
 end-to-end behavior and cross-backend parity rather than mock interactions.
-The server datastore is built on pymodbus's native ``SimData`` / ``SimDevice``
-API.
 """
 
 from __future__ import annotations
