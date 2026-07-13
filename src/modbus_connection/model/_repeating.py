@@ -32,6 +32,7 @@ class _RepeatingGroups:
 
     _unit: ModbusUnit
     _base_offset: int = 0
+    _instance_offset: int = 0
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
@@ -54,9 +55,14 @@ class _RepeatingGroups:
     def _build_instances(
         self, field: RepeatingGroupField[Any], start: int, stop: int
     ) -> list[Component]:
+        # instances inherit the parent's block position (base_offset, which
+        # also moves scale registers); their own per-instance shift applies to
+        # fields only, so shared scale factors stay in the parent's fixed block
         return [
             field.component_class(
-                self._unit, base_offset=self._base_offset + i * field.stride
+                self._unit,
+                base_offset=self._base_offset,
+                _instance_offset=self._instance_offset + i * field.stride,
             )
             for i in range(start, stop)
         ]
@@ -71,7 +77,7 @@ class _RepeatingGroups:
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
                 RegisterItem(
-                    count_field.address + self._base_offset,
+                    count_field.address + self._base_offset + self._instance_offset,
                     count_field,
                     self._counts,
                     None,

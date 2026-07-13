@@ -1094,15 +1094,31 @@ async def test_base_offset_shifts_writes() -> None:
     assert unit.holding[30] == 42
 
 
-async def test_base_offset_does_not_shift_scale_register() -> None:
-    # A SunSpec repeating block scales off a shared sunssf in the fixed block:
-    # the value address shifts with base_offset, the scale register does not.
+async def test_base_offset_shifts_scale_register() -> None:
+    # base_offset places the whole layout — the scale register belongs to the
+    # block and moves with it (a SunSpec model at its discovered address).
     class Block(Component):
         w = gauge(10, 1.0, scale_register=2)
 
     unit = MockModbusConnection().for_unit(1)
-    unit.holding[2] = (-2) & 0xFFFF  # sf = -2, at its fixed (unshifted) address
+    unit.holding[22] = (-2) & 0xFFFF  # sf = -2, at 2 shifted by +20
     unit.holding[30] = 1234  # value at 10, shifted by +20
     block = Block(unit, base_offset=20)
     await block.async_update()
     assert block.w == pytest.approx(12.34)  # 1234 * 10**-2
+
+
+async def test_base_offset_composes_with_scale_register_stride() -> None:
+    # index/stride repeat within the placed block: the value follows stride,
+    # the per-instance scale register follows scale_register_stride, and both
+    # shift with base_offset.
+    class Block(Component):
+        w = gauge(10, 1.0, stride=5, scale_register=2, scale_register_stride=1)
+
+    unit = MockModbusConnection().for_unit(1)
+    # index=2: value at 10+5 +100, sf at 2+1 +100
+    unit.holding[103] = (-1) & 0xFFFF
+    unit.holding[115] = 500
+    block = Block(unit, index=2, base_offset=100)
+    await block.async_update()
+    assert block.w == pytest.approx(50.0)  # 500 * 10**-1
