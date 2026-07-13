@@ -382,19 +382,43 @@ async def test_convert_function(caplog: pytest.LogCaptureFixture) -> None:
     assert "parity" in warnings[0].message
 
 
-async def test_convert_dict_get() -> None:
-    """A dict's ``.get`` works as an inline converter; unknown codes are None."""
+async def test_convert_mapping(caplog: pytest.LogCaptureFixture) -> None:
+    """A dict works as ``convert``; a missing key decodes to None, warned once."""
+    import logging
+
+    from modbus_connection.model import fields
 
     class Dev(Component):
-        state: NumberField[str] = NumberField(0, convert={1: "on", 2: "off"}.get)
-        unknown: NumberField[str] = NumberField(1, convert={1: "on", 2: "off"}.get)
+        state: NumberField[str] = NumberField(0, convert={1: "on", 2: "off"})
+        unknown: NumberField[str] = NumberField(1, convert={1: "on", 2: "off"})
+
+    fields._warned_unknown_value.clear()
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 1: 9})  # 9 has no mapping
+    dev = Dev(unit)
+    with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
+        await dev.async_update()
+        assert dev.state == "on"
+        assert dev.unknown is None
+        await dev.async_update()  # second poll: no second warning
+    warnings = [r for r in caplog.records if "no mapping for value 9" in r.message]
+    assert len(warnings) == 1
+
+
+async def test_convert_callable_keyerror_propagates() -> None:
+    """Only ValueError means "unknown" from a callable; KeyError is a bug."""
+
+    class Dev(Component):
+        broken: NumberField[str] = NumberField(0, convert={1: "on"}.__getitem__)
 
     unit = MockModbusConnection().for_unit(1)
-    unit.holding.update({0: 1, 1: 9})  # 9 has no mapping -> None, silently
+    unit.holding[0] = 9
     dev = Dev(unit)
-    await dev.async_update()
-    assert dev.state == "on"
-    assert dev.unknown is None
+    with pytest.raises(Exception) as excinfo:
+        await dev.async_update()
+    assert isinstance(excinfo.value, KeyError) or isinstance(
+        excinfo.value.__cause__, KeyError
+    )
 
 
 async def test_enum_type_is_an_alias_for_convert() -> None:

@@ -193,8 +193,10 @@ codes (e.g. `-1` sent as `0xFFFF`); the default is unsigned.
 
 Under the hood both factories pass the enum class to `NumberField(convert=...)`,
 which accepts any `Callable[[int], T]` — an enum class is just a callable that
-raises `ValueError` for unknown codes. For a mapping an enum class can't express
-(e.g. onto a `StrEnum`), a dict's `.get` makes a concise inline converter:
+raises `ValueError` for unknown codes — or a `Mapping[int, T]`, where a missing
+key means the same. Either way an unknown value decodes to `None`, warned once
+per distinct value. For a mapping an enum class can't express (e.g. onto a
+`StrEnum`), pass the dict inline:
 
 ```python
 from enum import StrEnum
@@ -205,24 +207,13 @@ class State(StrEnum):
 
 class Device(Component):
     state: NumberField[State] = NumberField(
-        5, signed=False, convert={1: State.OFF, 4: State.RUNNING}.get
+        5, signed=False, convert={1: State.OFF, 4: State.RUNNING}
     )
 ```
 
-With `.get`, an unknown code decodes to `None` silently. To get the same
-once-per-value warning enum classes produce, use a function that raises
-`ValueError` for unknown codes instead:
-
-```python
-def state_from_code(raw: int) -> State:
-    try:
-        return {1: State.OFF, 4: State.RUNNING}[raw]
-    except KeyError:
-        raise ValueError(raw) from None
-```
-
-(Not `{...}[raw]` bare as the converter: that raises `KeyError`, which is
-deliberately not caught, and would fail the whole read.)
+A callable converter signals an unknown value only by raising `ValueError`;
+any other exception (including `KeyError`) is a bug and propagates, failing
+the read.
 
 ## Bit fields
 

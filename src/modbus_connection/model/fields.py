@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
@@ -70,11 +70,12 @@ _LOGGER = logging.getLogger(__name__)
 # with no validation.
 WriteValidator = Callable[[Any], Any]
 
-# A ``convert`` value maps the decoded integer to the field's Python value: any
-# callable taking the raw (sign-decoded) int — an ``IntEnum`` / ``IntFlag`` class
-# or a plain function. Raising ``ValueError`` decodes the value to ``None``
-# (warned once per distinct value).
-Converter = Callable[[int], Any]
+# A ``convert`` value maps the decoded integer to the field's Python value:
+# a callable taking the raw (sign-decoded) int — an ``IntEnum`` / ``IntFlag``
+# class or a plain function — or a mapping looked up by that int. A callable
+# raising ``ValueError``, or a mapping missing the key, decodes the value to
+# ``None`` (warned once per distinct value); any other exception propagates.
+Converter = Callable[[int], Any] | Mapping[int, Any]
 
 # (converter, raw value) pairs we have already warned about, so a rejected
 # value is logged only once per distinct value rather than on every poll.
@@ -243,10 +244,10 @@ class NumberField[T](_ScaledField[T]):
     """A scaled integer, optionally signed, sentinel-checked or value-mapped.
 
     ``convert`` maps the raw value through a callable — typically an ``IntEnum``
-    / ``IntFlag`` class, but any :data:`Converter` works. A ``ValueError`` from
-    the callable decodes to ``None`` (warned once per value); an ``IntFlag``
-    keeps any unknown bits. ``enum_type`` is the former name of ``convert`` and
-    is kept as an alias.
+    / ``IntFlag`` class — or looks it up in a mapping. An unknown value (the
+    callable raises ``ValueError``, or the key is missing) decodes to ``None``
+    (warned once per value); an ``IntFlag`` keeps any unknown bits.
+    ``enum_type`` is the former name of ``convert`` and is kept as an alias.
     """
 
     def __init__(
@@ -265,8 +266,8 @@ class NumberField[T](_ScaledField[T]):
             if convert is not None:
                 raise ValueError("pass either convert or enum_type, not both")
             convert = enum_type  # an enum class is just a converter
-        # Callable mapping the raw value (an IntEnum / IntFlag class or a plain
-        # function); None returns the raw int.
+        # Callable or mapping applied to the raw value (an IntEnum / IntFlag
+        # class, a plain function, or a dict); None returns the raw int.
         self.convert = convert
         self.word_order = word_order
 
@@ -284,18 +285,25 @@ class NumberField[T](_ScaledField[T]):
         return self._scale(value, scale_exponent)
 
     def _convert(self, raw: int) -> Any:
-        """Map a raw value through ``convert``; a ``ValueError`` warns once -> None."""
-        assert self.convert is not None
+        """Map a raw value through ``convert``; unknown values warn once -> None."""
+        convert = self.convert
+        assert convert is not None
         try:
-            return self.convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
-        except ValueError:
-            key = (self.convert, raw)
+            if isinstance(convert, Mapping):
+                return convert[raw]  # a missing key means "unknown"
+            return convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
+        except (KeyError, ValueError) as err:
+            if isinstance(err, KeyError) and not isinstance(convert, Mapping):
+                raise  # a callable signals "unknown" only via ValueError
+            # key by id: mappings aren't hashable, and converters live as long
+            # as their field (a class attribute), so ids are stable
+            key = (id(convert), raw)
             if key not in _warned_unknown_value:
                 _warned_unknown_value.add(key)
                 _LOGGER.warning(
                     "Field %r: %s has no mapping for value %d; decoding as None",
                     self.name,
-                    getattr(self.convert, "__name__", repr(self.convert)),
+                    getattr(convert, "__name__", repr(convert)),
                     raw,
                 )
             return None
