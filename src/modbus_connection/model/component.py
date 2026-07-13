@@ -44,13 +44,19 @@ class Component(_RepeatingGroups):
     :attr:`coil_ranges` / :attr:`discrete_ranges` (as class attributes or per
     instance) so pooled reads never cross an unreadable gap.
 
-    Repeated identical sub-units are addressed per instance: pass ``index``
-    (1-based) with a per-field ``stride`` (the two compose as
-    ``field.address + field.stride * (index - 1)``), or, when the whole block
-    shifts uniformly, ``base_offset`` (added to every field and bit address, on
-    reads and writes). ``scale_register`` addresses are **not** shifted by
-    ``base_offset`` — a SunSpec block's scale factors sit in the shared fixed
-    block — but do honour ``scale_register_stride``.
+    ``base_offset`` places the whole declared layout at another base address:
+    it is added to **every** address the component touches — fields, bits,
+    :func:`repeating_group` counts and ``scale_register`` addresses — on reads
+    and writes alike. Declare the layout once (relative to the block start,
+    or at a default location) and instantiate it wherever the block actually
+    sits, e.g. a SunSpec model at its discovered address. Repeated identical
+    sub-units are addressed per instance instead: pass ``index`` (1-based) with
+    a per-field ``stride`` (the two compose as
+    ``field.address + field.stride * (index - 1)``, with ``scale_register``
+    following ``scale_register_stride``), or model them as a
+    :func:`repeating_group` — its instances shift per instance while their
+    ``scale_register`` addresses keep following the parent's block, since a
+    repeating block's scale factors sit in the shared fixed part of the model.
 
     The read plan is derived from the static field layout and cached on the first
     :meth:`async_update`. The fields and ranges are read once then; to change the
@@ -109,11 +115,20 @@ class Component(_RepeatingGroups):
         cls._repeating_fields = repeating
 
     def __init__(
-        self, unit: ModbusUnit, index: int = 1, *, base_offset: int = 0
+        self,
+        unit: ModbusUnit,
+        index: int = 1,
+        *,
+        base_offset: int = 0,
+        _instance_offset: int = 0,
     ) -> None:
         self._unit = unit
         self._index = index
         self._base_offset = base_offset
+        # Internal, set by repeating_group when building instances: the
+        # per-instance shift within the parent's block, applied to fields and
+        # bits but not to scale registers (those follow the block itself).
+        self._instance_offset = _instance_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         self._listeners: list[UpdateListener] = []
@@ -127,7 +142,12 @@ class Component(_RepeatingGroups):
         return self.register_space
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
-        return field.address + field.stride * (self._index - 1) + self._base_offset
+        return (
+            field.address
+            + field.stride * (self._index - 1)
+            + self._base_offset
+            + self._instance_offset
+        )
 
     # -- listeners -----------------------------------------------------------
 
@@ -156,8 +176,13 @@ class Component(_RepeatingGroups):
         for field in self._register_fields.values():
             scale_address = None
             if field.scale_register is not None:
-                scale_address = field.scale_register + field.scale_register_stride * (
-                    self._index - 1
+                # scale registers move with the block (base_offset) but not
+                # with a repeating instance's shift — a repeated sub-unit's
+                # scale factors sit in the parent's shared fixed block
+                scale_address = (
+                    field.scale_register
+                    + field.scale_register_stride * (self._index - 1)
+                    + self._base_offset
                 )
             items.append(
                 RegisterItem(

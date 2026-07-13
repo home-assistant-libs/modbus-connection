@@ -160,9 +160,56 @@ async def test_per_instance_shared_scale_register() -> None:
     unit.holding.update({8: 2, 2: (-2) & 0xFFFF, 11: 1234, 31: 5678})
     inv = Inverter(unit)
     await inv.async_update()
-    # Both modules scale off the shared SF at addr 2 (not shifted by base_offset).
+    # Both modules scale off the shared SF at addr 2 (not shifted per instance).
     assert inv.modules[0].w == pytest.approx(12.34)  # 1234 * 10**-2
     assert inv.modules[1].w == pytest.approx(56.78)  # 5678 * 10**-2
+
+
+async def test_repeating_group_at_base_offset() -> None:
+    # A discovered SunSpec model: the layout is declared relative to the model
+    # start and placed with base_offset. The count, the instances and their
+    # shared scale register all move with the block; the per-instance shift
+    # still leaves the scale register in the shared fixed part.
+    class ScaledModule(Component):
+        w = integer(11, scale_register=2)
+
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), ScaledModule, stride=20)
+
+    unit = _unit()
+    unit.holding.update(
+        {108: 2, 102: (-2) & 0xFFFF, 111: 1234, 131: 5678}  # everything at +100
+    )
+    inv = Inverter(unit, base_offset=100)
+    await inv.async_update()
+    assert inv.modules[0].w == pytest.approx(12.34)  # 1234 * 10**-2
+    assert inv.modules[1].w == pytest.approx(56.78)  # 5678 * 10**-2
+
+
+async def test_static_group_at_base_offset() -> None:
+    class Inverter(Component):
+        modules = repeating_group(2, Module, stride=2)
+
+    unit = _unit()
+    unit.holding.update({110: 1, 111: 11, 112: 2, 113: 22})
+    inv = Inverter(unit, base_offset=100)
+    await inv.async_update()
+    assert [(m.v, m.w) for m in inv.modules] == [(1, 11), (2, 22)]
+
+
+async def test_write_through_instance_at_base_offset() -> None:
+    # a write through an instance lands at block + instance shift
+    class WModule(Component):
+        setpoint = integer(11, signed=False, writable=True)
+
+    class Inverter(Component):
+        modules = repeating_group(2, WModule, stride=20)
+
+    unit = _unit()
+    inv = Inverter(unit, base_offset=100)
+    await inv.async_update()
+    await inv.modules[1].write("setpoint", 42)  # 11 + 100 + 20
+    assert (await unit.read_holding_registers(131, 1)) == [42]
 
 
 async def test_write_through_instance() -> None:

@@ -38,31 +38,36 @@ circuits = [Circuit(unit, index=n) for n in (1, 2, 3)]
 
 A field with the default `stride=0` is at a fixed address shared by every index.
 
-## `base_offset` — a uniformly shifted block
+## `base_offset` — the whole layout at another address
 
-When instead *every* field of a sub-unit shares one step — the common case for a
-self-contained, contiguous repeating block (e.g. a SunSpec multiple-MPPT module) —
-pass `base_offset` rather than repeating the same `stride` on each field. It
-shifts every field and bit address by a fixed amount, so you model the block once
-at instance 0's addresses and read instance *i* with `base_offset = i * block_len`:
+`base_offset` places the **whole declared layout** at another base address: it
+is added to every address the component touches — fields, bits, group counts
+and `scale_register` addresses — on reads and writes alike. Declare the layout
+once and instantiate it where the block actually sits:
 
 ```python
-class MPPTModule(Component):
-    dc_w = integer(11, scale_register=2)   # one module; addresses are instance 0's
-    dc_v = integer(10, scale_register=1)
+class Cell(Component):
+    voltage = integer(0, signed=False)     # one cell; addresses are instance 0's
+    temperature = gauge(1, 0.1)
 
-modules = [MPPTModule(unit, base_offset=i * 20) for i in range(n)]
+cells = [Cell(unit, base_offset=i * 10) for i in range(16)]
 ```
 
-`base_offset` composes additively with `index` / `stride` and applies to reads and
-writes alike. **Scale-factor registers (`scale_register`) are not shifted** — a
-SunSpec repeating block's scale factors live in the shared fixed block, so they
-keep their absolute address (a per-instance scale register stays governed by
-`scale_register_stride`).
+The other big use is a block whose location is only known at runtime — a
+[SunSpec model at its discovered address](/modbus-connection/modelling/sunspec/).
+`base_offset` composes additively with `index` / `stride`.
 
-Building that instance list by hand is the manual form. `repeating_group` is the
-same thing as a managed field — and the only way to size the list from a count the
-device reports at poll time.
+One caution: because `base_offset` moves `scale_register` addresses with the
+block, it cannot hand-roll instances of a repeating sub-unit whose scale
+factors live in the parent's shared fixed block (a SunSpec multiple-MPPT
+module). Model those as a `repeating_group` — a fixed `int` count works and
+folds into the parent's read — and each instance shifts while its scale
+registers keep following the parent's block. (`index` with a per-field
+`stride` also still expresses this by hand: the scale register only moves
+with `scale_register_stride`, which defaults to staying put.)
+
+`repeating_group` is also the only way to size the list from a count the device
+reports at poll time.
 
 ## Runtime-counted repeats
 

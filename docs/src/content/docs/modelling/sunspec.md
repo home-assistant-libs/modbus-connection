@@ -158,7 +158,28 @@ class Inverter(Component):
     modules = repeating_group(uint16(8), MPPTModule, stride=20)  # N at register 8
 ```
 
-A repeating block's scale factors sit in the shared fixed block, so
-`scale_register` addresses are **not** shifted per instance — see
+A repeating block's scale factors sit in the shared fixed block, so a
+`repeating_group` instance shifts per instance while its `scale_register`
+addresses keep following the model — see
 [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story on
 `base_offset`, `stride`, and `index`.
+
+## Models at discovered addresses
+
+SunSpec models are found by walking the model chain, so their addresses are
+only known at runtime — and can even shift when a device setting changes the
+register map. Declare the model relative to its start (address 0) and place it
+with `base_offset`; every address moves with it, including `scale_register`
+addresses and any `repeating_group`:
+
+```python
+class Inverter(Component):              # SunSpec model 103, relative layout
+    a = uint16(0, scale_register=4)     # AC current, scaled by A_SF at +4
+    a_sf = sunssf(4)
+
+model_address = ...                     # from walking the model chain
+inv = Inverter(unit, base_offset=model_address + 2)  # data follows the header
+```
+
+The read plan is cached per instance, so when the map shifts, re-discover and
+build a new component with the new `base_offset`.
