@@ -382,6 +382,21 @@ async def test_convert_function(caplog: pytest.LogCaptureFixture) -> None:
     assert "parity" in warnings[0].message
 
 
+async def test_convert_dict_get() -> None:
+    """A dict's ``.get`` works as an inline converter; unknown codes are None."""
+
+    class Dev(Component):
+        state: NumberField[str] = NumberField(0, convert={1: "on", 2: "off"}.get)
+        unknown: NumberField[str] = NumberField(1, convert={1: "on", 2: "off"}.get)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 1: 9})  # 9 has no mapping -> None, silently
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.state == "on"
+    assert dev.unknown is None
+
+
 async def test_enum_type_is_an_alias_for_convert() -> None:
     """The pre-``convert`` kwarg keeps working; passing both is rejected."""
 
