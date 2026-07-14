@@ -105,16 +105,6 @@ async def test_read_refused(mock_modbus_unit):
     mock_modbus_unit.fail_read(1100, None)                     # clear it
 ```
 
-A callable in the store can also raise, but every read materializes every
-entry, so a raiser at one address blows up reads of unrelated addresses too —
-reach for `fail_read` when you want to fail just one block:
-
-```python
-def boom():
-    raise ModbusExceptionError(2)       # illegal data address
-mock_modbus_unit.holding[9] = boom
-```
-
 ## Why it matters
 
 The mock lets a device library's tests cover the hard part — the register map, the
