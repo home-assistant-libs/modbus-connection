@@ -400,6 +400,14 @@ def test_unknown_point_type_is_rejected() -> None:
         generate_source([model])
 
 
+# The models the generator cannot lay out statically today: 707-710 stack
+# several device-sized blocks, so every block after the first has an
+# unknowable address, and 63001 (SunSpec's test model) mixes in-block and
+# fixed-block scale factors on one block. Newly supported or newly failing
+# models both show up as a mismatch here - update the set deliberately.
+KNOWN_UNSUPPORTED_MODELS = {707, 708, 709, 710, 63001}
+
+
 def test_official_model_catalogue_generates_and_imports(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
@@ -438,8 +446,7 @@ def test_official_model_catalogue_generates_and_imports(
         generated.append(model["id"])
 
     assert len(generated) >= 100, (generated, rejected)
-    # The rejections are the documented static-layout limits, a small tail.
-    assert len(rejected) <= len(generated) // 10, rejected
+    assert set(rejected) == KNOWN_UNSUPPORTED_MODELS
 
 
 def test_enum_named_after_label_at_module_level() -> None:
