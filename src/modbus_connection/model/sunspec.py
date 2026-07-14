@@ -607,15 +607,6 @@ class SunSpecComponent(Component):
             )
         super().notify()
 
-    def __repr__(self) -> str:
-        """Return the component's field values."""
-        values = ", ".join(
-            f"{name}={getattr(self, name)!r}"
-            for name in self._register_fields
-            if name not in ("model_id", "model_length")
-        )
-        return f"{type(self).__name__}({values})"
-
 
 async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecModel]]:
     """Walk the SunSpec model chain and return the discovered models by ID.

@@ -238,7 +238,6 @@ async def test_sunspec_component_at_discovered_model() -> None:
     component = _Discovered(unit, model)
     await component.async_update()
     assert component.value == pytest.approx(123.4)  # 1234 * 10**-1
-    assert repr(component) == "_Discovered(value=123.4, value_sf=-1)"
 
 
 async def test_sunspec_component_header_check() -> None:
