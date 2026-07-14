@@ -179,9 +179,7 @@ async def test_scale_in_block_shifts_scale_register_per_instance() -> None:
 
     unit = _unit()
     # count=2 at 4; ch0 value/sf at 0/1, ch1 shifted +2 -> 2/3
-    unit.holding.update(
-        {4: 2, 0: 1234, 1: (-2) & 0xFFFF, 2: 5678, 3: (-1) & 0xFFFF}
-    )
+    unit.holding.update({4: 2, 0: 1234, 1: (-2) & 0xFFFF, 2: 5678, 3: (-1) & 0xFFFF})
     inv = Meter(unit)
     await inv.async_update()
     assert inv.channels[0].a == pytest.approx(12.34)  # 1234 * 10**-2
