@@ -95,7 +95,7 @@ async def test_float_unimplemented_is_none() -> None:
 
 def test_all_factories_build_fields() -> None:
     # Every exported field factory produces a usable RegisterField.
-    discovery = {"SunSpecComponent", "SunSpecError", "SunSpecModel", "discover_models"}
+    discovery = {"SunSpecComponent", "SunSpecError", "SunSpecModel", "scan"}
     for name in set(ss.__all__) - discovery:
         factory = getattr(ss, name)
         field = factory(0, 4) if name == "string" else factory(0)
@@ -177,28 +177,28 @@ def _chain(base: int) -> dict[int, int]:
     }
 
 
-async def test_discover_models() -> None:
+async def test_scan() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    models = await ss.discover_models(unit, 1000)
+    models = await ss.scan(unit, 1000)
     assert models == [
         ss.SunSpecModel(model_id=1, address=1002, length=4),
         ss.SunSpecModel(model_id=103, address=1008, length=2),
     ]
 
 
-async def test_discover_models_no_marker() -> None:
+async def test_scan_no_marker() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({40000: 0, 40001: 0})
     with pytest.raises(ss.SunSpecError, match="No SunSpec marker"):
-        await ss.discover_models(unit, 40000)
+        await ss.scan(unit, 40000)
 
 
-async def test_discover_models_unterminated_chain() -> None:
+async def test_scan_unterminated_chain() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 0x5375, 1: 0x6E53})  # models read as id 0, len 0
     with pytest.raises(ss.SunSpecError, match="not terminated"):
-        await ss.discover_models(unit, 0)
+        await ss.scan(unit, 0)
 
 
 class _Discovered(ss.SunSpecComponent):
@@ -209,7 +209,7 @@ class _Discovered(ss.SunSpecComponent):
 async def test_sunspec_component_at_discovered_model() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.discover_models(unit, 1000)
+    (_, model) = await ss.scan(unit, 1000)
     component = _Discovered(unit, model)
     await component.async_update()
     assert component.value == pytest.approx(123.4)  # 1234 * 10**-1
@@ -219,7 +219,7 @@ async def test_sunspec_component_at_discovered_model() -> None:
 async def test_sunspec_component_header_check() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.discover_models(unit, 1000)
+    (_, model) = await ss.scan(unit, 1000)
     component = _Discovered(unit, model)
     # the map shifts: another model now sits at the old address
     unit.holding[1008] = 111
@@ -232,7 +232,7 @@ async def test_sunspec_component_header_check_in_group() -> None:
 
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.discover_models(unit, 1000)
+    (_, model) = await ss.scan(unit, 1000)
     component = _Discovered(unit, model)
     unit.holding[1009] = 3  # the model's length changed
     with pytest.raises(ss.SunSpecError, match="header mismatch"):

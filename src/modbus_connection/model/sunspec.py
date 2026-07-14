@@ -24,7 +24,7 @@ points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
 to map them to members natively (a value with no member decodes to ``None``,
 warned once).
 
-A SunSpec device advertises which models it implements: :func:`discover_models`
+A SunSpec device advertises which models it implements: :func:`scan`
 walks the model chain at the device's base address and returns where each model
 sits, and :class:`SunSpecComponent` is the base for a component placed at a
 discovered model, verifying the model header on every update.
@@ -61,7 +61,7 @@ __all__ = [
     "bitfield16",
     "bitfield32",
     "bitfield64",
-    "discover_models",
+    "scan",
     "enum16",
     "enum32",
     "eui48",
@@ -617,7 +617,7 @@ class SunSpecComponent(Component):
         return f"{type(self).__name__}({values})"
 
 
-async def discover_models(unit: ModbusUnit, base_address: int) -> list[SunSpecModel]:
+async def scan(unit: ModbusUnit, base_address: int) -> list[SunSpecModel]:
     """Walk the SunSpec model chain and return the discovered models.
 
     ``base_address`` is the 0-based register address of the map's ``"SunS"``

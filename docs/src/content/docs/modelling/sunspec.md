@@ -169,12 +169,12 @@ addresses keep following the model — see
 A SunSpec device advertises which models it implements: a `"SunS"` marker at
 the device's base address, then a chain of models, each a 2-register header
 (model ID, data length) followed by that many data registers, terminated by
-model ID `0xFFFF`. `discover_models` walks the chain:
+model ID `0xFFFF`. `scan` walks the chain:
 
 ```python
-from modbus_connection.model.sunspec import discover_models
+from modbus_connection.model.sunspec import scan
 
-models = await discover_models(unit, 40000)   # -> list[SunSpecModel]
+models = await scan(unit, 40000)   # -> list[SunSpecModel]
 ```
 
 `base_address` is the 0-based address of the marker — the spec sanctions 0,
