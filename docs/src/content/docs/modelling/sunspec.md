@@ -262,8 +262,15 @@ scale-factor references become `scale_register=`, a fixed `sf` becomes a
 static `scale=`, `units` and RW access carry over, and enumerated / bitfield
 points get a nested `IntEnum` / `IntFlag` built from the model's symbols. The
 `ID`/`L` header stays with `SunSpecComponent`'s own `model_id` /
-`model_length`, and `pad` points produce no field. A repeating block becomes
-its own `Component` class plus a `repeating_group` sized by the model's count
-point. The few layouts that cannot be laid out statically — nested repeating
-groups (some 7xx models), or a scale factor inside a repeating block — are
-rejected with an error rather than generated wrong.
+`model_length`, and `pad` points produce no field.
+
+A repeating block — nested ones included — becomes its own `Component` class
+at instance-0 addresses, plus a `repeating_group` on the enclosing class
+whenever the wiring is static: the count is fixed or read from a point of the
+enclosing block, and the block's size doesn't depend on device-read counts.
+Geometry only the device knows — model 705's curves are each sized by the
+device's `NPt`, so their stride isn't in the definition — still gets its
+classes, with a commented-out `repeating_group` line to fill in at runtime
+instead of wiring it wrong. A scale factor inside a repeating block is
+rejected with an error, since `scale_register` addresses never shift per
+instance.

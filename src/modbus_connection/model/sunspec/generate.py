@@ -268,130 +268,223 @@ def _emit_point(
     writer.field_lines.append(f"    {attr} = {call}{label}")
 
 
-def _count_expression(
-    raw_count: Any,
-    fixed_points: list[_Point],
-    module: _ModuleWriter,
-    model_id: int,
-    group_name: str,
-) -> str | None:
-    """The ``repeating_group`` count: a fixed int or a count-point field.
+@dataclass
+class _Group:
+    """One (possibly nested) block of a model, placed at its instance-0 offset."""
 
-    A string count names the point holding the repeat count; ``0`` means the
-    block repeats to fill the model length, which the official models pair
-    with a ``count``-type point in the fixed block — used when it is
-    unambiguous. Returns ``None`` when no count can be determined.
-    """
-    if isinstance(raw_count, str):
-        for point in fixed_points:
-            if point.name == raw_count:
-                module.sunspec_imports.add("uint16")
-                return f"uint16({point.address})"
-        raise SunSpecGenerationError(
-            f"model {model_id}: group {group_name} count references point"
-            f" {raw_count!r}, which is not in the fixed block"
-        )
-    count = int(raw_count)
-    if count > 0:
-        return str(count)
-    count_points = [p for p in fixed_points if p.type == "count"]
-    if len(count_points) == 1:
-        module.sunspec_imports.add("uint16")
-        return f"uint16({count_points[0].address})"
+    name: str
+    raw_count: Any  # int, or the name of the point holding the repeat count
+    points: list[_Point]
+    children: list[_Group]
+    size: int | None  # registers per instance; None when only the device knows
+
+
+def _fixed_count(raw_count: Any) -> int | None:
+    """The statically-known repeat count, or None for a device-sized block."""
+    if isinstance(raw_count, int) and raw_count > 0:
+        return raw_count
     return None
 
 
-def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
-    """Append one model's classes (repeating blocks first) to the module."""
-    model_id = int(model["id"])
-    group = model["group"]
-    module.sources.append(f"json/model_{model_id}.json")
+def _parse_group(
+    raw: Mapping[str, Any], start: int, model_id: int, *, top: bool = False
+) -> _Group:
+    """Recursively place a block's points and nested blocks from ``start``.
 
-    fixed_points = _parse_points(group.get("points", []), 0)
-    # ID and L are the model header; SunSpecComponent already declares them
-    # (model_id / model_length at 0 and 1), so they are parsed for the address
-    # walk but not emitted.
-    data_points = [p for p in fixed_points if p.name not in ("ID", "L")]
-    scale_addresses = {p.name: p.address for p in fixed_points if p.type == "sunssf"}
-
-    label = group.get("label") or group.get("name") or ""
-    class_name = f"Model{model_id}"
-    writer = _ClassWriter(
-        class_name, "SunSpecComponent", f"SunSpec model {model_id}: {label}."
-    )
-    module.sunspec_imports.add("SunSpecComponent")
-
-    offset = fixed_points[-1].address + fixed_points[-1].size if fixed_points else 0
-    group_lines: list[str] = []
-    subgroups = group.get("groups", [])
-    for position, subgroup in enumerate(subgroups):
-        if subgroup.get("groups"):
-            raise SunSpecGenerationError(
-                f"model {model_id}: group {subgroup.get('name')!r} contains"
-                " nested groups, which cannot be laid out statically"
-            )
-        points = _parse_points(subgroup.get("points", []), offset)
-        stride = sum(p.size for p in points)
-        group_scales = dict(scale_addresses)
+    Sizes propagate bottom-up: a block sized by a device-read count has no
+    static size, and neither does any block containing one, so nothing may
+    follow such a block at any level.
+    """
+    points = _parse_points(raw.get("points", []), start)
+    if not top:
         for point in points:
             if point.type == "sunssf":
                 # A scale factor inside the block would shift per instance,
                 # which scale_register addresses never do (they follow the
                 # shared fixed block) - no static layout can express it.
                 raise SunSpecGenerationError(
-                    f"model {model_id}: group {subgroup['name']} defines scale"
+                    f"model {model_id}: group {raw['name']} defines scale"
                     f" factor {point.name} inside the repeating block"
                 )
-        group_class = f"{class_name}{_camel(subgroup['name'])}"
-        group_writer = _ClassWriter(
-            group_class,
-            "Component",
-            f"One {subgroup['name']!r} block of SunSpec model {model_id}.",
-        )
-        module.model_imports.add("Component")
-        for point in points:
-            if point.type == "pad":
-                continue
-            _emit_point(point, group_writer, module, group_scales, model_id)
-        module.classes.append(group_writer.render())
-
-        attr = writer.attr_name(subgroup["name"])
-        count_expr = _count_expression(
-            subgroup.get("count", 1),
-            fixed_points,
-            module,
-            model_id,
-            subgroup["name"],
-        )
-        if count_expr is None:
-            group_lines.append(
-                f"    # {subgroup['name']!r} repeats to fill the model length"
-                " and defines no count point; size it from the scanned"
-                " model.length:"
-            )
-            group_lines.append(
-                f"    # {attr} = repeating_group(N, {group_class}, stride={stride})"
-            )
-        else:
-            module.model_imports.add("repeating_group")
-            group_lines.append(
-                f"    {attr} = repeating_group({count_expr}, {group_class},"
-                f" stride={stride})"
-            )
-        if isinstance(subgroup.get("count", 1), int) and subgroup.get("count", 1) > 0:
-            offset += int(subgroup["count"]) * stride
-        elif position != len(subgroups) - 1:
+    offset = start + sum(p.size for p in points)
+    children: list[_Group] = []
+    size: int | None = offset - start
+    for sub in raw.get("groups", []):
+        if size is None:
             raise SunSpecGenerationError(
-                f"model {model_id}: group {subgroup['name']!r} has a dynamic"
-                " count but is not the last group, so later addresses are"
-                " unknown"
+                f"model {model_id}: group {children[-1].name!r} has a"
+                " device-dependent size but is not the last block, so later"
+                " addresses are unknown"
             )
+        child = _parse_group(sub, offset, model_id)
+        children.append(child)
+        count = _fixed_count(child.raw_count)
+        if count is not None and child.size is not None:
+            offset += count * child.size
+            size = offset - start
+        else:
+            size = None
+    return _Group(raw.get("name", ""), raw.get("count", 1), points, children, size)
 
+
+def _count_expression(
+    raw_count: Any,
+    scopes: list[_Group],
+    module: _ModuleWriter,
+    model_id: int,
+    group_name: str,
+) -> str | None:
+    """The ``repeating_group`` count: a fixed int or a count-point field.
+
+    A string count names the point holding the repeat count; it wires
+    statically only when that point sits in the enclosing block itself
+    (``scopes[-1]``) — a count register anywhere else would shift with the
+    wrong instance. ``0`` means the block repeats to fill the model length,
+    which the official models pair with a ``count``-type point in the
+    enclosing block — used when it is unambiguous. Returns ``None`` when the
+    count must be supplied at runtime.
+    """
+    if isinstance(raw_count, str):
+        for point in scopes[-1].points:
+            if point.name == raw_count:
+                module.sunspec_imports.add("uint16")
+                return f"uint16({point.address})"
+        if any(point.name == raw_count for scope in scopes for point in scope.points):
+            return None
+        raise SunSpecGenerationError(
+            f"model {model_id}: group {group_name} count references point"
+            f" {raw_count!r}, which is not defined in the model"
+        )
+    count = int(raw_count)
+    if count > 0:
+        return str(count)
+    count_points = [p for p in scopes[-1].points if p.type == "count"]
+    if len(count_points) == 1:
+        module.sunspec_imports.add("uint16")
+        return f"uint16({count_points[0].address})"
+    return None
+
+
+def _wire_child(
+    child: _Group,
+    child_class: str,
+    scopes: list[_Group],
+    writer: _ClassWriter,
+    module: _ModuleWriter,
+    model_id: int,
+) -> list[str]:
+    """Wire one nested block on its parent: a ``repeating_group`` or a hint.
+
+    The wiring is static only when both halves are: the count (see
+    :func:`_count_expression`) and the stride — a block whose size depends on
+    a device-read count cannot be placed at class-definition time, so it gets
+    a commented-out line to fill in at runtime instead.
+    """
+    attr = writer.attr_name(child.name)
+    count_expr = _count_expression(
+        child.raw_count, scopes, module, model_id, child.name
+    )
+    if count_expr is not None and child.size:
+        module.model_imports.add("repeating_group")
+        return [
+            f"    {attr} = repeating_group({count_expr}, {child_class},"
+            f" stride={child.size})"
+        ]
+    lines = []
+    if count_expr is None and isinstance(child.raw_count, str):
+        lines.append(
+            f"    # {child.name!r} is sized by {child.raw_count!r}, which"
+            " lives outside this"
+        )
+        lines.append(
+            "    # block and would shift with the wrong instance; wire it"
+            " with the value"
+        )
+        lines.append("    # read from the device:")
+    elif count_expr is None:
+        lines.append(
+            f"    # {child.name!r} repeats to fill the model length and"
+            " defines no count"
+        )
+        lines.append("    # point; size it from the scanned model.length:")
+    else:
+        lines.append(
+            f"    # {child.name!r} has a device-dependent size, so its stride"
+            " (and anything"
+        )
+        lines.append(
+            "    # behind it) is only known at runtime; place it with the sizes read"
+        )
+        lines.append("    # from the device:")
+    stride = child.size if child.size else "<...>"
+    lines.append(
+        f"    # {attr} = repeating_group({count_expr or 'N'}, {child_class},"
+        f" stride={stride})"
+    )
+    return lines
+
+
+def _emit_group_class(
+    group: _Group,
+    prefix: str,
+    module: _ModuleWriter,
+    scale_addresses: Mapping[str, int],
+    model_id: int,
+    scopes: list[_Group],
+) -> str:
+    """Emit one block's ``Component`` class (children first); return its name."""
+    class_name = f"{prefix}{_camel(group.name)}"
+    writer = _ClassWriter(
+        class_name,
+        "Component",
+        f"One {group.name!r} block of SunSpec model {model_id}.",
+    )
+    module.model_imports.add("Component")
+    wiring: list[str] = []
+    for child in group.children:
+        child_class = _emit_group_class(
+            child, class_name, module, scale_addresses, model_id, [*scopes, group]
+        )
+        wiring.extend(
+            _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
+        )
+    for point in group.points:
+        if point.type != "pad":
+            _emit_point(point, writer, module, scale_addresses, model_id)
+    writer.field_lines.extend(wiring)
+    module.classes.append(writer.render())
+    return class_name
+
+
+def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
+    """Append one model's classes (innermost blocks first) to the module."""
+    model_id = int(model["id"])
+    module.sources.append(f"json/model_{model_id}.json")
+
+    top = _parse_group(model["group"], 0, model_id, top=True)
+    # ID and L are the model header; SunSpecComponent already declares them
+    # (model_id / model_length at 0 and 1), so they are parsed for the address
+    # walk but not emitted.
+    data_points = [p for p in top.points if p.name not in ("ID", "L")]
+    scale_addresses = {p.name: p.address for p in top.points if p.type == "sunssf"}
+
+    label = model["group"].get("label") or top.name
+    class_name = f"Model{model_id}"
+    writer = _ClassWriter(
+        class_name, "SunSpecComponent", f"SunSpec model {model_id}: {label}."
+    )
+    module.sunspec_imports.add("SunSpecComponent")
+
+    wiring: list[str] = []
+    for child in top.children:
+        child_class = _emit_group_class(
+            child, class_name, module, scale_addresses, model_id, [top]
+        )
+        wiring.extend(_wire_child(child, child_class, [top], writer, module, model_id))
     for point in data_points:
-        if point.type == "pad":
-            continue
-        _emit_point(point, writer, module, scale_addresses, model_id)
-    writer.field_lines.extend(group_lines)
+        if point.type != "pad":
+            _emit_point(point, writer, module, scale_addresses, model_id)
+    writer.field_lines.extend(wiring)
     module.classes.append(writer.render())
 
 

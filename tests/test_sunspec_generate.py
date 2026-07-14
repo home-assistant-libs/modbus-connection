@@ -191,10 +191,122 @@ def test_fixed_count_folds_into_layout() -> None:
     assert "module = repeating_group(3, Model64111Module, stride=3)" in source
 
 
-def test_nested_groups_are_rejected() -> None:
+def test_nested_fixed_count_group_wires_statically() -> None:
     model = copy.deepcopy(MODEL_JSON)
-    model["group"]["groups"][0]["groups"] = [{"name": "inner", "points": []}]
-    with pytest.raises(SunSpecGenerationError, match="nested groups"):
+    model["group"]["groups"][0]["groups"] = [
+        {
+            "name": "chan",
+            "count": 2,
+            "points": [{"name": "Val", "type": "uint16", "size": 1}],
+        }
+    ]
+    source = generate_source([model])
+    # The nested block folds into the layout: its class sits at instance-0
+    # addresses and the enclosing stride grows by count * size.
+    assert "class Model64111ModuleChan(Component):" in source
+    assert "val = uint16(17)" in source
+    assert "chan = repeating_group(2, Model64111ModuleChan, stride=1)" in source
+    assert "module = repeating_group(uint16(11), Model64111Module, stride=5)" in source
+
+
+async def test_nested_fixed_count_group_decodes() -> None:
+    model = copy.deepcopy(MODEL_JSON)
+    model["group"]["groups"][0]["groups"] = [
+        {
+            "name": "chan",
+            "count": 2,
+            "points": [{"name": "Val", "type": "uint16", "size": 1}],
+        }
+    ]
+    namespace: dict[str, Any] = {}
+    exec(  # noqa: S102
+        compile(generate_source([model]), "<generated>", "exec"), namespace
+    )
+    base = 100
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(
+        {
+            base: 64111,
+            base + 1: 22,  # 12 fixed + 2 modules * (3 + 2 * 1)
+            base + 3: (-2) & 0xFFFF,  # A_SF
+            base + 11: 2,  # N = 2 modules
+            # module[0] at base+14, module[1] at base+19 (stride 5)
+            base + 14: 100,
+            base + 17: 11,
+            base + 18: 12,
+            base + 19: 200,
+            base + 22: 21,
+            base + 23: 22,
+        }
+    )
+    component = namespace["Model64111"](
+        unit, SunSpecModel(model_id=64111, address=base, length=22)
+    )
+    await component.async_update()
+    modules = component.module
+    assert [m.v for m in modules] == [pytest.approx(1.0), pytest.approx(2.0)]
+    assert [c.val for c in modules[0].chan] == [11, 12]
+    assert [c.val for c in modules[1].chan] == [21, 22]
+
+
+NESTED_MODEL_JSON: dict[str, Any] = {
+    # The 7xx shape (e.g. model 705): device-sized curves of device-sized
+    # points, both counts in the top block.
+    "id": 64222,
+    "group": {
+        "label": "Curves",
+        "name": "curves",
+        "points": [
+            {"name": "ID", "type": "uint16", "size": 1},
+            {"name": "L", "type": "uint16", "size": 1},
+            {"name": "NPt", "type": "uint16", "size": 1},
+            {"name": "NCrv", "type": "uint16", "size": 1},
+        ],
+        "groups": [
+            {
+                "name": "crv",
+                "count": "NCrv",
+                "points": [{"name": "ActPt", "type": "uint16", "size": 1}],
+                "groups": [
+                    {
+                        "name": "pt",
+                        "count": "NPt",
+                        "points": [{"name": "V", "type": "uint16", "size": 1}],
+                    }
+                ],
+            }
+        ],
+    },
+}
+
+
+def test_device_sized_nested_blocks_generate_classes_and_hints() -> None:
+    source = generate_source([NESTED_MODEL_JSON])
+    # Classes for every level, at instance-0 addresses.
+    assert "class Model64222CrvPt(Component):" in source
+    assert "v = uint16(5)" in source
+    assert "class Model64222Crv(Component):" in source
+    assert "act_pt = uint16(4)" in source
+    # The inner count lives in the top block, so it cannot be wired (it would
+    # shift with the curve instance); the stride is known.
+    assert "# pt = repeating_group(N, Model64222CrvPt, stride=1)" in source
+    # The outer count wires, but the stride depends on the device's NPt.
+    assert "# crv = repeating_group(uint16(3), Model64222Crv, stride=<...>)" in source
+
+
+def test_device_sized_block_must_be_last() -> None:
+    model = copy.deepcopy(NESTED_MODEL_JSON)
+    model["group"]["groups"].append(
+        {"name": "after", "points": [{"name": "X", "type": "uint16", "size": 1}]}
+    )
+    with pytest.raises(SunSpecGenerationError, match="not the last block"):
+        generate_source([model])
+
+
+def test_unknown_count_reference_is_rejected() -> None:
+    model = copy.deepcopy(MODEL_JSON)
+    model["group"]["groups"][0]["count"] = "Nope"
+    with pytest.raises(SunSpecGenerationError, match="not defined in the model"):
         generate_source([model])
 
 
