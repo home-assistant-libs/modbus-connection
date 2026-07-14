@@ -304,7 +304,7 @@ class NumberField[T](_ScaledField[T]):
             _LOGGER.warning(
                 "Field %r: %s has no mapping for value %d; decoding as None",
                 self.name,
-                getattr(convert, "__name__", repr(convert)),
+                getattr(convert, "__name__", type(convert).__name__),
                 raw,
             )
         return None
