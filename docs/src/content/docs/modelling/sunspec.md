@@ -250,7 +250,7 @@ class InverterThreePhase(SunSpecComponent):
 
     a = uint16(2, scale_register=6, unit='A')
     """Amps. AC Current."""
-    ...
+
     st = enum16(38, OperatingState)
     """Operating State."""
 ```

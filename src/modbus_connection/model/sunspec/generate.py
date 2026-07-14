@@ -179,6 +179,12 @@ class _ClassWriter:
         self._attrs.add(attr)
         return attr
 
+    def add_field(self, lines: list[str]) -> None:
+        """Append one field block, blank-line separated from the previous."""
+        if self.field_lines:
+            self.field_lines.append("")
+        self.field_lines.extend(lines)
+
     def render(self) -> str:
         lines = [f"class {self.name}({self.base}):", f'    """{self.docstring}"""']
         if self.field_lines:
@@ -337,8 +343,7 @@ def _emit_point(
         )
     module.sunspec_imports.add(factory)
     call = f"{factory}({', '.join(args + kwargs)})"
-    writer.field_lines.append(f"    {attr} = {call}")
-    writer.field_lines.extend(_attr_docstring(point))
+    writer.add_field([f"    {attr} = {call}", *_attr_docstring(point)])
 
 
 def _emitted(point: _Point, referenced_sf: frozenset[str]) -> bool:
@@ -566,7 +571,7 @@ def _emit_group_class(
         f"One {group.name!r} block of SunSpec model {model_id}.",
     )
     module.model_imports.add("Component")
-    wiring: list[str] = []
+    wiring: list[list[str]] = []
     for child in group.children:
         child_class = _emit_group_class(
             child,
@@ -577,18 +582,19 @@ def _emit_group_class(
             [*scopes, group],
             referenced_sf,
         )
-        wiring.extend(
+        wiring.append(
             _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
         )
     scale_addresses, scale_in_block = _block_scales(group, top_scales, model_id, scopes)
     if scale_in_block:
-        writer.field_lines.append(
-            "    scale_in_block = True  # each instance carries its own scale factors"
+        writer.add_field(
+            ["    scale_in_block = True  # each instance carries its own scale factors"]
         )
     for point in group.points:
         if _emitted(point, referenced_sf):
             _emit_point(point, writer, module, scale_addresses, model_id)
-    writer.field_lines.extend(wiring)
+    for block in wiring:
+        writer.add_field(block)
     module.classes.append(writer.render())
     return class_name
 
@@ -615,16 +621,17 @@ def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
     module.sunspec_imports.add("SunSpecComponent")
 
     referenced_sf = frozenset(_referenced_scale_factors(top))
-    wiring: list[str] = []
+    wiring: list[list[str]] = []
     for child in top.children:
         child_class = _emit_group_class(
             child, class_name, module, scale_addresses, model_id, [top], referenced_sf
         )
-        wiring.extend(_wire_child(child, child_class, [top], writer, module, model_id))
+        wiring.append(_wire_child(child, child_class, [top], writer, module, model_id))
     for point in data_points:
         if _emitted(point, referenced_sf):
             _emit_point(point, writer, module, scale_addresses, model_id)
-    writer.field_lines.extend(wiring)
+    for block in wiring:
+        writer.add_field(block)
     module.classes.append(writer.render())
 
 
