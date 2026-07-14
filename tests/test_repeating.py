@@ -294,6 +294,79 @@ async def test_dynamic_group_refreshed_by_component_group() -> None:
     assert meter.power == 7
 
 
+async def test_nested_static_in_static() -> None:
+    # A fixed-count group whose instance itself has a fixed-count group: both
+    # levels fold into the parent's read plan, no second pass at all.
+    class Inner(Component):
+        leaves = repeating_group(2, Module, stride=2)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=20)
+
+    unit = _unit()
+    # outer 0 at +0: leaves at 11/13 ; outer 1 at +20: leaves at 31/33
+    unit.holding.update({11: 1, 13: 2, 31: 3, 33: 4})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3, 4]]
+
+
+async def test_nested_dynamic_in_static() -> None:
+    # A fixed-count group whose instance has a register-count group: the inner
+    # count is read in the parent's first pass, then the fixed-count instances'
+    # second pass sizes and reads the nested register-count groups.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=100)
+
+    unit = _unit()
+    # inner 0 at +0: count 5 = 2 -> leaves at 11/31 ; inner 1 at +100: count 105 = 1
+    unit.holding.update({5: 2, 11: 1, 31: 2, 105: 1, 111: 3})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3]]
+
+
+async def test_nested_dynamic_in_dynamic() -> None:
+    # A register-count group whose instance also has a register-count group:
+    # each level adds a read pass, the outer count sizing the middle instances
+    # whose counts then size the leaves.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20)
+
+    class Outer(Component):
+        groups = repeating_group(uint16(0), Inner, stride=100)
+
+    unit = _unit()
+    # outer count 0 = 2 ; inner 0 count 5 = 2 -> leaves 11/31 ; inner 1 count 105 = 1
+    unit.holding.update({0: 2, 5: 2, 11: 1, 31: 2, 105: 1, 111: 3})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3]]
+
+
+async def test_nested_dynamic_refreshes_on_recount() -> None:
+    # The nested register-count group re-sizes on later polls, inside a
+    # fixed-count parent instance.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20)
+
+    class Outer(Component):
+        groups = repeating_group(1, Inner, stride=100)
+
+    unit = _unit()
+    unit.holding.update({5: 1, 11: 1})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [m.w for m in outer.groups[0].leaves] == [1]
+
+    unit.holding.update({5: 2, 31: 2})  # device now reports two nested leaves
+    await outer.async_update()
+    assert [m.w for m in outer.groups[0].leaves] == [1, 2]
+
+
 def test_factory_validates() -> None:
     with pytest.raises(ValueError, match="stride must be > 0"):
         repeating_group(uint16(8), Module, stride=0)
