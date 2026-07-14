@@ -32,13 +32,11 @@ discovered model, verifying the model header on every update.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import IntEnum, IntFlag
-from typing import TYPE_CHECKING, Any, Final, overload
+from typing import TYPE_CHECKING, Any, overload
 
-from ..decode import decode_uint32
-from .component import Component
-from .fields import (
+from ..component import Component
+from ..fields import (
     Eui48Field,
     FloatField,
     IPv4Field,
@@ -47,9 +45,11 @@ from .fields import (
     StringField,
     WriteValidator,
 )
+from .errors import SunSpecError, SunSpecMapShiftError
+from .scan import SunSpecModel, scan
 
 if TYPE_CHECKING:
-    from .._protocol import ModbusUnit
+    from ..._protocol import ModbusUnit
 
 __all__ = [
     "SunSpecComponent",
@@ -550,38 +550,7 @@ def eui48(address: int, *, stride: int = 0) -> Eui48Field:
     return Eui48Field(address, count=3, stride=stride)
 
 
-# -- model discovery -----------------------------------------------------------
-
-_SUNSPEC_MARKER: Final = 0x53756E53  # "SunS"
-_END_MODEL_ID: Final = 0xFFFF
-# Sanity limit against malformed maps sending the chain walk astray.
-_MAX_MODELS: Final = 100
-
-
-class SunSpecError(Exception):
-    """Raised when a device does not behave like a SunSpec device."""
-
-
-class SunSpecMapShiftError(SunSpecError):
-    """The model header no longer matches its discovered location.
-
-    The device shifted its register map - a configuration change resized a
-    model - so every component built from the old scan reads stale
-    addresses. Re-scan and build new components.
-    """
-
-
-@dataclass(frozen=True)
-class SunSpecModel:
-    """Location of a SunSpec model in the register map.
-
-    ``address`` points at the 2-register model header (model ID, length);
-    ``length`` is the number of data registers following the header.
-    """
-
-    model_id: int
-    address: int
-    length: int
+# -- components at discovered models --------------------------------------------
 
 
 class SunSpecComponent(Component):
@@ -616,32 +585,3 @@ class SunSpecComponent(Component):
                 " - the register map has changed"
             )
         super().notify()
-
-
-async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecModel]]:
-    """Walk the SunSpec model chain and return the discovered models by ID.
-
-    ``base_address`` is the 0-based register address of the map's ``"SunS"``
-    marker - the SunSpec spec sanctions 0, 40000 and 50000, and an
-    integration knows which one its manufacturer uses. Raises
-    :class:`SunSpecError` when the marker is missing or the chain doesn't
-    terminate.
-
-    The same model ID can occur more than once in a chain (e.g. several
-    meters), so each ID maps to its occurrences in chain order.
-    """
-    marker = await unit.read_holding_registers(base_address, 2)
-    if decode_uint32(marker) != _SUNSPEC_MARKER:
-        raise SunSpecError(f"No SunSpec marker found at register {base_address}")
-
-    models: dict[int, list[SunSpecModel]] = {}
-    address = base_address + 2
-    for _ in range(_MAX_MODELS):
-        model_id, length = await unit.read_holding_registers(address, 2)
-        if model_id == _END_MODEL_ID:
-            return models
-        models.setdefault(model_id, []).append(
-            SunSpecModel(model_id=model_id, address=address, length=length)
-        )
-        address += 2 + length
-    raise SunSpecError(f"Model chain not terminated after {_MAX_MODELS} models")
