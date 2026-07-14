@@ -23,14 +23,20 @@ Word order is big-endian throughout, per the SunSpec spec. Enum and bitfield
 points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
 to map them to members natively (a value with no member decodes to ``None``,
 warned once).
+
+A SunSpec device advertises which models it implements: :func:`scan`
+walks the model chain at the device's base address and returns where each model
+sits, and :class:`SunSpecComponent` is the base for a component placed at a
+discovered model, verifying the model header on every update.
 """
 
 from __future__ import annotations
 
 from enum import IntEnum, IntFlag
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
-from .fields import (
+from ..component import Component
+from ..fields import (
     Eui48Field,
     FloatField,
     IPv4Field,
@@ -39,14 +45,24 @@ from .fields import (
     StringField,
     WriteValidator,
 )
+from .errors import SunSpecError, SunSpecMapShiftError
+from .scan import SunSpecModel, scan
+
+if TYPE_CHECKING:
+    from ..._protocol import ModbusUnit
 
 __all__ = [
+    "SunSpecComponent",
+    "SunSpecError",
+    "SunSpecMapShiftError",
+    "SunSpecModel",
     "acc16",
     "acc32",
     "acc64",
     "bitfield16",
     "bitfield32",
     "bitfield64",
+    "scan",
     "enum16",
     "enum32",
     "eui48",
@@ -532,3 +548,40 @@ def ipv6addr(address: int, *, stride: int = 0) -> IPv6Field:
 def eui48(address: int, *, stride: int = 0) -> Eui48Field:
     """An EUI-48 / MAC address over three registers."""
     return Eui48Field(address, count=3, stride=stride)
+
+
+# -- components at discovered models --------------------------------------------
+
+
+class SunSpecComponent(Component):
+    """A discovered SunSpec model, placed at its address and header-checked.
+
+    Subclasses declare their fields relative to the model start: the
+    2-register header sits at 0/1, the data block starts at 2. The header is
+    verified against the discovered model on every update, own or pooled
+    through a ``ComponentGroup`` - devices shift the register map when a
+    configuration change resizes a model, and a mismatch raises
+    :class:`SunSpecMapShiftError` so the owner can re-scan.
+    """
+
+    model_id = uint16(0)
+    model_length = uint16(1)
+
+    def __init__(self, unit: ModbusUnit, model: SunSpecModel) -> None:
+        """Initialize the component at the discovered model's address."""
+        super().__init__(unit, base_offset=model.address)
+        self._model = model
+
+    def notify(self) -> None:
+        """Verify the read-back model header, then fire the update listeners."""
+        if (
+            self.model_id != self._model.model_id
+            or self.model_length != self._model.length
+        ):
+            raise SunSpecMapShiftError(
+                f"{type(self).__name__} header mismatch:"
+                f" expected {self._model.model_id}/{self._model.length},"
+                f" read {self.model_id}/{self.model_length}"
+                " - the register map has changed"
+            )
+        super().notify()

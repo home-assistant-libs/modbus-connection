@@ -164,22 +164,47 @@ addresses keep following the model — see
 [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story on
 `base_offset`, `stride`, and `index`.
 
-## Models at discovered addresses
+## Model discovery
 
-SunSpec models are found by walking the model chain, so their addresses are
-only known at runtime — and can even shift when a device setting changes the
-register map. Declare the model relative to its start (address 0) and place it
-with `base_offset`; every address moves with it, including `scale_register`
-addresses and any `repeating_group`:
+A SunSpec device advertises which models it implements: a `"SunS"` marker at
+the device's base address, then a chain of models, each a 2-register header
+(model ID, data length) followed by that many data registers, terminated by
+model ID `0xFFFF`. `scan` walks the chain:
 
 ```python
-class Inverter(Component):              # SunSpec model 103, relative layout
-    a = uint16(0, scale_register=4)     # AC current, scaled by A_SF at +4
-    a_sf = sunssf(4)
+from modbus_connection.model.sunspec import scan
 
-model_address = ...                     # from walking the model chain
-inv = Inverter(unit, base_offset=model_address + 2)  # data follows the header
+models = await scan(unit, 40000)   # -> dict[int, list[SunSpecModel]]
 ```
 
-The read plan is cached per instance, so when the map shifts, re-discover and
-build a new component with the new `base_offset`.
+`base_address` is the 0-based address of the marker — the spec sanctions 0,
+40000 and 50000, and an integration knows which one its manufacturer uses.
+The result maps each model ID to its occurrences in chain order: the same ID
+can appear more than once (e.g. several meters), and vendor models
+(ID ≥ 64000) appear like any other. Each `SunSpecModel` carries `model_id`,
+`address` (of the header) and `length`.
+
+## Components at discovered models
+
+`SunSpecComponent` is the base for a component placed at a discovered model.
+Declare its fields relative to the model start — the header sits at 0/1, the
+data block starts at 2 — and construct it with the discovered model:
+
+```python
+from modbus_connection.model.sunspec import SunSpecComponent, sunssf, uint16
+
+class Inverter(SunSpecComponent):       # SunSpec model 103, relative layout
+    a = uint16(2, scale_register=6)     # AC current, scaled by A_SF at data+4
+    a_sf = sunssf(6)
+
+if (found := models.get(103)) is not None:
+    inv = Inverter(unit, found[0])
+```
+
+`base_offset` places every address, including `scale_register` and any
+`repeating_group`. The model header is verified on every update — own or
+pooled through a `ComponentGroup` — because devices shift the register map
+when a configuration change resizes a model; a mismatch raises
+`SunSpecMapShiftError` (a `SunSpecError`), and the owner recovers by
+re-scanning and building new components at the new addresses (the read plan
+is cached per instance).
