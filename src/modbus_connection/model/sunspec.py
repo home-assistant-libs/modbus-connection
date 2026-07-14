@@ -23,13 +23,21 @@ Word order is big-endian throughout, per the SunSpec spec. Enum and bitfield
 points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
 to map them to members natively (a value with no member decodes to ``None``,
 warned once).
+
+A SunSpec device advertises which models it implements: :func:`discover_models`
+walks the model chain at the device's base address and returns where each model
+sits, and :class:`SunSpecComponent` is the base for a component placed at a
+discovered model, verifying the model header on every update.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import IntEnum, IntFlag
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, Final, overload
 
+from ..decode import decode_uint32
+from .component import Component
 from .fields import (
     Eui48Field,
     FloatField,
@@ -40,13 +48,20 @@ from .fields import (
     WriteValidator,
 )
 
+if TYPE_CHECKING:
+    from .._protocol import ModbusUnit
+
 __all__ = [
+    "SunSpecComponent",
+    "SunSpecError",
+    "SunSpecModel",
     "acc16",
     "acc32",
     "acc64",
     "bitfield16",
     "bitfield32",
     "bitfield64",
+    "discover_models",
     "enum16",
     "enum32",
     "eui48",
@@ -532,3 +547,95 @@ def ipv6addr(address: int, *, stride: int = 0) -> IPv6Field:
 def eui48(address: int, *, stride: int = 0) -> Eui48Field:
     """An EUI-48 / MAC address over three registers."""
     return Eui48Field(address, count=3, stride=stride)
+
+
+# -- model discovery -----------------------------------------------------------
+
+_SUNSPEC_MARKER: Final = 0x53756E53  # "SunS"
+_END_MODEL_ID: Final = 0xFFFF
+# Sanity limit against malformed maps sending the chain walk astray.
+_MAX_MODELS: Final = 100
+
+
+class SunSpecError(Exception):
+    """Raised when a device does not behave like a SunSpec device."""
+
+
+@dataclass(frozen=True)
+class SunSpecModel:
+    """Location of a SunSpec model in the register map.
+
+    ``address`` points at the 2-register model header (model ID, length);
+    ``length`` is the number of data registers following the header.
+    """
+
+    model_id: int
+    address: int
+    length: int
+
+
+class SunSpecComponent(Component):
+    """A discovered SunSpec model, placed at its address and header-checked.
+
+    Subclasses declare their fields relative to the model start: the
+    2-register header sits at 0/1, the data block starts at 2. The header is
+    verified against the discovered model on every update, own or pooled
+    through a ``ComponentGroup`` - devices shift the register map when a
+    configuration change resizes a model, and a mismatch raises
+    :class:`SunSpecError` so the owner can re-discover.
+    """
+
+    model_id = uint16(0)
+    model_length = uint16(1)
+
+    def __init__(self, unit: ModbusUnit, model: SunSpecModel) -> None:
+        """Initialize the component at the discovered model's address."""
+        super().__init__(unit, base_offset=model.address)
+        self._model = model
+
+    def notify(self) -> None:
+        """Verify the read-back model header, then fire the update listeners."""
+        if (
+            self.model_id != self._model.model_id
+            or self.model_length != self._model.length
+        ):
+            raise SunSpecError(
+                f"{type(self).__name__} header mismatch:"
+                f" expected {self._model.model_id}/{self._model.length},"
+                f" read {self.model_id}/{self.model_length}"
+                " - the register map has changed"
+            )
+        super().notify()
+
+    def __repr__(self) -> str:
+        """Return the component's field values."""
+        values = ", ".join(
+            f"{name}={getattr(self, name)!r}"
+            for name in self._register_fields
+            if name not in ("model_id", "model_length")
+        )
+        return f"{type(self).__name__}({values})"
+
+
+async def discover_models(unit: ModbusUnit, base_address: int) -> list[SunSpecModel]:
+    """Walk the SunSpec model chain and return the discovered models.
+
+    ``base_address`` is the 0-based register address of the map's ``"SunS"``
+    marker - the SunSpec spec sanctions 0, 40000 and 50000, and an
+    integration knows which one its manufacturer uses. Raises
+    :class:`SunSpecError` when the marker is missing or the chain doesn't
+    terminate.
+    """
+    marker = await unit.read_holding_registers(base_address, 2)
+    if decode_uint32(marker) != _SUNSPEC_MARKER:
+        raise SunSpecError(f"No SunSpec marker found at register {base_address}")
+
+    models: list[SunSpecModel] = []
+    address = base_address + 2
+    for _ in range(_MAX_MODELS):
+        model_id, length = await unit.read_holding_registers(address, 2)
+        if model_id == _END_MODEL_ID:
+            return models
+        models.append(SunSpecModel(model_id=model_id, address=address, length=length))
+        address += 2 + length
+    raise SunSpecError(f"Model chain not terminated after {_MAX_MODELS} models")
