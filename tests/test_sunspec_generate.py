@@ -159,8 +159,8 @@ async def test_generated_module_decodes() -> None:
     assert component.offs == pytest.approx(2.5)
     assert component.da == 7
     assert component.mn == "AB"
-    assert component.st == model_cls.St.ON
-    assert component.evt == model_cls.Evt.FAULT | model_cls.Evt.WARN
+    assert component.st == namespace["St"].ON
+    assert component.evt == namespace["Evt"].FAULT | namespace["Evt"].WARN
     assert component.n == 2
     assert component.wh == pytest.approx(1000.0)
 
@@ -440,3 +440,33 @@ def test_official_model_catalogue_generates_and_imports(
     assert len(generated) >= 100, (generated, rejected)
     # The rejections are the documented static-layout limits, a small tail.
     assert len(rejected) <= len(generated) // 10, rejected
+
+
+def test_enum_named_after_label_at_module_level() -> None:
+    model = copy.deepcopy(MODEL_JSON)
+    st = next(p for p in model["group"]["points"] if p["name"] == "St")
+    st["label"] = "Operating State"
+    source = generate_source([model])
+    assert "class OperatingState(IntEnum):" in source
+    assert "st = enum16(9, OperatingState)  # Operating State" in source
+
+
+def test_identical_enums_are_shared_across_models() -> None:
+    first = copy.deepcopy(MODEL_JSON)
+    second = copy.deepcopy(MODEL_JSON)
+    second["id"] = 64112
+    source = generate_source([first, second])
+    assert source.count("class St(IntEnum):") == 1
+    assert "st = enum16(9, St)" in source  # both models reference the one enum
+
+
+def test_conflicting_enum_names_get_owner_prefix() -> None:
+    first = copy.deepcopy(MODEL_JSON)
+    second = copy.deepcopy(MODEL_JSON)
+    second["id"] = 64112
+    st = next(p for p in second["group"]["points"] if p["name"] == "St")
+    st["symbols"] = [{"name": "IDLE", "value": 9}]
+    source = generate_source([first, second])
+    assert source.count("class St(IntEnum):") == 1
+    assert "class Test64112St(IntEnum):" in source
+    assert "st = enum16(9, Test64112St)" in source

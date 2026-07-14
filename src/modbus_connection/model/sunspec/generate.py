@@ -137,7 +137,6 @@ class _ClassWriter:
         self.name = name
         self.base = base
         self.docstring = docstring
-        self.enum_lines: list[str] = []
         self.field_lines: list[str] = []
         self._attrs: set[str] = set()
 
@@ -151,13 +150,10 @@ class _ClassWriter:
 
     def render(self) -> str:
         lines = [f"class {self.name}({self.base}):", f'    """{self.docstring}"""']
-        for block in (self.enum_lines, self.field_lines):
-            while block and not block[-1]:
-                block.pop()
-            if block:
-                lines.append("")
-                lines.extend(block)
-        if not self.enum_lines and not self.field_lines:
+        if self.field_lines:
+            lines.append("")
+            lines.extend(self.field_lines)
+        else:
             lines.append("")
             lines.append("    # This model defines no points beyond the header.")
         return "\n".join(lines)
@@ -173,6 +169,42 @@ class _ModuleWriter:
         self.classes: list[str] = []
         self.sources: list[str] = []
         self.class_names: set[str] = set()
+        self.enums: dict[str, tuple[str, tuple[tuple[str, int], ...]]] = {}
+        self.enum_classes: list[str] = []
+
+    def claim_enum(self, point: _Point, base: str, owner: str) -> str:
+        """Emit a module-level enum for a point's symbols; return its name.
+
+        Named after the point's label (``St`` labelled "Operating State"
+        becomes ``OperatingState``), falling back to the point name when the
+        label is missing or not a valid identifier. An identical enum already
+        emitted under the wanted name is shared instead of duplicated; a
+        different one under that name pushes this one to an owner-prefixed
+        name (``InverterOperatingState``).
+        """
+        symbols = tuple(point.symbols)
+        content = (base, symbols)
+        label = _camel(point.label) if point.label else ""
+        first = label if label and not label[0].isdigit() else _camel(point.name)
+        name = None
+        for candidate in (first, f"{owner}{first}"):
+            if self.enums.get(candidate) == content:
+                return candidate
+            if candidate not in self.class_names:
+                name = candidate
+                break
+        if name is None:
+            name = f"{owner}{first}"
+            while name in self.class_names:
+                name += "_"
+        self.class_names.add(name)
+        self.enums[name] = content
+        lines = [f"class {name}({base}):"]
+        for symbol, value in symbols:
+            literal = f"1 << {value}" if base == "IntFlag" else str(value)
+            lines.append(f"    {_member(symbol)} = {literal}")
+        self.enum_classes.append("\n".join(lines))
+        return name
 
     def claim_class(self, preferred: str, model_id: int | None = None) -> str:
         """A unique module-level class name, disambiguated by model ID.
@@ -214,7 +246,9 @@ class _ModuleWriter:
         header.append("from modbus_connection.model.sunspec import (")
         header.extend(f"    {name}," for name in names)
         header.append(")")
-        return "\n".join(header) + "\n\n\n" + "\n\n\n".join(self.classes) + "\n"
+        # Enums first: the component class bodies reference them by name.
+        blocks = self.enum_classes + self.classes
+        return "\n".join(header) + "\n\n\n" + "\n\n\n".join(blocks) + "\n"
 
 
 def _emit_point(
@@ -247,17 +281,9 @@ def _emit_point(
     elif point.type in _ENUM_TYPES or point.type in _BITFIELD_TYPES:
         factory = point.type
         if point.symbols:
-            is_flag = point.type in _BITFIELD_TYPES
-            enum_base = "IntFlag" if is_flag else "IntEnum"
+            enum_base = "IntFlag" if point.type in _BITFIELD_TYPES else "IntEnum"
             module.enum_imports.add(enum_base)
-            enum_name = _camel(point.name)
-            label = f"  # {point.label}" if point.label else ""
-            writer.enum_lines.append(f"    class {enum_name}({enum_base}):{label}")
-            for symbol, value in point.symbols:
-                literal = f"1 << {value}" if is_flag else str(value)
-                writer.enum_lines.append(f"        {_member(symbol)} = {literal}")
-            writer.enum_lines.append("")
-            args.append(enum_name)
+            args.append(module.claim_enum(point, enum_base, writer.name))
         if point.writable:
             kwargs.append("writable=True")
     elif point.type == "string":

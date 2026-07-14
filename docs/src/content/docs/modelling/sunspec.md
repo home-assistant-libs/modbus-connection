@@ -240,17 +240,17 @@ actual implementation. Classes are named after the model's own name (model
 generated models share a name. Pair them with [`scan`](#model-discovery):
 
 ```python
+class OperatingState(IntEnum):
+    OFF = 1
+    SLEEPING = 2
+    ...
+
 class InverterThreePhase(SunSpecComponent):
     """SunSpec model 103: Inverter (Three Phase)."""
 
-    class St(IntEnum):  # Operating State
-        OFF = 1
-        SLEEPING = 2
-        ...
-
     a = uint16(2, scale_register=6, unit='A')  # Amps
     ...
-    st = enum16(38, St)  # Operating State
+    st = enum16(38, OperatingState)  # Operating State
 ```
 
 ```python
@@ -259,26 +259,12 @@ if (found := models.get(103)) is not None:
     inverter = InverterThreePhase(unit, found[0])
 ```
 
-Each point becomes the matching field factory at its model-relative address:
-scale-factor references become `scale_register=`, a fixed `sf` becomes a
-static `scale=`, `units` and RW access carry over, and enumerated / bitfield
-points get a nested `IntEnum` / `IntFlag` built from the model's symbols. The
-`ID`/`L` header stays with `SunSpecComponent`'s own `model_id` /
-`model_length`, and `pad` points produce no field.
-
-A repeating block — nested ones included — becomes its own `Component` class
-at instance-0 addresses, plus a `repeating_group` on the enclosing class
-whenever the wiring is static: the count is fixed or read from a point of the
-enclosing block, and the block's size doesn't depend on device-read counts.
-Geometry only the device knows — model 705's curves are each sized by the
-device's `NPt`, so their stride isn't in the definition — still gets its
-classes, with a commented-out `repeating_group` line to fill in at runtime
-instead of wiring it wrong. A block that declares its own `sunssf` points is
-generated with [`scale_in_block`](#multiple-mppt-and-other-repeats), so each
-instance's scale registers shift with it.
-
-What still generates an error rather than a wrong layout: a block placed
-after a device-sized sibling (its address is unknowable), a block mixing
-in-block and fixed-block scale factors, a point scaled by a factor in an
-enclosing repeating block, and unknown point types or count references.
-Everything else in the official catalogue generates.
+Not every model can be fully wired statically yet. Geometry only the device
+knows — model 705's curves are each sized by the device's `NPt`, so their
+stride isn't in the definition — still gets its classes, with a commented-out
+`repeating_group` line to fill in at runtime instead of wiring it wrong. What
+generates an error rather than a wrong layout: a block placed after a
+device-sized sibling (its address is unknowable), a block mixing in-block and
+fixed-block scale factors, a point scaled by a factor in an enclosing
+repeating block, and unknown point types or count references. Everything else
+in the official catalogue generates.
