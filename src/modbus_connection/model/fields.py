@@ -242,9 +242,13 @@ class _ScaledField[T](RegisterField[T]):
     def _encode_factor(self, scale_exponent: int | None) -> float:
         """The full factor a write inverts; a scaled field requires its exponent.
 
-        ``scale_exponent`` is the field's sunssf value, read fresh for the
-        write; requiring it here keeps a dynamically-scaled field from ever
-        encoding with a guessed or stale scale.
+        ``scale_exponent`` comes from the field's scale register, read fresh
+        for the write; requiring it here keeps a dynamically-scaled field from
+        ever encoding with a guessed or stale scale. An exponent whose factor
+        cannot scale (too large or small to represent - e.g. a not-implemented
+        SunSpec ``sunssf``, which decodes to -32768) raises ``ValueError``:
+        unlike a read, which decodes such a value to ``None``, a write must
+        never guess.
         """
         if self.scale_register is not None and scale_exponent is None:
             raise ValueError(
@@ -253,7 +257,15 @@ class _ScaledField[T](RegisterField[T]):
             )
         factor = self.scale
         if scale_exponent is not None:
-            factor *= 10.0**scale_exponent
+            try:
+                dynamic = 10.0**scale_exponent
+            except OverflowError:
+                dynamic = 0.0
+            if dynamic == 0.0:
+                raise ValueError(
+                    f"field {self.name!r}: unusable scale factor {scale_exponent}"
+                )
+            factor *= dynamic
         return factor
 
 

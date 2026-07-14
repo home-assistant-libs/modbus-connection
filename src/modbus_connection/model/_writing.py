@@ -8,7 +8,7 @@ FC06/FC16 choice — lives here once and both call into it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 from ..decode import decode_int
 
@@ -16,9 +16,6 @@ if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from ._planning import RegisterSpace
     from .fields import RegisterField, _BitField
-
-# The sunssf "not implemented" sentinel (a signed int16 register).
-_SUNSSF_NOT_IMPLEMENTED: Final = 0x8000
 
 
 async def write_register_field(
@@ -41,7 +38,7 @@ async def write_register_field(
     For a dynamically-scaled field, ``scale_address`` is its resolved
     ``scale_register`` address: the scale factor is read fresh in the same
     write, so a factor the device shifted since the last update cannot
-    mis-scale the value. A not-implemented factor raises ``ValueError``.
+    mis-scale the value. An unusable factor raises ``ValueError``.
     """
     if not field.writable:
         raise AttributeError(f"{label} is read-only")
@@ -56,8 +53,6 @@ async def write_register_field(
     scale_exponent = None
     if field.scale_register is not None and scale_address is not None:
         (word,) = await unit.read_holding_registers(scale_address, 1)
-        if word == _SUNSSF_NOT_IMPLEMENTED:
-            raise ValueError(f"{label}: scale factor not implemented")
         scale_exponent = decode_int([word], signed=True)
     words = field.encode(value, scale_exponent)
     if field.force_fc16 or len(words) > 1:

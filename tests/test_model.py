@@ -513,8 +513,8 @@ async def test_write_scaled_field_rounds_to_step() -> None:
 
 async def test_write_scaled_field_not_implemented_factor() -> None:
     unit = MockModbusConnection().for_unit(1)
-    unit.holding[2] = 0x8000  # sunssf not implemented
-    with pytest.raises(ValueError, match="scale factor not implemented"):
+    unit.holding[2] = 0x8000  # the SunSpec sunssf "not implemented" sentinel
+    with pytest.raises(ValueError, match="unusable scale factor -32768"):
         await _Scaled(unit).write("setpoint", 50.0)
     assert 10 not in unit.holding  # nothing was written
 

@@ -263,8 +263,9 @@ alongside the field and applied as `10**sf` — the SunSpec `sunssf` convention.
 A `write()` on a dynamically-scaled field takes the engineering value: the
 scale factor is read fresh in the same write and the value is snapped to the
 precision the factor grants before encoding, so `12.349` with a `10**-2`
-factor writes raw `1235`. A not-implemented scale factor (`0x8000`) raises
-`ValueError` — a write never guesses a scale. See the
+factor writes raw `1235`. An exponent whose factor cannot scale — such as
+SunSpec's not-implemented `sunssf` — raises `ValueError`: a write never
+guesses a scale, where a read decodes the same case to `None`. See the
 [SunSpec page](/modbus-connection/modelling/sunspec/) for the pre-wired point
 types built on this.
 
