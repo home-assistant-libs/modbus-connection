@@ -57,7 +57,9 @@ class _RepeatingGroups:
     ) -> list[Component]:
         # instances inherit the parent's block position (base_offset, which
         # also moves scale registers); their own per-instance shift applies to
-        # fields only, so shared scale factors stay in the parent's fixed block
+        # fields only, so shared scale factors stay in the parent's fixed block —
+        # unless the sub-unit sets ``scale_in_block``, which moves each instance's
+        # scale registers with its shift too (a block carrying its own factors)
         return [
             field.component_class(
                 self._unit,

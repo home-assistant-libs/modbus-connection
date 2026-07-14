@@ -148,3 +148,26 @@ repeating_group(count, component_class, *, stride) -> RepeatingGroupField[C]
 - `component_class` — a `Component` subclass modelling one instance at instance
   0's addresses.
 - `stride` — the block length (must be `> 0`).
+
+## Scale factors inside the block
+
+By default a scaled field's `scale_register` stays put across instances — it
+names a shared scale factor in the parent's fixed block (the caution above). A
+sub-unit that carries its **own** scale factor per repeat sets the
+`scale_in_block` class attribute, so each instance's scale registers shift with
+it:
+
+```python
+from modbus_connection.model import Component, integer, repeating_group
+
+class Channel(Component):
+    scale_in_block = True                    # each channel carries its own scale factor
+    a = integer(0, scale_register=1)
+
+class Meter(Component):
+    channels = repeating_group(integer(4, signed=False), Channel, stride=2)
+```
+
+Without `scale_in_block`, every channel would read its scale factor from the one
+address relative to the block start; with it, channel *i*'s `scale_register`
+shifts by `i * stride` like the rest of its block.
