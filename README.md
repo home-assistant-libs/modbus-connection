@@ -60,8 +60,9 @@ asyncio.run(main())
 ## Documentation
 
 Everything else — the other transports (UDP, serial, TLS), the full field-type
-and read-planning reference, repeated sub-units, the query helper, the in-memory
-mock backend for tests, and the exception hierarchy — lives on the website:
+and read-planning reference, repeated sub-units, the SunSpec field types and
+model generator, the query helper, the in-memory mock backend for tests, and
+the exception hierarchy — lives on the website:
 
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 

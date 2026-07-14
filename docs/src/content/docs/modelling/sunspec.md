@@ -217,3 +217,53 @@ when a configuration change resizes a model; a mismatch raises
 `SunSpecMapShiftError` (a `SunSpecError`), and the owner recovers by
 re-scanning and building new components at the new addresses (the read plan
 is cached per instance).
+
+## Generating components from the official definitions
+
+SunSpec publishes every standard model as JSON in
+[sunspec/models](https://github.com/sunspec/models). The generator is a helper
+to get an integration started: it turns those definitions into base classes —
+one `SunSpecComponent` subclass per model, with every point wired up:
+
+```bash
+python -m modbus_connection.model.sunspec.generate 1 103 160 -o sunspec_models.py
+```
+
+Arguments are model IDs (fetched from the official repository) or paths to
+local `model_N.json` files; without `-o` the module prints to stdout. The
+output is ordinary source, not a build artifact: commit it to your integration
+as a starting point. Devices routinely deviate from the published models —
+points left unimplemented, vendor quirks, off-spec sentinels or addresses —
+so expect to trim and adjust the generated classes to your manufacturer's
+actual implementation. Pair them with [`scan`](#model-discovery):
+
+```python
+class Model103(SunSpecComponent):
+    """SunSpec model 103: Inverter (Three Phase)."""
+
+    class St(IntEnum):  # Operating State
+        OFF = 1
+        SLEEPING = 2
+        ...
+
+    a = uint16(2, scale_register=6, unit='A')  # Amps
+    ...
+    st = enum16(38, St)  # Operating State
+```
+
+```python
+models = await scan(unit, 40000)
+if (found := models.get(103)) is not None:
+    inverter = Model103(unit, found[0])
+```
+
+Each point becomes the matching field factory at its model-relative address:
+scale-factor references become `scale_register=`, a fixed `sf` becomes a
+static `scale=`, `units` and RW access carry over, and enumerated / bitfield
+points get a nested `IntEnum` / `IntFlag` built from the model's symbols. The
+`ID`/`L` header stays with `SunSpecComponent`'s own `model_id` /
+`model_length`, and `pad` points produce no field. A repeating block becomes
+its own `Component` class plus a `repeating_group` sized by the model's count
+point. The few layouts that cannot be laid out statically — nested repeating
+groups (some 7xx models), or a scale factor inside a repeating block — are
+rejected with an error rather than generated wrong.

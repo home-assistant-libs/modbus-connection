@@ -28,6 +28,12 @@ A SunSpec device advertises which models it implements: :func:`scan`
 walks the model chain at the device's base address and returns where each model
 sits, and :class:`SunSpecComponent` is the base for a component placed at a
 discovered model, verifying the model header on every update.
+
+To get an integration started, :mod:`.generate` renders the published model
+definitions (`sunspec/models <https://github.com/sunspec/models>`_) into
+``SunSpecComponent`` base classes — ``python -m
+modbus_connection.model.sunspec.generate 1 103 160`` — to be adjusted to the
+manufacturer's actual implementation.
 """
 
 from __future__ import annotations
