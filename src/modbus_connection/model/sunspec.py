@@ -617,25 +617,32 @@ class SunSpecComponent(Component):
         return f"{type(self).__name__}({values})"
 
 
-async def scan(unit: ModbusUnit, base_address: int) -> list[SunSpecModel]:
-    """Walk the SunSpec model chain and return the discovered models.
+async def scan(
+    unit: ModbusUnit, base_address: int
+) -> dict[int, list[SunSpecModel]]:
+    """Walk the SunSpec model chain and return the discovered models by ID.
 
     ``base_address`` is the 0-based register address of the map's ``"SunS"``
     marker - the SunSpec spec sanctions 0, 40000 and 50000, and an
     integration knows which one its manufacturer uses. Raises
     :class:`SunSpecError` when the marker is missing or the chain doesn't
     terminate.
+
+    The same model ID can occur more than once in a chain (e.g. several
+    meters), so each ID maps to its occurrences in chain order.
     """
     marker = await unit.read_holding_registers(base_address, 2)
     if decode_uint32(marker) != _SUNSPEC_MARKER:
         raise SunSpecError(f"No SunSpec marker found at register {base_address}")
 
-    models: list[SunSpecModel] = []
+    models: dict[int, list[SunSpecModel]] = {}
     address = base_address + 2
     for _ in range(_MAX_MODELS):
         model_id, length = await unit.read_holding_registers(address, 2)
         if model_id == _END_MODEL_ID:
             return models
-        models.append(SunSpecModel(model_id=model_id, address=address, length=length))
+        models.setdefault(model_id, []).append(
+            SunSpecModel(model_id=model_id, address=address, length=length)
+        )
         address += 2 + length
     raise SunSpecError(f"Model chain not terminated after {_MAX_MODELS} models")

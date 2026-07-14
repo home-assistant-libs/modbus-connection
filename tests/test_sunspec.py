@@ -181,10 +181,35 @@ async def test_scan() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
     models = await ss.scan(unit, 1000)
-    assert models == [
-        ss.SunSpecModel(model_id=1, address=1002, length=4),
-        ss.SunSpecModel(model_id=103, address=1008, length=2),
-    ]
+    assert models == {
+        1: [ss.SunSpecModel(model_id=1, address=1002, length=4)],
+        103: [ss.SunSpecModel(model_id=103, address=1008, length=2)],
+    }
+
+
+async def test_scan_repeated_model_id() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(
+        {
+            0: 0x5375,
+            1: 0x6E53,
+            2: 203,  # two meters of the same model
+            3: 1,
+            4: 0,
+            5: 203,
+            6: 1,
+            7: 0,
+            8: 0xFFFF,
+            9: 0,
+        }
+    )
+    models = await ss.scan(unit, 0)
+    assert models == {
+        203: [
+            ss.SunSpecModel(model_id=203, address=2, length=1),
+            ss.SunSpecModel(model_id=203, address=5, length=1),
+        ]
+    }
 
 
 async def test_scan_no_marker() -> None:
@@ -209,7 +234,7 @@ class _Discovered(ss.SunSpecComponent):
 async def test_sunspec_component_at_discovered_model() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.scan(unit, 1000)
+    (model,) = (await ss.scan(unit, 1000))[103]
     component = _Discovered(unit, model)
     await component.async_update()
     assert component.value == pytest.approx(123.4)  # 1234 * 10**-1
@@ -219,7 +244,7 @@ async def test_sunspec_component_at_discovered_model() -> None:
 async def test_sunspec_component_header_check() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.scan(unit, 1000)
+    (model,) = (await ss.scan(unit, 1000))[103]
     component = _Discovered(unit, model)
     # the map shifts: another model now sits at the old address
     unit.holding[1008] = 111
@@ -232,7 +257,7 @@ async def test_sunspec_component_header_check_in_group() -> None:
 
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
-    (_, model) = await ss.scan(unit, 1000)
+    (model,) = (await ss.scan(unit, 1000))[103]
     component = _Discovered(unit, model)
     unit.holding[1009] = 3  # the model's length changed
     with pytest.raises(ss.SunSpecError, match="header mismatch"):

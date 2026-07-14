@@ -174,14 +174,15 @@ model ID `0xFFFF`. `scan` walks the chain:
 ```python
 from modbus_connection.model.sunspec import scan
 
-models = await scan(unit, 40000)   # -> list[SunSpecModel]
+models = await scan(unit, 40000)   # -> dict[int, list[SunSpecModel]]
 ```
 
 `base_address` is the 0-based address of the marker — the spec sanctions 0,
 40000 and 50000, and an integration knows which one its manufacturer uses.
-Each `SunSpecModel` carries `model_id`, `address` (of the header) and
-`length`; the same model ID can appear more than once in a chain (e.g.
-several meters), and vendor models (ID ≥ 64000) appear like any other.
+The result maps each model ID to its occurrences in chain order: the same ID
+can appear more than once (e.g. several meters), and vendor models
+(ID ≥ 64000) appear like any other. Each `SunSpecModel` carries `model_id`,
+`address` (of the header) and `length`.
 
 ## Components at discovered models
 
@@ -196,8 +197,8 @@ class Inverter(SunSpecComponent):       # SunSpec model 103, relative layout
     a = uint16(2, scale_register=6)     # AC current, scaled by A_SF at data+4
     a_sf = sunssf(6)
 
-model = next(m for m in models if m.model_id == 103)
-inv = Inverter(unit, model)
+if (found := models.get(103)) is not None:
+    inv = Inverter(unit, found[0])
 ```
 
 `base_offset` places every address, including `scale_register` and any
