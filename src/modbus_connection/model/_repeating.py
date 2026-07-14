@@ -119,7 +119,15 @@ class _RepeatingGroups:
         the instances pooled among themselves, without notifying — the caller
         does. A :class:`ComponentGroup` calls this on each member after its pooled
         read, so a member's register-count groups refresh inside the group too.
+
+        A fixed-count group's instances are read in the first pass (they fold
+        into the read plan), but a register-count group *nested* inside one still
+        needs this second pass — its count was fetched with the instance's other
+        registers, so drive each fixed-count instance's second pass here too.
         """
+        for name in self._static_groups:
+            for instance in self._groups[name]:
+                await instance.async_update_repeating_groups()
         if not self._repeating_fields:
             return
         instances: list[Component] = []

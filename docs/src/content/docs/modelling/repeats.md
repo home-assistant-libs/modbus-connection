@@ -112,6 +112,32 @@ An unimplemented or unreadable count yields no instances. A component with a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/) — the group
 reads the counts in its pooled read, then refreshes each member's groups.
 
+### Nesting
+
+A `repeating_group`'s `component_class` is itself a `Component`, so it may
+declare its own `repeating_group` — a sub-unit that repeats within each
+instance (channels within each module, cells within each string). Nesting is
+fully supported, in any combination of fixed and register counts, to any depth:
+each instance's addresses shift by its parent's `stride`, and the shifts compose
+additively down the levels.
+
+```python
+class Cell(Component):
+    voltage = uint16(0)
+
+class String(Component):
+    cells = repeating_group(uint16(1), Cell, stride=1)  # per-string cell count
+
+class Battery(Component):
+    strings = repeating_group(uint16(0), String, stride=100)  # string count
+```
+
+A **register count** at any level adds a read pass for the level below it: the
+count must be read before the instances it sizes can be planned. So a two-deep
+tree with register counts at both levels polls in three passes — the outer count,
+then the inner counts, then the leaves. Fixed `int` counts add no pass at any
+level; they fold into the enclosing read.
+
 The signature:
 
 ```python
