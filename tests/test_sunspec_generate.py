@@ -101,7 +101,8 @@ def test_generated_layout() -> None:
     assert "a_sf = sunssf(3)" in source
     assert "offs = int16(4, scale=0.1)" in source
     assert "da = uint16(5, writable=True)" in source
-    assert "mn = string(6, 2)  # Manufacturer" in source
+    # The label (and desc, when present) becomes an attribute docstring.
+    assert 'mn = string(6, 2)\n    """Manufacturer."""' in source
     assert "st = enum16(9, St)" in source
     assert "evt = bitfield16(10, Evt)" in source
     assert "n = uint16(11)" in source
@@ -455,7 +456,7 @@ def test_enum_named_after_label_at_module_level() -> None:
     st["label"] = "Operating State"
     source = generate_source([model])
     assert "class OperatingState(IntEnum):" in source
-    assert "st = enum16(9, OperatingState)  # Operating State" in source
+    assert 'st = enum16(9, OperatingState)\n    """Operating State."""' in source
 
 
 def test_identical_enums_are_shared_across_models() -> None:

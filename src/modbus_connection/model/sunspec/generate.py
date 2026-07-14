@@ -32,6 +32,7 @@ import json
 import keyword
 import re
 import sys
+import textwrap
 import urllib.request
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -76,6 +77,7 @@ class _Point:
     units: str | None
     writable: bool
     label: str | None
+    desc: str | None
     symbols: list[tuple[str, int]]
 
 
@@ -107,6 +109,31 @@ def _member(name: str) -> str:
     return s
 
 
+def _attr_docstring(point: _Point) -> list[str]:
+    """The point's label and description as an attribute docstring.
+
+    A string literal directly below the assignment is the attribute-docstring
+    convention editors surface on hover.
+    """
+    parts: list[str] = []
+    for text in (point.label, point.desc):
+        if text:
+            cleaned = " ".join(text.split()).rstrip(".")
+            if cleaned and cleaned.lower() not in (p.lower() for p in parts):
+                parts.append(cleaned)
+    if not parts:
+        return []
+    text = ". ".join(parts).replace("\\", "\\\\") + "."
+    lines = textwrap.wrap(text, width=78)
+    if len(lines) == 1:
+        return [f'    """{lines[0]}"""']
+    return [
+        f'    """{lines[0]}',
+        *(f"    {line}" for line in lines[1:-1]),
+        f'    {lines[-1]}"""',
+    ]
+
+
 def _parse_points(raw_points: list[Any], start: int) -> list[_Point]:
     """Assign consecutive model-relative addresses to a group's points."""
     points = []
@@ -123,6 +150,7 @@ def _parse_points(raw_points: list[Any], start: int) -> list[_Point]:
                 units=raw.get("units"),
                 writable=raw.get("access") == "RW",
                 label=raw.get("label"),
+                desc=raw.get("desc"),
                 symbols=[(s["name"], int(s["value"])) for s in raw.get("symbols", [])],
             )
         )
@@ -306,8 +334,8 @@ def _emit_point(
         )
     module.sunspec_imports.add(factory)
     call = f"{factory}({', '.join(args + kwargs)})"
-    label = f"  # {point.label}" if point.label else ""
-    writer.field_lines.append(f"    {attr} = {call}{label}")
+    writer.field_lines.append(f"    {attr} = {call}")
+    writer.field_lines.extend(_attr_docstring(point))
 
 
 @dataclass
