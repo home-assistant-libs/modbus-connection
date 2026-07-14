@@ -519,6 +519,14 @@ async def test_write_scaled_field_not_implemented_factor() -> None:
     assert 10 not in unit.holding  # nothing was written
 
 
+async def test_write_scaled_field_overflowing_factor() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = 32000  # 10**32000 is not representable
+    with pytest.raises(ValueError, match="unusable scale factor 32000"):
+        await _Scaled(unit).write("setpoint", 50.0)
+    assert 10 not in unit.holding
+
+
 async def test_write_scaled_field_with_base_offset() -> None:
     # the scale factor is read at the placed block's address
     unit = MockModbusConnection().for_unit(1)
