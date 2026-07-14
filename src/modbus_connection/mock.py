@@ -13,11 +13,8 @@ Register / coil values are *value specs* — each store entry may be:
 - a zero-argument callable, evaluated on every read for dynamic values
   (``store.holding[9] = lambda: next(counter)``).
 
-A callable that raises can only simulate a failure of the *whole* space: every
-read materializes every entry, so a raiser at one address also blows up reads
-of unrelated addresses. To fail just the block covering an address — a device
-refusing a register block it doesn't serve, e.g. an uninstalled module — arm
-``unit.fail_read(address, error)`` instead.
+To simulate a device refusing a register block it doesn't serve (e.g. an
+uninstalled module), arm ``unit.fail_read(address, error)``.
 
 Writes additionally fire any callbacks registered with ``unit.on_write(...)``,
 so a test can react to a write by mocking other registers (e.g. flip a "ready"
