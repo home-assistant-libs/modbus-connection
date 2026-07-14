@@ -461,12 +461,17 @@ def test_identical_enums_are_shared_across_models() -> None:
 
 
 def test_conflicting_enum_names_get_owner_prefix() -> None:
+    # The owner prefix keeps the label-based name: Test64112OperatingState,
+    # not Test64112St (the point name is only used when there is no label).
     first = copy.deepcopy(MODEL_JSON)
     second = copy.deepcopy(MODEL_JSON)
     second["id"] = 64112
+    for model in (first, second):
+        st = next(p for p in model["group"]["points"] if p["name"] == "St")
+        st["label"] = "Operating State"
     st = next(p for p in second["group"]["points"] if p["name"] == "St")
     st["symbols"] = [{"name": "IDLE", "value": 9}]
     source = generate_source([first, second])
-    assert source.count("class St(IntEnum):") == 1
-    assert "class Test64112St(IntEnum):" in source
-    assert "st = enum16(9, Test64112St)" in source
+    assert source.count("class OperatingState(IntEnum):") == 1
+    assert "class Test64112OperatingState(IntEnum):" in source
+    assert "st = enum16(9, Test64112OperatingState)" in source
