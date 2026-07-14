@@ -89,12 +89,20 @@ async def test_write_rejected(mock_modbus_unit):
 
 ## Simulating a read failure
 
-Give a register a callable that raises — it's evaluated on every read:
+Arm `fail_read` and any read whose block covers that address raises the given
+error instead of returning values — mirroring a device that refuses a register
+block it doesn't serve, such as an uninstalled module. `register_type` defaults
+to `"holding"` (use `"input"`, `"coil"` or `"discrete_input"` for the other
+tables — they're independent); pass `None` to clear:
 
 ```python
-def boom():
-    raise ModbusExceptionError(2)       # illegal data address
-mock_modbus_unit.holding[9] = boom
+async def test_read_refused(mock_modbus_unit):
+    mock_modbus_unit.fail_read(1100, ModbusExceptionError(2))  # illegal data address
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.read_holding_registers(1100, 4)
+    await mock_modbus_unit.read_holding_registers(0, 4)        # other blocks unaffected
+
+    mock_modbus_unit.fail_read(1100, None)                     # clear it
 ```
 
 ## Why it matters
