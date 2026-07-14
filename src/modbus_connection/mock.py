@@ -11,8 +11,13 @@ Register / coil values are *value specs* — each store entry may be:
 - a list, occupying consecutive addresses from its key
   (``store.holding[2] = [0x0001, 0x86A0]`` fills addresses 2 and 3), or
 - a zero-argument callable, evaluated on every read for dynamic values
-  (``store.holding[9] = lambda: next(counter)``). A callable that raises lets a
-  test simulate a device-side failure.
+  (``store.holding[9] = lambda: next(counter)``).
+
+A callable that raises can only simulate a failure of the *whole* space: every
+read materializes every entry, so a raiser at one address also blows up reads
+of unrelated addresses. To fail just the block covering an address — a device
+refusing a register block it doesn't serve, e.g. an uninstalled module — arm
+``unit.fail_read(address, error)`` instead.
 
 Writes additionally fire any callbacks registered with ``unit.on_write(...)``,
 so a test can react to a write by mocking other registers (e.g. flip a "ready"
@@ -46,6 +51,9 @@ CoilSpec = bool | list[bool] | Callable[[], "bool | list[bool]"]
 callable returning either."""
 
 RegisterType = Literal["holding", "coil"]
+
+ReadRegisterType = Literal["holding", "input", "coil", "discrete_input"]
+"""Selects one of the four readable data tables for ``fail_read``."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +151,7 @@ class MockModbusUnit:
         self.discrete_inputs: dict[int, CoilSpec] = {}
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
+        self._read_failures: dict[tuple[ReadRegisterType, int], Exception] = {}
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
 
@@ -206,6 +215,32 @@ class MockModbusUnit:
         else:
             self._write_failures[key] = error
 
+    def fail_read(
+        self,
+        address: int,
+        error: Exception | None,
+        *,
+        register_type: ReadRegisterType = "holding",
+    ) -> None:
+        """Arm (or clear) a failure for reads covering ``address``.
+
+        A read whose requested block includes ``address`` raises ``error``
+        instead of returning values, mirroring a device that refuses a register
+        block it doesn't serve (e.g. an uninstalled module). Unlike a raising
+        callable in the store, this fails only reads that span ``address`` —
+        reads of other blocks are unaffected. The failure persists until cleared
+        with ``fail_read(address, None)``.
+
+        ``register_type`` selects the data table — ``"holding"`` (the default),
+        ``"input"``, ``"coil"`` or ``"discrete_input"``. The four tables are
+        independent, so arming one never affects reads of another.
+        """
+        key = (register_type, address)
+        if error is None:
+            self._read_failures.pop(key, None)
+        else:
+            self._read_failures[key] = error
+
     def set_response(self, method: str, value: object) -> None:
         """Set the canned result for an exotic function code (e.g.
         ``"report_server_id"``). ``value`` may be a plain value or a zero-arg
@@ -217,6 +252,14 @@ class MockModbusUnit:
     ) -> None:
         for offset in range(count):
             error = self._write_failures.get((register_type, address + offset))
+            if error is not None:
+                raise error
+
+    def _raise_if_read_fails(
+        self, register_type: ReadRegisterType, address: int, count: int
+    ) -> None:
+        for offset in range(count):
+            error = self._read_failures.get((register_type, address + offset))
             if error is not None:
                 raise error
 
@@ -237,10 +280,12 @@ class MockModbusUnit:
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         self._ensure_connected()
+        self._raise_if_read_fails("holding", address, count)
         return _read_registers(self.holding, address, count)
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         self._ensure_connected()
+        self._raise_if_read_fails("input", address, count)
         return _read_registers(self.input, address, count)
 
     async def write_register(self, address: int, value: int) -> None:
@@ -261,10 +306,12 @@ class MockModbusUnit:
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
         self._ensure_connected()
+        self._raise_if_read_fails("coil", address, count)
         return _read_bits(self.coils, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
         self._ensure_connected()
+        self._raise_if_read_fails("discrete_input", address, count)
         return _read_bits(self.discrete_inputs, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:

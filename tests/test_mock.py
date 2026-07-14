@@ -198,6 +198,50 @@ async def test_fail_write_coil_and_holding_addresses_are_independent(
         await mock_modbus_unit.write_register(5, 1)
 
 
+# -- read failures ------------------------------------------------------------
+
+
+async def test_fail_read_raises_and_leaves_other_blocks_readable(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    mock_modbus_unit.holding[0] = 7
+    mock_modbus_unit.fail_read(1100, ModbusExceptionError(2))
+
+    with pytest.raises(ModbusExceptionError) as excinfo:
+        await mock_modbus_unit.read_holding_registers(1100, 4)
+    assert excinfo.value.exception_code == 2
+    # A read that doesn't cover the armed address is unaffected.
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [7]
+
+
+async def test_fail_read_cleared_with_none(mock_modbus_unit: MockModbusUnit) -> None:
+    mock_modbus_unit.holding[40] = 9
+    mock_modbus_unit.fail_read(40, ModbusExceptionError(2))
+    mock_modbus_unit.fail_read(40, None)
+    assert await mock_modbus_unit.read_holding_registers(40, 1) == [9]
+
+
+async def test_fail_read_triggers_on_any_covered_address(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    mock_modbus_unit.fail_read(43, ModbusExceptionError(2))
+    # A multi-register read spanning the armed address fails as a whole...
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.read_holding_registers(42, 3)
+    # ...while a read that doesn't cover it succeeds.
+    assert await mock_modbus_unit.read_holding_registers(50, 3) == [0, 0, 0]
+
+
+async def test_fail_read_applies_per_table(mock_modbus_unit: MockModbusUnit) -> None:
+    mock_modbus_unit.fail_read(5, ModbusExceptionError(2), register_type="input")
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.read_input_registers(5, 1)
+    # Holding, coil and discrete-input tables are independent of the armed input.
+    assert await mock_modbus_unit.read_holding_registers(5, 1) == [0]
+    assert await mock_modbus_unit.read_coils(5, 1) == [False]
+    assert await mock_modbus_unit.read_discrete_inputs(5, 1) == [False]
+
+
 # -- connection lifecycle -----------------------------------------------------
 
 
