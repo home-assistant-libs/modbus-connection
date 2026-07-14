@@ -269,7 +269,13 @@ def uint64(
 
 
 def acc16(
-    address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
+    address: int,
+    *,
+    scale: float = 1.0,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
+    stride: int = 0,
+    unit: str | None = None,
 ) -> NumberField[int]:
     """A 16-bit accumulator — a monotonic counter (0 means not accumulated)."""
     return NumberField(
@@ -278,13 +284,21 @@ def acc16(
         signed=False,
         nan=_ACC_NAN,
         scale=scale,
+        scale_register=scale_register,
+        scale_register_stride=scale_register_stride,
         stride=stride,
         unit=unit,
     )
 
 
 def acc32(
-    address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
+    address: int,
+    *,
+    scale: float = 1.0,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
+    stride: int = 0,
+    unit: str | None = None,
 ) -> NumberField[int]:
     """A 32-bit accumulator over two registers (0 means not accumulated)."""
     return NumberField(
@@ -293,13 +307,21 @@ def acc32(
         signed=False,
         nan=_ACC_NAN,
         scale=scale,
+        scale_register=scale_register,
+        scale_register_stride=scale_register_stride,
         stride=stride,
         unit=unit,
     )
 
 
 def acc64(
-    address: int, *, scale: float = 1.0, stride: int = 0, unit: str | None = None
+    address: int,
+    *,
+    scale: float = 1.0,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
+    stride: int = 0,
+    unit: str | None = None,
 ) -> NumberField[int]:
     """A 64-bit accumulator over four registers (0 means not accumulated)."""
     return NumberField(
@@ -308,6 +330,8 @@ def acc64(
         signed=False,
         nan=_ACC_NAN,
         scale=scale,
+        scale_register=scale_register,
+        scale_register_stride=scale_register_stride,
         stride=stride,
         unit=unit,
     )

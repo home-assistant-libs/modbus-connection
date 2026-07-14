@@ -75,6 +75,20 @@ async def test_unimplemented_values_decode_to_none() -> None:
     assert inv.events is None
 
 
+async def test_accumulator_dynamic_scale_factor() -> None:
+    # SunSpec scales accumulators dynamically too (model 103's WH via WH_SF).
+    class Accumulating(Component):
+        wh = ss.acc32(0, scale_register=2, unit="Wh")
+        wh_sf = ss.sunssf(2)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0x0001, 1: 0x86A0, 2: (-2) & 0xFFFF})
+    comp = Accumulating(unit)
+    await comp.async_update()
+    assert comp.wh == pytest.approx(1000.0)  # 100000 * 10**-2
+    assert comp.wh_sf == -2
+
+
 async def test_string_field() -> None:
     inv = _inverter({9: 0x4142, 10: 0x4344, 11: 0x4546, 12: 0x0000})
     await inv.async_update()

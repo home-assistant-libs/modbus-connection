@@ -63,7 +63,8 @@ int16(address, *, scale=1.0, scale_register=None, scale_register_stride=0,
 ## Accumulators
 
 Accumulators are monotonic counters; SunSpec uses `0` to mean "not accumulated",
-which decodes to `None`.
+which decodes to `None`. An accumulator may reference a scale-factor register
+like the numeric points do (model 103's `WH` is scaled by `WH_SF`).
 
 | Factory | Registers |
 | --- | --- |
@@ -72,7 +73,8 @@ which decodes to `None`.
 | `acc64` | 4 |
 
 ```python
-acc32(address, *, scale=1.0, stride=0, unit=None) -> NumberField[int]
+acc32(address, *, scale=1.0, scale_register=None, scale_register_stride=0,
+      stride=0, unit=None) -> NumberField[int]
 ```
 
 ## Scale-factor point
