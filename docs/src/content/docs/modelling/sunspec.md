@@ -64,7 +64,7 @@ int16(address, *, scale=1.0, scale_register=None, scale_register_stride=0,
 
 Accumulators are monotonic counters; SunSpec uses `0` to mean "not accumulated",
 which decodes to `None`. An accumulator may reference a scale-factor register
-like the numeric points do (model 103's `WH` is scaled by `WH_SF`).
+like the numeric points do.
 
 | Factory | Registers |
 | --- | --- |
