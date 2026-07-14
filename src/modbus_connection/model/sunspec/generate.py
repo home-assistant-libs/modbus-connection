@@ -7,7 +7,10 @@ This module turns those definitions into Python source: one
 with a field per point (addresses, scale-factor registers, units, writability
 and the per-type unimplemented sentinels all wired up), ``IntEnum`` /
 ``IntFlag`` classes for enumerated and bitfield points, and a
-:func:`~modbus_connection.model.repeating_group` for a repeating block.
+:func:`~modbus_connection.model.repeating_group` for a repeating block. A
+scale-factor point another point references via ``scale_register=`` gets no
+field of its own - the planner reads it regardless - so only unreferenced
+scale factors keep one.
 
 Run it as a script with model IDs (fetched from the official repository) or
 paths to local ``model_N.json`` files::
@@ -338,6 +341,21 @@ def _emit_point(
     writer.field_lines.extend(_attr_docstring(point))
 
 
+def _emitted(point: _Point, referenced_sf: frozenset[str]) -> bool:
+    """Whether a point becomes a field of its own.
+
+    ``pad`` points never do. A ``sunssf`` referenced by some point's
+    ``scale_register=`` is dropped — the planner reads it for that point
+    regardless, so its own field would only duplicate it; an unreferenced
+    scale factor is kept, as its field is the only way to read it.
+    """
+    if point.type == "pad":
+        return False
+    if point.type == "sunssf" and point.name in referenced_sf:
+        return False
+    return True
+
+
 @dataclass
 class _Group:
     """One (possibly nested) block of a model, placed at its instance-0 offset."""
@@ -354,6 +372,14 @@ def _fixed_count(raw_count: Any) -> int | None:
     if isinstance(raw_count, int) and raw_count > 0:
         return raw_count
     return None
+
+
+def _referenced_scale_factors(group: _Group) -> set[str]:
+    """Names of every ``sunssf`` point that some point references via ``sf``."""
+    names = {p.sf for p in group.points if isinstance(p.sf, str)}
+    for child in group.children:
+        names |= _referenced_scale_factors(child)
+    return names
 
 
 def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
@@ -530,6 +556,7 @@ def _emit_group_class(
     top_scales: Mapping[str, int],
     model_id: int,
     scopes: list[_Group],
+    referenced_sf: frozenset[str],
 ) -> str:
     """Emit one block's ``Component`` class (children first); return its name."""
     class_name = module.claim_class(f"{prefix}{_camel(group.name)}")
@@ -542,7 +569,13 @@ def _emit_group_class(
     wiring: list[str] = []
     for child in group.children:
         child_class = _emit_group_class(
-            child, class_name, module, top_scales, model_id, [*scopes, group]
+            child,
+            class_name,
+            module,
+            top_scales,
+            model_id,
+            [*scopes, group],
+            referenced_sf,
         )
         wiring.extend(
             _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
@@ -553,7 +586,7 @@ def _emit_group_class(
             "    scale_in_block = True  # each instance carries its own scale factors"
         )
     for point in group.points:
-        if point.type != "pad":
+        if _emitted(point, referenced_sf):
             _emit_point(point, writer, module, scale_addresses, model_id)
     writer.field_lines.extend(wiring)
     module.classes.append(writer.render())
@@ -581,14 +614,15 @@ def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
     )
     module.sunspec_imports.add("SunSpecComponent")
 
+    referenced_sf = frozenset(_referenced_scale_factors(top))
     wiring: list[str] = []
     for child in top.children:
         child_class = _emit_group_class(
-            child, class_name, module, scale_addresses, model_id, [top]
+            child, class_name, module, scale_addresses, model_id, [top], referenced_sf
         )
         wiring.extend(_wire_child(child, child_class, [top], writer, module, model_id))
     for point in data_points:
-        if point.type != "pad":
+        if _emitted(point, referenced_sf):
             _emit_point(point, writer, module, scale_addresses, model_id)
     writer.field_lines.extend(wiring)
     module.classes.append(writer.render())

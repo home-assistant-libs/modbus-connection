@@ -98,7 +98,10 @@ def test_generated_layout() -> None:
     assert "uint16(1)" not in source
     # Points at their model-relative addresses, with sf / units / access wired.
     assert "a = uint16(2, scale_register=3, unit='A')" in source
-    assert "a_sf = sunssf(3)" in source
+    # A_SF is referenced by A/Wh, so it is not emitted as its own field - the
+    # planner reads register 3 for those points regardless.
+    assert "sunssf(3)" not in source
+    assert "a_sf" not in source
     assert "offs = int16(4, scale=0.1)" in source
     assert "da = uint16(5, writable=True)" in source
     # The label (and desc, when present) becomes an attribute docstring.
@@ -155,8 +158,7 @@ async def test_generated_module_decodes() -> None:
     component = model_cls(unit, SunSpecModel(model_id=64111, address=base, length=18))
     await component.async_update()
 
-    assert component.a == pytest.approx(12.34)
-    assert component.a_sf == -2
+    assert component.a == pytest.approx(12.34)  # scaled by the read A_SF
     assert component.offs == pytest.approx(2.5)
     assert component.da == 7
     assert component.mn == "AB"
@@ -193,6 +195,18 @@ def test_fixed_count_folds_into_layout() -> None:
     model["group"]["groups"][0]["count"] = 3
     source = generate_source([model])
     assert "module = repeating_group(3, TestModule, stride=3)" in source
+
+
+def test_unreferenced_scale_factor_is_kept() -> None:
+    # A sunssf no point references is the only way to read that register, so
+    # it keeps its field even though referenced ones are dropped.
+    model = copy.deepcopy(MODEL_JSON)
+    model["group"]["points"].insert(
+        -1, {"name": "Spare_SF", "type": "sunssf", "size": 1}
+    )
+    source = generate_source([model])
+    assert "spare_sf = sunssf(12)" in source  # kept: nothing references it
+    assert "a_sf" not in source  # dropped: referenced by A
 
 
 def test_nested_fixed_count_group_wires_statically() -> None:
@@ -328,7 +342,9 @@ def test_in_block_scale_factor_sets_scale_in_block() -> None:
     assert "scale_in_block = True" in source
     # V's scale register is the block's own V_SF, at its instance-0 address.
     assert "v = uint16(14, scale_register=17, unit='V')" in source
-    assert "v_sf = sunssf(17)" in source
+    # V_SF is referenced, so no field of its own - but it still occupies a
+    # register, so the block stride includes it.
+    assert "sunssf" not in source
     assert "module = repeating_group(uint16(11), TestModule, stride=4)" in source
 
 
@@ -361,8 +377,8 @@ async def test_in_block_scale_factor_decodes_per_instance() -> None:
     )
     await component.async_update()
     modules = component.module
+    # Same raw V, per-instance scale: proves each block's own V_SF is read.
     assert [m.v for m in modules] == [pytest.approx(10.0), pytest.approx(1000.0)]
-    assert [m.v_sf for m in modules] == [-1, 1]
 
 
 def test_mixed_scale_factor_scopes_are_rejected() -> None:
