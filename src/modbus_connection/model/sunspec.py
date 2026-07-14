@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 __all__ = [
     "SunSpecComponent",
     "SunSpecError",
+    "SunSpecMapShiftError",
     "SunSpecModel",
     "acc16",
     "acc32",
@@ -561,6 +562,15 @@ class SunSpecError(Exception):
     """Raised when a device does not behave like a SunSpec device."""
 
 
+class SunSpecMapShiftError(SunSpecError):
+    """The model header no longer matches its discovered location.
+
+    The device shifted its register map - a configuration change resized a
+    model - so every component built from the old scan reads stale
+    addresses. Re-scan and build new components.
+    """
+
+
 @dataclass(frozen=True)
 class SunSpecModel:
     """Location of a SunSpec model in the register map.
@@ -582,7 +592,7 @@ class SunSpecComponent(Component):
     verified against the discovered model on every update, own or pooled
     through a ``ComponentGroup`` - devices shift the register map when a
     configuration change resizes a model, and a mismatch raises
-    :class:`SunSpecError` so the owner can re-discover.
+    :class:`SunSpecMapShiftError` so the owner can re-scan.
     """
 
     model_id = uint16(0)
@@ -599,7 +609,7 @@ class SunSpecComponent(Component):
             self.model_id != self._model.model_id
             or self.model_length != self._model.length
         ):
-            raise SunSpecError(
+            raise SunSpecMapShiftError(
                 f"{type(self).__name__} header mismatch:"
                 f" expected {self._model.model_id}/{self._model.length},"
                 f" read {self.model_id}/{self.model_length}"

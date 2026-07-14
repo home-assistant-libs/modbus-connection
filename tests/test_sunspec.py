@@ -95,7 +95,13 @@ async def test_float_unimplemented_is_none() -> None:
 
 def test_all_factories_build_fields() -> None:
     # Every exported field factory produces a usable RegisterField.
-    discovery = {"SunSpecComponent", "SunSpecError", "SunSpecModel", "scan"}
+    discovery = {
+        "SunSpecComponent",
+        "SunSpecError",
+        "SunSpecMapShiftError",
+        "SunSpecModel",
+        "scan",
+    }
     for name in set(ss.__all__) - discovery:
         factory = getattr(ss, name)
         field = factory(0, 4) if name == "string" else factory(0)
@@ -247,7 +253,7 @@ async def test_sunspec_component_header_check() -> None:
     component = _Discovered(unit, model)
     # the map shifts: another model now sits at the old address
     unit.holding[1008] = 111
-    with pytest.raises(ss.SunSpecError, match="header mismatch"):
+    with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
         await component.async_update()
 
 
@@ -259,5 +265,5 @@ async def test_sunspec_component_header_check_in_group() -> None:
     (model,) = (await ss.scan(unit, 1000))[103]
     component = _Discovered(unit, model)
     unit.holding[1009] = 3  # the model's length changed
-    with pytest.raises(ss.SunSpecError, match="header mismatch"):
+    with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
         await ComponentGroup(unit, [component]).async_update()

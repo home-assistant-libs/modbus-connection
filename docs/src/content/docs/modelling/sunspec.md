@@ -205,5 +205,6 @@ if (found := models.get(103)) is not None:
 `repeating_group`. The model header is verified on every update — own or
 pooled through a `ComponentGroup` — because devices shift the register map
 when a configuration change resizes a model; a mismatch raises
-`SunSpecError`, and the owner recovers by re-discovering and building new
-components at the new addresses (the read plan is cached per instance).
+`SunSpecMapShiftError` (a `SunSpecError`), and the owner recovers by
+re-scanning and building new components at the new addresses (the read plan
+is cached per instance).
