@@ -129,9 +129,10 @@ class RegisterField[T](ABC):
             stride: Per-index address increment for a repeated block of identical
                 sub-units; ``0`` means the field is at a fixed address.
             unit: Unit-of-measure label carried as metadata; not used in decoding.
-            scale_register: Address of a SunSpec ``sunssf`` register (a signed
-                int16 exponent) read alongside this field and applied as
-                ``value * 10**sf``; ``None`` for a static scale only.
+            scale_register: Address of a scale-factor register - a signed
+                int16 power-of-ten exponent read alongside this field and
+                applied as ``value * 10**sf``; ``None`` for a static scale
+                only.
             scale_register_stride: Per-index increment for ``scale_register``.
             force_fc16: Write this field with FC16 (write-multiple-registers) even
                 when it is a single register, for a device that honours only FC16.
@@ -145,8 +146,8 @@ class RegisterField[T](ABC):
         self.writable = writable
         self.stride = stride
         self.unit = unit
-        # Address of a sunssf register whose 10**sf scales this field; None for a
-        # static scale. Read by the planner for every field.
+        # Address of a scale-factor register whose 10**sf scales this field;
+        # None for a static scale. Read by the planner for every field.
         self.scale_register = scale_register
         self.scale_register_stride = scale_register_stride
         self.force_fc16 = force_fc16
@@ -171,12 +172,17 @@ class RegisterField[T](ABC):
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         """Decode this field's ``count`` register words into its Python value.
 
-        ``scale_exponent`` is the value of the field's ``sunssf`` register, if it
-        has one; scaled fields then multiply the result by ``10**scale_exponent``.
+        ``scale_exponent`` is the value of the field's scale-factor register,
+        if it has one; scaled fields then multiply the result by
+        ``10**scale_exponent``.
         """
 
-    def encode(self, value: Any) -> list[int]:
-        """Encode a Python value into register words. Read-only fields raise."""
+    def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
+        """Encode a Python value into register words. Read-only fields raise.
+
+        ``scale_exponent`` is the value of the field's scale-factor register
+        for a dynamically-scaled field, read fresh for the write.
+        """
         raise NotImplementedError(f"{type(self).__name__} is read-only")
 
 
@@ -235,9 +241,33 @@ class _ScaledField[T](RegisterField[T]):
             decimals = max(_decimals(factor), _decimals(self.offset))
         return int(scaled) if decimals == 0 else round(scaled, decimals)
 
-    def _unscale(self, value: float) -> float:
-        """Invert :meth:`_scale` for writes: ``(value - offset) / scale``."""
-        return (value - self.offset) / self.scale
+    def _encode_factor(self, scale_exponent: int | None) -> float:
+        """The full factor a write inverts; a scaled field requires its exponent.
+
+        ``scale_exponent`` comes from the field's scale register, read fresh
+        for the write; requiring it here keeps a dynamically-scaled field from
+        ever encoding with a guessed or stale scale. An exponent whose factor
+        cannot scale (too large or small to represent) raises ``ValueError``:
+        unlike a read, which decodes such a value to ``None``, a write must
+        never guess.
+        """
+        if self.scale_register is not None and scale_exponent is None:
+            raise ValueError(
+                f"field {self.name!r} is dynamically scaled; write it through"
+                " its component so the scale factor is read alongside"
+            )
+        factor = self.scale
+        if scale_exponent is not None:
+            try:
+                dynamic = 10.0**scale_exponent
+            except OverflowError:
+                dynamic = 0.0
+            if dynamic == 0.0:
+                raise ValueError(
+                    f"field {self.name!r}: unusable scale factor {scale_exponent}"
+                )
+            factor *= dynamic
+        return factor
 
 
 class NumberField[T](_ScaledField[T]):
@@ -309,15 +339,16 @@ class NumberField[T](_ScaledField[T]):
             )
         return None
 
-    def encode(self, value: Any) -> list[int]:
-        if self.scale_register is not None:
-            raise NotImplementedError(
-                "writing a dynamically-scaled field is unsupported"
-            )
-        if self.scale == 1.0 and self.offset == 0.0:
+    def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
+        factor = self._encode_factor(scale_exponent)
+        if factor == 1.0 and self.offset == 0.0:
             raw = int(value)  # no transform: keep the value exact
         else:
-            raw = round(self._unscale(value))
+            # snap to the precision the factor grants first, so float noise
+            # in the division cannot move the result off the nearest step
+            decimals = max(_decimals(factor), _decimals(self.offset))
+            stepped = round(float(value), decimals)
+            raw = round((stepped - self.offset) / factor)
         return encode_int(raw, count=self.count, word_order=self.word_order)
 
 
@@ -337,7 +368,7 @@ class RawField(RegisterField[int]):
     def decode(self, words: list[int], scale_exponent: int | None = None) -> int:
         return combine_words(words, word_order=self.word_order)
 
-    def encode(self, value: Any) -> list[int]:
+    def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
         return encode_int(int(value), count=self.count, word_order=self.word_order)
 
 
@@ -361,13 +392,11 @@ class FloatField(_ScaledField[float]):
             return None
         return self._scale(value, scale_exponent)
 
-    def encode(self, value: Any) -> list[int]:
-        if self.scale_register is not None:
-            raise NotImplementedError(
-                "writing a dynamically-scaled field is unsupported"
-            )
-        if self.scale != 1.0 or self.offset != 0.0:
-            value = self._unscale(value)  # invert the affine transform decode applies
+    def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
+        factor = self._encode_factor(scale_exponent)
+        if factor != 1.0 or self.offset != 0.0:
+            # invert the affine transform decode applies
+            value = (float(value) - self.offset) / factor
         encoder = encode_float64 if self.count == 4 else encode_float32
         return encoder(value, word_order=self.word_order)
 
@@ -378,7 +407,7 @@ class StringField(RegisterField[str]):
     def decode(self, words: list[int], scale_exponent: int | None = None) -> str:
         return decode_string(words)
 
-    def encode(self, value: Any) -> list[int]:
+    def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
         return encode_string(value, length=self.count)
 
 

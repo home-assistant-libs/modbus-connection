@@ -15,6 +15,7 @@ from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
     ComponentGroup,
+    ManualComponent,
     coil,
     discrete_input,
     enum,
@@ -464,6 +465,95 @@ async def test_write_rejects_readonly() -> None:
     meter = _meter({})
     with pytest.raises(AttributeError):
         await meter.write("temperature", 20.0)
+
+
+# -- dynamically-scaled writes -------------------------------------------------
+
+
+class _Scaled(Component):
+    setpoint = gauge(10, 1.0, scale_register=2, writable=True)
+
+
+async def test_write_scaled_field() -> None:
+    # no prior update needed: the scale factor is read as part of the write
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = (-1) & 0xFFFF  # sf = -1
+    await _Scaled(unit).write("setpoint", 50.0)
+    assert unit.holding[10] == 500
+
+
+async def test_write_scaled_field_reads_scale_factor_fresh() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = (-1) & 0xFFFF
+    dev = _Scaled(unit)
+    await dev.async_update()
+    # the device shifts the scale factor after the poll; the write must
+    # encode with the current factor, not the polled one
+    unit.holding[2] = (-2) & 0xFFFF
+    await dev.write("setpoint", 5.0)
+    assert unit.holding[10] == 500
+
+
+async def test_write_scaled_field_positive_exponent_and_signed() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = 2  # sf = 2: raw is in hundreds
+    dev = _Scaled(unit)
+    await dev.write("setpoint", 1200)
+    assert unit.holding[10] == 12
+    await dev.write("setpoint", -1200)
+    assert unit.holding[10] == 0x10000 - 12
+
+
+async def test_write_scaled_field_rounds_to_step() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = (-2) & 0xFFFF  # steps of 0.01
+    await _Scaled(unit).write("setpoint", 12.349)
+    assert unit.holding[10] == 1235
+
+
+async def test_write_scaled_field_not_implemented_factor() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = 0x8000  # the SunSpec sunssf "not implemented" sentinel
+    with pytest.raises(ValueError, match="unusable scale factor -32768"):
+        await _Scaled(unit).write("setpoint", 50.0)
+    assert 10 not in unit.holding  # nothing was written
+
+
+async def test_write_scaled_field_overflowing_factor() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = 32000  # 10**32000 is not representable
+    with pytest.raises(ValueError, match="unusable scale factor 32000"):
+        await _Scaled(unit).write("setpoint", 50.0)
+    assert 10 not in unit.holding
+
+
+async def test_write_scaled_field_with_base_offset() -> None:
+    # the scale factor is read at the placed block's address
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[102] = (-1) & 0xFFFF
+    await _Scaled(unit, base_offset=100).write("setpoint", 50.0)
+    assert unit.holding[110] == 500
+
+
+async def test_write_scaled_float_field() -> None:
+    class Dev(Component):
+        setpoint = FloatField(10, count=2, scale_register=2, writable=True)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[2] = (-1) & 0xFFFF
+    dev = Dev(unit)
+    await dev.write("setpoint", 12.5)  # stored as 125.0
+    await dev.async_update()
+    assert dev.setpoint == 12.5
+
+
+async def test_manual_component_scaled_write() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    manual = ManualComponent(unit)
+    manual.add("setpoint", gauge(10, 1.0, scale_register=2, writable=True))
+    unit.holding[2] = (-1) & 0xFFFF
+    await manual.write("setpoint", 50.0)
+    assert unit.holding[10] == 500
 
 
 def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:

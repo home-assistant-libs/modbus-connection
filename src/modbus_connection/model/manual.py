@@ -239,7 +239,13 @@ class ManualComponent(_RepeatingGroups):
         if key in self._registers:
             field, register_space = self._registers[key]
             await write_register_field(
-                self._unit, field, field.address, register_space, value, label=key
+                self._unit,
+                field,
+                field.address,
+                register_space,
+                value,
+                label=key,
+                scale_address=field.scale_register,
             )
         elif key in self._bits:
             await write_bit_field(

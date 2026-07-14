@@ -141,6 +141,20 @@ class Component(_RepeatingGroups):
         # a count register is read from this component's own register space
         return self.register_space
 
+    def _scale_address(self, field: RegisterField[Any]) -> int:
+        """Resolve a field's scale-register address.
+
+        Scale registers move with the block (``base_offset``) but not with a
+        repeating instance's shift — a repeated sub-unit's scale factors sit
+        in the parent's shared fixed block.
+        """
+        assert field.scale_register is not None
+        return (
+            field.scale_register
+            + field.scale_register_stride * (self._index - 1)
+            + self._base_offset
+        )
+
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return (
             field.address
@@ -174,16 +188,9 @@ class Component(_RepeatingGroups):
         """
         items = []
         for field in self._register_fields.values():
-            scale_address = None
-            if field.scale_register is not None:
-                # scale registers move with the block (base_offset) but not
-                # with a repeating instance's shift — a repeated sub-unit's
-                # scale factors sit in the parent's shared fixed block
-                scale_address = (
-                    field.scale_register
-                    + field.scale_register_stride * (self._index - 1)
-                    + self._base_offset
-                )
+            scale_address = (
+                self._scale_address(field) if field.scale_register is not None else None
+            )
             items.append(
                 RegisterItem(
                     self._address(field),
@@ -262,11 +269,19 @@ class Component(_RepeatingGroups):
         Applies the field's ``index`` / ``stride`` / ``base_offset`` to resolve the
         address, then defers to the shared write path (``writable`` validator,
         FC06 / FC16 / ``force_fc16``); see :func:`._writing.write_register_field`.
-        Writing a read-only field or space raises ``AttributeError``. Override in a
-        subclass for device-specific write sequencing.
+        A dynamically-scaled field reads its scale factor fresh in the same
+        write and encodes the value with it; a not-implemented scale factor
+        raises ``ValueError``. Writing a read-only field or space raises
+        ``AttributeError``. Override in a subclass for device-specific write
+        sequencing.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
+            scale_address = (
+                self._scale_address(register)
+                if register.scale_register is not None
+                else None
+            )
             await write_register_field(
                 self._unit,
                 register,
@@ -274,6 +289,7 @@ class Component(_RepeatingGroups):
                 self.register_space,
                 value,
                 label=field,
+                scale_address=scale_address,
             )
         elif field in self._bit_fields:
             bit_field = self._bit_fields[field]
