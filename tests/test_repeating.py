@@ -165,6 +165,66 @@ async def test_per_instance_shared_scale_register() -> None:
     assert inv.modules[1].w == pytest.approx(56.78)  # 5678 * 10**-2
 
 
+async def test_scale_in_block_shifts_scale_register_per_instance() -> None:
+    # A repeating block that carries its own scale factor: the sunssf lives
+    # inside each instance, so it must shift with the instance, not stay pinned
+    # to the parent's fixed block.
+    class Channel(Component):
+        scale_in_block = True
+        a = integer(0, scale_register=1)
+        a_sf = integer(1)
+
+    class Meter(Component):
+        channels = repeating_group(uint16(4), Channel, stride=2)
+
+    unit = _unit()
+    # count=2 at 4; ch0 value/sf at 0/1, ch1 shifted +2 -> 2/3
+    unit.holding.update(
+        {4: 2, 0: 1234, 1: (-2) & 0xFFFF, 2: 5678, 3: (-1) & 0xFFFF}
+    )
+    inv = Meter(unit)
+    await inv.async_update()
+    assert inv.channels[0].a == pytest.approx(12.34)  # 1234 * 10**-2
+    assert inv.channels[1].a == pytest.approx(567.8)  # 5678 * 10**-1
+
+
+async def test_scale_in_block_with_base_offset() -> None:
+    # scale_in_block composes with a discovered block's base_offset.
+    class Channel(Component):
+        scale_in_block = True
+        a = integer(0, scale_register=1)
+
+    class Meter(Component):
+        channels = repeating_group(uint16(4), Channel, stride=2)
+
+    unit = _unit()
+    unit.holding.update(
+        {104: 2, 100: 1234, 101: (-2) & 0xFFFF, 102: 5678, 103: (-1) & 0xFFFF}
+    )
+    inv = Meter(unit, base_offset=100)
+    await inv.async_update()
+    assert inv.channels[0].a == pytest.approx(12.34)
+    assert inv.channels[1].a == pytest.approx(567.8)
+
+
+async def test_scale_in_block_write_reads_own_scale_factor() -> None:
+    # A write through an instance reads that instance's in-block scale factor,
+    # so the value is encoded with the per-instance factor.
+    class Channel(Component):
+        scale_in_block = True
+        a = integer(0, scale_register=1, writable=True)
+
+    class Meter(Component):
+        channels = repeating_group(2, Channel, stride=2)
+
+    unit = _unit()
+    unit.holding.update({1: (-2) & 0xFFFF, 3: (-1) & 0xFFFF})  # ch0 SF -2, ch1 SF -1
+    inv = Meter(unit)
+    await inv.async_update()
+    await inv.channels[1].write("a", 567.8)  # 567.8 / 10**-1 -> raw 5678 at addr 2
+    assert (await unit.read_holding_registers(2, 1)) == [5678]
+
+
 async def test_repeating_group_at_base_offset() -> None:
     # A discovered SunSpec model: the layout is declared relative to the model
     # start and placed with base_offset. The count, the instances and their

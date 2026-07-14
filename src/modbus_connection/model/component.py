@@ -56,7 +56,10 @@ class Component(_RepeatingGroups):
     following ``scale_register_stride``), or model them as a
     :func:`repeating_group` — its instances shift per instance while their
     ``scale_register`` addresses keep following the parent's block, since a
-    repeating block's scale factors sit in the shared fixed part of the model.
+    repeating block's scale factors usually sit in the shared fixed part of the
+    model. A sub-unit that instead carries its own scale factors sets the
+    :attr:`scale_in_block` class attribute, moving each instance's scale
+    registers with its shift too.
 
     The read plan is derived from the static field layout and cached on the first
     :meth:`async_update`. The fields and ranges are read once then; to change the
@@ -91,6 +94,12 @@ class Component(_RepeatingGroups):
 
     # The register space this component's fields are read from (FC03 / FC04).
     register_space: RegisterSpace = "holding"
+
+    # Set on a repeating sub-unit whose scale factors live inside its own block:
+    # its ``scale_register`` addresses then shift with the instance instead of
+    # naming a shared scale factor in the parent's fixed block (the default). No
+    # effect on a non-repeating component, whose instance offset is 0.
+    scale_in_block: bool = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -127,7 +136,8 @@ class Component(_RepeatingGroups):
         self._base_offset = base_offset
         # Internal, set by repeating_group when building instances: the
         # per-instance shift within the parent's block, applied to fields and
-        # bits but not to scale registers (those follow the block itself).
+        # bits but not to scale registers (those follow the block itself),
+        # unless the sub-unit sets ``scale_in_block``.
         self._instance_offset = _instance_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
@@ -146,14 +156,19 @@ class Component(_RepeatingGroups):
 
         Scale registers move with the block (``base_offset``) but not with a
         repeating instance's shift — a repeated sub-unit's scale factors sit
-        in the parent's shared fixed block.
+        in the parent's shared fixed block. A sub-unit that sets
+        ``scale_in_block`` moves its scale registers with the instance shift
+        too — a block that carries its own scale factors.
         """
         assert field.scale_register is not None
-        return (
+        address = (
             field.scale_register
             + field.scale_register_stride * (self._index - 1)
             + self._base_offset
         )
+        if self.scale_in_block:
+            address += self._instance_offset
+        return address
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return (
@@ -365,6 +380,11 @@ def repeating_group[C: Component](
     at instance 0's addresses; instance *i* is read at ``base_offset = i * stride``
     (so ``stride`` is the block length). An unimplemented or unreadable count
     yields no instances.
+
+    A sub-unit that carries its own scale factors inside its block sets the
+    :attr:`Component.scale_in_block` class attribute, so each instance's scale
+    registers shift with it instead of naming a shared scale factor in the
+    parent's fixed block.
     """
     if stride <= 0:
         raise ValueError(f"repeating_group stride must be > 0, got {stride}")

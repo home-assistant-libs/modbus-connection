@@ -146,27 +146,32 @@ class Comms(Component):
 
 ## Multiple-MPPT and other repeats
 
-A SunSpec model 160 (multiple MPPT) advertises how many modules follow in an `N`
-point read at poll time. Model one module as a `Component` and size the list at
-runtime with [`repeating_group`](/modbus-connection/modelling/repeats/):
+A SunSpec model advertises how many sub-blocks follow in an `N` point read at
+poll time — the Multiple MPPT Inverter Extension Model (160) counts its MPPT
+modules this way. Model one sub-block as a `Component` and size the list at
+runtime with [`repeating_group`](/modbus-connection/modelling/repeats/).
+
+A sub-block's scale factors can sit in the model's shared fixed block — model 160
+keeps `DCA_SF`, `DCV_SF`, … there, and that is the default — or the block can
+carry its **own** scale factor per repeat: declare the `sunssf` inside the
+sub-block and set the sub-block's `scale_in_block` class attribute, so each
+instance's scale registers shift with it.
 
 ```python
-from modbus_connection.model import Component, integer, repeating_group
-from modbus_connection.model.sunspec import uint16
+from modbus_connection.model import Component, repeating_group
+from modbus_connection.model.sunspec import sunssf, uint16
 
-class MPPTModule(Component):                 # one module, at instance 0's addresses
-    dc_w = integer(11, scale_register=2)
-    dc_v = integer(10, scale_register=1)
+class Channel(Component):
+    scale_in_block = True                    # each channel carries its own scale factor
+    a = uint16(0, scale_register=1)
+    a_sf = sunssf(1)
 
-class Inverter(Component):
-    modules = repeating_group(uint16(8), MPPTModule, stride=20)  # N at register 8
+class Meter(Component):
+    channels = repeating_group(uint16(4), Channel, stride=2)
 ```
 
-A repeating block's scale factors sit in the shared fixed block, so a
-`repeating_group` instance shifts per instance while its `scale_register`
-addresses keep following the model — see
-[Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story on
-`base_offset`, `stride`, and `index`.
+See [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story
+on `base_offset`, `stride`, and `index`.
 
 ## Model discovery
 
