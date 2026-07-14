@@ -38,7 +38,7 @@ class RegisterItem(NamedTuple):
     address: int  # absolute start address of the field's own registers
     field: RegisterField[Any]
     store: dict[str, Any]  # the component store decoded values land in
-    scale_address: int | None  # absolute address of the field's sunssf register
+    scale_address: int | None  # absolute address of the field's scale register
     space: RegisterSpace  # the register space to read this field from
 
 
@@ -126,7 +126,7 @@ def _plan_blocks(
 
 
 def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
-    """The ``(address, width)`` spans a register read must cover (values + sunssf)."""
+    """The ``(address, width)`` spans a register read must cover (values + scales)."""
     spans: list[tuple[int, int]] = []
     for item in items:
         # ``item.field`` reads the stored RegisterField off the NamedTuple; since
@@ -219,7 +219,7 @@ async def _bulk_read_registers(
     in rather than recomputed so a polling component plans its static layout once.
     Each space's blocks are read with the matching function — ``read_input_registers``
     (FC04) for ``"input"``, ``read_holding_registers`` (FC03) for ``"holding"`` —
-    and a field's ``sunssf`` scale register (read from the same space) is fetched
+    and a field's scale register (read from the same space) is fetched
     in the same pass and applied at decode. Each field's decoded value lands in
     its ``store`` under ``field.name``. A block answering with a Modbus exception
     raises :class:`BlockReadError` (other errors propagate so the caller can mark
