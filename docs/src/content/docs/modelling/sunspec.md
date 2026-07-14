@@ -235,10 +235,12 @@ output is ordinary source, not a build artifact: commit it to your integration
 as a starting point. Devices routinely deviate from the published models —
 points left unimplemented, vendor quirks, off-spec sentinels or addresses —
 so expect to trim and adjust the generated classes to your manufacturer's
-actual implementation. Pair them with [`scan`](#model-discovery):
+actual implementation. Classes are named after the model's own name (model
+103 is `InverterThreePhase`), falling back to a `Model<id>` suffix when two
+generated models share a name. Pair them with [`scan`](#model-discovery):
 
 ```python
-class Model103(SunSpecComponent):
+class InverterThreePhase(SunSpecComponent):
     """SunSpec model 103: Inverter (Three Phase)."""
 
     class St(IntEnum):  # Operating State
@@ -254,7 +256,7 @@ class Model103(SunSpecComponent):
 ```python
 models = await scan(unit, 40000)
 if (found := models.get(103)) is not None:
-    inverter = Model103(unit, found[0])
+    inverter = InverterThreePhase(unit, found[0])
 ```
 
 Each point becomes the matching field factory at its model-relative address:
@@ -271,6 +273,12 @@ enclosing block, and the block's size doesn't depend on device-read counts.
 Geometry only the device knows — model 705's curves are each sized by the
 device's `NPt`, so their stride isn't in the definition — still gets its
 classes, with a commented-out `repeating_group` line to fill in at runtime
-instead of wiring it wrong. A scale factor inside a repeating block is
-rejected with an error, since `scale_register` addresses never shift per
-instance.
+instead of wiring it wrong. A block that declares its own `sunssf` points is
+generated with [`scale_in_block`](#multiple-mppt-and-other-repeats), so each
+instance's scale registers shift with it.
+
+What still generates an error rather than a wrong layout: a block placed
+after a device-sized sibling (its address is unknowable), a block mixing
+in-block and fixed-block scale factors, a point scaled by a factor in an
+enclosing repeating block, and unknown point types or count references.
+Everything else in the official catalogue generates.

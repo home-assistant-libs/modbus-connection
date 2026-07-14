@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+import json
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -110,17 +113,17 @@ def test_generated_layout() -> None:
     assert "pad" not in source
     # The repeating block: its own Component class at instance-0 addresses,
     # sized by the count point, scaled from the shared fixed block.
-    assert "class Model64111Module(Component):" in source
+    assert "class TestModule(Component):" in source
     assert "v = uint16(14, scale_register=3, unit='V')" in source
     assert "lbl = string(15, 2)" in source
-    assert "module = repeating_group(uint16(11), Model64111Module, stride=3)" in source
+    assert "module = repeating_group(uint16(11), TestModule, stride=3)" in source
 
 
 async def test_generated_module_decodes() -> None:
     source = generate_source([MODEL_JSON])
     namespace: dict[str, Any] = {}
     exec(compile(source, "<generated>", "exec"), namespace)  # noqa: S102
-    model_cls = namespace["Model64111"]
+    model_cls = namespace["Test"]
 
     base = 40002
     unit = MockModbusConnection().for_unit(1)
@@ -174,21 +177,21 @@ def test_count_zero_without_count_point_generates_hint() -> None:
     model = copy.deepcopy(MODEL_JSON)
     model["group"]["points"] = [p for p in model["group"]["points"] if p["name"] != "N"]
     source = generate_source([model])
-    assert "# module = repeating_group(N, Model64111Module, stride=3)" in source
+    assert "# module = repeating_group(N, TestModule, stride=3)" in source
 
 
 def test_string_count_reference() -> None:
     model = copy.deepcopy(MODEL_JSON)
     model["group"]["groups"][0]["count"] = "N"
     source = generate_source([model])
-    assert "module = repeating_group(uint16(11), Model64111Module, stride=3)" in source
+    assert "module = repeating_group(uint16(11), TestModule, stride=3)" in source
 
 
 def test_fixed_count_folds_into_layout() -> None:
     model = copy.deepcopy(MODEL_JSON)
     model["group"]["groups"][0]["count"] = 3
     source = generate_source([model])
-    assert "module = repeating_group(3, Model64111Module, stride=3)" in source
+    assert "module = repeating_group(3, TestModule, stride=3)" in source
 
 
 def test_nested_fixed_count_group_wires_statically() -> None:
@@ -203,10 +206,10 @@ def test_nested_fixed_count_group_wires_statically() -> None:
     source = generate_source([model])
     # The nested block folds into the layout: its class sits at instance-0
     # addresses and the enclosing stride grows by count * size.
-    assert "class Model64111ModuleChan(Component):" in source
+    assert "class TestModuleChan(Component):" in source
     assert "val = uint16(17)" in source
-    assert "chan = repeating_group(2, Model64111ModuleChan, stride=1)" in source
-    assert "module = repeating_group(uint16(11), Model64111Module, stride=5)" in source
+    assert "chan = repeating_group(2, TestModuleChan, stride=1)" in source
+    assert "module = repeating_group(uint16(11), TestModule, stride=5)" in source
 
 
 async def test_nested_fixed_count_group_decodes() -> None:
@@ -239,7 +242,7 @@ async def test_nested_fixed_count_group_decodes() -> None:
             base + 23: 22,
         }
     )
-    component = namespace["Model64111"](
+    component = namespace["Test"](
         unit, SunSpecModel(model_id=64111, address=base, length=22)
     )
     await component.async_update()
@@ -283,15 +286,15 @@ NESTED_MODEL_JSON: dict[str, Any] = {
 def test_device_sized_nested_blocks_generate_classes_and_hints() -> None:
     source = generate_source([NESTED_MODEL_JSON])
     # Classes for every level, at instance-0 addresses.
-    assert "class Model64222CrvPt(Component):" in source
+    assert "class CurvesCrvPt(Component):" in source
     assert "v = uint16(5)" in source
-    assert "class Model64222Crv(Component):" in source
+    assert "class CurvesCrv(Component):" in source
     assert "act_pt = uint16(4)" in source
     # The inner count lives in the top block, so it cannot be wired (it would
     # shift with the curve instance); the stride is known.
-    assert "# pt = repeating_group(N, Model64222CrvPt, stride=1)" in source
+    assert "# pt = repeating_group(N, CurvesCrvPt, stride=1)" in source
     # The outer count wires, but the stride depends on the device's NPt.
-    assert "# crv = repeating_group(uint16(3), Model64222Crv, stride=<...>)" in source
+    assert "# crv = repeating_group(uint16(3), CurvesCrv, stride=<...>)" in source
 
 
 def test_device_sized_block_must_be_last() -> None:
@@ -310,13 +313,84 @@ def test_unknown_count_reference_is_rejected() -> None:
         generate_source([model])
 
 
-def test_scale_factor_inside_repeating_block_is_rejected() -> None:
-    model = copy.deepcopy(MODEL_JSON)
-    model["group"]["groups"][0]["points"].append(
-        {"name": "V_SF", "type": "sunssf", "size": 1}
+def _with_in_block_scale(model: dict[str, Any]) -> dict[str, Any]:
+    """Give the module block its own scale factor: V scaled by an inner V_SF."""
+    model = copy.deepcopy(model)
+    module = model["group"]["groups"][0]
+    module["points"][0]["sf"] = "V_SF"
+    module["points"].append({"name": "V_SF", "type": "sunssf", "size": 1})
+    return model
+
+
+def test_in_block_scale_factor_sets_scale_in_block() -> None:
+    source = generate_source([_with_in_block_scale(MODEL_JSON)])
+    assert "scale_in_block = True" in source
+    # V's scale register is the block's own V_SF, at its instance-0 address.
+    assert "v = uint16(14, scale_register=17, unit='V')" in source
+    assert "v_sf = sunssf(17)" in source
+    assert "module = repeating_group(uint16(11), TestModule, stride=4)" in source
+
+
+async def test_in_block_scale_factor_decodes_per_instance() -> None:
+    namespace: dict[str, Any] = {}
+    exec(  # noqa: S102
+        compile(
+            generate_source([_with_in_block_scale(MODEL_JSON)]),
+            "<generated>",
+            "exec",
+        ),
+        namespace,
     )
-    with pytest.raises(SunSpecGenerationError, match="inside the repeating block"):
+    base = 200
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(
+        {
+            base: 64111,
+            base + 1: 20,  # 12 fixed + 2 modules * 4
+            base + 11: 2,  # N = 2 modules
+            # Same raw V, but each instance carries its own scale factor.
+            base + 14: 100,
+            base + 17: (-1) & 0xFFFF,  # module[0]: V_SF = -1
+            base + 18: 100,
+            base + 21: 1,  # module[1]: V_SF = 1
+        }
+    )
+    component = namespace["Test"](
+        unit, SunSpecModel(model_id=64111, address=base, length=20)
+    )
+    await component.async_update()
+    modules = component.module
+    assert [m.v for m in modules] == [pytest.approx(10.0), pytest.approx(1000.0)]
+    assert [m.v_sf for m in modules] == [-1, 1]
+
+
+def test_mixed_scale_factor_scopes_are_rejected() -> None:
+    # V stays scaled by the fixed block's A_SF while X uses an in-block V_SF.
+    model = copy.deepcopy(MODEL_JSON)
+    module = model["group"]["groups"][0]
+    module["points"].append({"name": "X", "type": "uint16", "size": 1, "sf": "V_SF"})
+    module["points"].append({"name": "V_SF", "type": "sunssf", "size": 1})
+    with pytest.raises(SunSpecGenerationError, match="mixes in-block and"):
         generate_source([model])
+
+
+def test_scale_factor_in_enclosing_block_is_rejected() -> None:
+    model = copy.deepcopy(NESTED_MODEL_JSON)
+    crv = model["group"]["groups"][0]
+    crv["points"].append({"name": "C_SF", "type": "sunssf", "size": 1})
+    crv["groups"][0]["points"][0]["sf"] = "C_SF"
+    with pytest.raises(SunSpecGenerationError, match="enclosing repeating block"):
+        generate_source([model])
+
+
+def test_colliding_model_names_get_id_suffix() -> None:
+    first = copy.deepcopy(MODEL_JSON)
+    second = copy.deepcopy(MODEL_JSON)
+    second["id"] = 64112
+    source = generate_source([first, second])
+    assert "class Test(SunSpecComponent):" in source
+    assert "class Test64112(SunSpecComponent):" in source
+    assert "module = repeating_group(uint16(11), Test64112Module, stride=3)" in source
 
 
 def test_unknown_point_type_is_rejected() -> None:
@@ -324,3 +398,45 @@ def test_unknown_point_type_is_rejected() -> None:
     model["group"]["points"].append({"name": "X", "type": "mystery", "size": 1})
     with pytest.raises(SunSpecGenerationError, match="unsupported type"):
         generate_source([model])
+
+
+def test_official_model_catalogue_generates_and_imports(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Every published model either generates importable source or is
+    rejected with a SunSpecGenerationError - never a crash or bad syntax."""
+    repo = tmp_path_factory.mktemp("sunspec") / "models"
+    clone = subprocess.run(
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "https://github.com/sunspec/models",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if clone.returncode != 0:
+        pytest.skip(f"cannot clone sunspec/models: {clone.stderr.strip()[:200]}")
+
+    generated: list[int] = []
+    rejected: list[int] = []
+    for path in sorted(Path(repo, "json").glob("model_*.json")):
+        model = json.loads(path.read_text())
+        try:
+            source = generate_source([model])
+        except SunSpecGenerationError:
+            rejected.append(model["id"])
+            continue
+        namespace: dict[str, Any] = {}
+        # Importing exercises syntax, the generated imports and enum bodies.
+        exec(compile(source, path.name, "exec"), namespace)  # noqa: S102
+        generated.append(model["id"])
+
+    assert len(generated) >= 100, (generated, rejected)
+    # The rejections are the documented static-layout limits, a small tail.
+    assert len(rejected) <= len(generated) // 10, rejected

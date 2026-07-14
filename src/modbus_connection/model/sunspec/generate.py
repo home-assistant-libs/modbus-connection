@@ -172,6 +172,22 @@ class _ModuleWriter:
         self.sunspec_imports: set[str] = set()
         self.classes: list[str] = []
         self.sources: list[str] = []
+        self.class_names: set[str] = set()
+
+    def claim_class(self, preferred: str, model_id: int | None = None) -> str:
+        """A unique module-level class name, disambiguated by model ID.
+
+        Model names are not guaranteed unique (vendor models especially), so
+        a taken name gets the model ID appended; nested names are unique
+        through their enclosing class's prefix.
+        """
+        name = preferred
+        if name in self.class_names and model_id is not None:
+            name = f"{preferred}{model_id}"
+        while name in self.class_names:
+            name += "_"
+        self.class_names.add(name)
+        return name
 
     def render(self) -> str:
         header = [
@@ -286,9 +302,7 @@ def _fixed_count(raw_count: Any) -> int | None:
     return None
 
 
-def _parse_group(
-    raw: Mapping[str, Any], start: int, model_id: int, *, top: bool = False
-) -> _Group:
+def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
     """Recursively place a block's points and nested blocks from ``start``.
 
     Sizes propagate bottom-up: a block sized by a device-read count has no
@@ -296,16 +310,6 @@ def _parse_group(
     follow such a block at any level.
     """
     points = _parse_points(raw.get("points", []), start)
-    if not top:
-        for point in points:
-            if point.type == "sunssf":
-                # A scale factor inside the block would shift per instance,
-                # which scale_register addresses never do (they follow the
-                # shared fixed block) - no static layout can express it.
-                raise SunSpecGenerationError(
-                    f"model {model_id}: group {raw['name']} defines scale"
-                    f" factor {point.name} inside the repeating block"
-                )
     offset = start + sum(p.size for p in points)
     children: list[_Group] = []
     size: int | None = offset - start
@@ -424,16 +428,57 @@ def _wire_child(
     return lines
 
 
+def _block_scales(
+    group: _Group,
+    top_scales: Mapping[str, int],
+    model_id: int,
+    scopes: list[_Group],
+) -> tuple[Mapping[str, int], bool]:
+    """The scale-factor scope of one repeating block.
+
+    A block's scaled points may reference the model's shared fixed block (the
+    default) or ``sunssf`` points of the block itself — then every instance
+    carries its own factors, expressed with ``scale_in_block``. The two can't
+    mix on one class, and a factor in an intermediate enclosing block fits
+    neither shift, so both are rejected.
+    """
+    own_scales = {p.name: p.address for p in group.points if p.type == "sunssf"}
+    in_block = fixed = False
+    for point in group.points:
+        if not isinstance(point.sf, str):
+            continue
+        if point.sf in own_scales:
+            in_block = True
+        elif point.sf in top_scales:
+            fixed = True
+        elif any(
+            p.name == point.sf and p.type == "sunssf"
+            for scope in scopes[1:]
+            for p in scope.points
+        ):
+            raise SunSpecGenerationError(
+                f"model {model_id}: point {point.name} references scale"
+                f" factor {point.sf} in an enclosing repeating block, which"
+                " shifts with neither the model nor this block's instances"
+            )
+    if in_block and fixed:
+        raise SunSpecGenerationError(
+            f"model {model_id}: group {group.name} mixes in-block and"
+            " fixed-block scale factors, which one class cannot express"
+        )
+    return (own_scales, True) if in_block else (top_scales, False)
+
+
 def _emit_group_class(
     group: _Group,
     prefix: str,
     module: _ModuleWriter,
-    scale_addresses: Mapping[str, int],
+    top_scales: Mapping[str, int],
     model_id: int,
     scopes: list[_Group],
 ) -> str:
     """Emit one block's ``Component`` class (children first); return its name."""
-    class_name = f"{prefix}{_camel(group.name)}"
+    class_name = module.claim_class(f"{prefix}{_camel(group.name)}")
     writer = _ClassWriter(
         class_name,
         "Component",
@@ -443,10 +488,15 @@ def _emit_group_class(
     wiring: list[str] = []
     for child in group.children:
         child_class = _emit_group_class(
-            child, class_name, module, scale_addresses, model_id, [*scopes, group]
+            child, class_name, module, top_scales, model_id, [*scopes, group]
         )
         wiring.extend(
             _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
+        )
+    scale_addresses, scale_in_block = _block_scales(group, top_scales, model_id, scopes)
+    if scale_in_block:
+        writer.field_lines.append(
+            "    scale_in_block = True  # each instance carries its own scale factors"
         )
     for point in group.points:
         if point.type != "pad":
@@ -461,7 +511,7 @@ def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
     model_id = int(model["id"])
     module.sources.append(f"json/model_{model_id}.json")
 
-    top = _parse_group(model["group"], 0, model_id, top=True)
+    top = _parse_group(model["group"], 0, model_id)
     # ID and L are the model header; SunSpecComponent already declares them
     # (model_id / model_length at 0 and 1), so they are parsed for the address
     # walk but not emitted.
@@ -469,7 +519,9 @@ def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
     scale_addresses = {p.name: p.address for p in top.points if p.type == "sunssf"}
 
     label = model["group"].get("label") or top.name
-    class_name = f"Model{model_id}"
+    class_name = module.claim_class(
+        _camel(top.name) if top.name else f"Model{model_id}", model_id
+    )
     writer = _ClassWriter(
         class_name, "SunSpecComponent", f"SunSpec model {model_id}: {label}."
     )
