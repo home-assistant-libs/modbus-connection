@@ -617,9 +617,7 @@ class SunSpecComponent(Component):
         return f"{type(self).__name__}({values})"
 
 
-async def scan(
-    unit: ModbusUnit, base_address: int
-) -> dict[int, list[SunSpecModel]]:
+async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecModel]]:
     """Walk the SunSpec model chain and return the discovered models by ID.
 
     ``base_address`` is the 0-based register address of the map's ``"SunS"``
