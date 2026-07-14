@@ -36,9 +36,16 @@ from modbus_connection.model import Component, gauge, uint32, coil
 
 class Meter(Component):
     voltage = gauge(0, 0.1, unit="V")     # scaled 16-bit register
+    """Grid voltage."""
+
     current = gauge(1, 0.1, unit="A")
+    """Grid current."""
+
     energy = uint32(2, unit="Wh")         # 32-bit over two registers
+    """Lifetime energy."""
+
     relay = coil(0, writable=True)
+    """Load relay."""
 
 
 async def main() -> None:
@@ -60,8 +67,9 @@ asyncio.run(main())
 ## Documentation
 
 Everything else — the other transports (UDP, serial, TLS), the full field-type
-and read-planning reference, repeated sub-units, the query helper, the in-memory
-mock backend for tests, and the exception hierarchy — lives on the website:
+and read-planning reference, repeated sub-units, the SunSpec field types and
+model generator, the query helper, the in-memory mock backend for tests, and
+the exception hierarchy — lives on the website:
 
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 

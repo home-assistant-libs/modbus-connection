@@ -18,15 +18,25 @@ from modbus_connection.model import Component, gauge, uint32, coil
 
 class Meter(Component):
     voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
+    """Grid voltage."""
+
     current = gauge(1, 0.1, unit="A")
+    """Grid current."""
+
     energy = uint32(2, unit="Wh")            # 32-bit over two registers
+    """Lifetime energy."""
+
     relay = coil(0, writable=True)
+    """Load relay."""
 
 meter = Meter(unit)
 await meter.async_update()                   # one block read
 meter.voltage                                # float | None
 await meter.write("relay", True)
 ```
+
+The string under each field is an attribute docstring — optional, but editors
+show it when hovering `meter.voltage` anywhere in the codebase.
 
 `async_update()` reads every field, decodes it, and stores the result. Reading an
 attribute returns the decoded value or `None` (a field that hasn't been read yet,
