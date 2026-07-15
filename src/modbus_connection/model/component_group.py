@@ -18,6 +18,7 @@ from ._planning import (
     _bulk_read_registers,
     _plan_bit_blocks,
     _plan_register_blocks,
+    _read_raw,
 )
 
 if TYPE_CHECKING:
@@ -145,3 +146,22 @@ class ComponentGroup:
         if notify:
             for component in self._components:
                 component.notify()
+
+    async def async_diagnostics(self) -> dict[str, dict[int, int | bool]]:
+        """Read the group's pooled blocks raw, keyed by address, for diagnostics.
+
+        Issues the same consolidated block reads as :meth:`async_update` — merged
+        across the group's members, one per space — but returns the raw register
+        words and bit values under their absolute addresses instead of decoding
+        them into the components' fields. The result is ``{space: {address:
+        value}}`` for each space the group reads: ``"holding"`` / ``"input"`` map
+        to 16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can
+        hand this straight to a diagnostics download.
+
+        This reads the device fresh; it does not depend on a prior update. Like
+        :meth:`async_update`, a block answering with a Modbus exception raises
+        :class:`~modbus_connection.exceptions.BlockReadError`. The fixed pooled
+        plan is covered; a member's runtime-counted :func:`repeating_group`
+        instances — read in a separate second pass — are not included.
+        """
+        return await _read_raw(self._unit, self._register_blocks, self._bit_blocks)

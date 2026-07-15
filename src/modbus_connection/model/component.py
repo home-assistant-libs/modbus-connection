@@ -18,6 +18,7 @@ from ._planning import (
     _bulk_read_registers,
     _plan_bit_blocks,
     _plan_register_blocks,
+    _read_raw,
 )
 from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
@@ -275,6 +276,24 @@ class Component(_RepeatingGroups):
         await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
         await self.async_update_repeating_groups()
         self.notify()
+
+    async def async_diagnostics(self) -> dict[str, dict[int, int | bool]]:
+        """Read this component's blocks raw, keyed by address, for diagnostics.
+
+        Issues the same pooled block reads as :meth:`async_update` but returns the
+        raw register words and bit values under their absolute addresses instead
+        of decoding them into fields. The result is ``{space: {address: value}}``
+        for each space this component reads: ``"holding"`` / ``"input"`` map to
+        16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can hand
+        this straight to a diagnostics download.
+
+        This reads the device fresh; it does not depend on a prior update. Like
+        :meth:`async_update`, a block answering with a Modbus exception raises
+        :class:`~modbus_connection.exceptions.BlockReadError`. The fixed layout is
+        covered; runtime-counted :func:`repeating_group` instances — read in a
+        separate second pass — are not included.
+        """
+        return await _read_raw(self._unit, self._register_blocks, self._bit_blocks)
 
     # -- writes --------------------------------------------------------------
 

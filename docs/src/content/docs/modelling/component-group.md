@@ -92,6 +92,32 @@ caller that notifies them itself:
 await group.async_update(notify=False)
 ```
 
+## Raw diagnostics
+
+To capture the group's **raw** register map — for a diagnostics download rather
+than decoded values — call `async_diagnostics()`. It issues the same consolidated
+block reads as `async_update()`, merged across the members, but returns the raw
+words and bits keyed by absolute address instead of decoding them into fields:
+
+```python
+raw = await group.async_diagnostics()
+# {
+#     "holding": {0: 2301, 1: 47, ...},   # merged across the group's members
+#     "input": {507: 12, ...},
+#     "coil": {0: True},
+#     "discrete": {3: False},
+# }
+```
+
+The result is `{space: {address: value}}` for each space the group reads. It reads
+the device fresh (no prior update needed) and raises
+[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) on a
+Modbus exception, like an update. The fixed pooled plan is covered; a member's
+runtime-counted [`repeating_group`](/modbus-connection/modelling/repeats/)
+instances are not. See [Raw
+diagnostics](/modbus-connection/modelling/overview/#raw-diagnostics) for the
+per-component method.
+
 ## When to use which
 
 - One sub-system, or sub-systems polled on different schedules → individual

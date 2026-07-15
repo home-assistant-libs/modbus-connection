@@ -145,6 +145,33 @@ whichever backend the integration ships:
   response.
 - `ModbusExceptionError` → the device rejected the request (`.exception_code`).
 
+## Diagnostics
+
+Home Assistant lets a user **download diagnostics** for a device. For a Modbus
+device the most useful payload is the raw register map — every register the
+integration reads, with its raw value — so an issue report shows exactly what the
+device returned. `Component`, `ComponentGroup` and `ManualComponent` all expose
+`async_diagnostics()` for this: it runs the same pooled block reads as
+`async_update()` but returns the raw words and bits keyed by absolute address,
+`{space: {address: value}}`, undecoded.
+
+```python
+from homeassistant.components.diagnostics import async_redact_data
+
+async def async_get_config_entry_diagnostics(hass, entry):
+    coordinator = entry.runtime_data
+    return {
+        "registers": await coordinator.device.async_diagnostics(),
+    }
+```
+
+`async_diagnostics()` reads the device fresh, so it reflects the live register
+state at download time. It raises the same
+[`ModbusError`](/modbus-connection/reference/exceptions/) subclasses as an update;
+catch them if you'd rather serialize a diagnostics payload than fail the download.
+Its keys are the register spaces the device serves — `"holding"`, `"input"`,
+`"coil"`, `"discrete"` — each an address-keyed map of raw values.
+
 ## Testing without hardware
 
 The library layer is fully testable with the shipped
@@ -163,4 +190,5 @@ wiring.
 - [ ] Coordinator calls the library's `async_update()` and maps `ModbusError` to
       `UpdateFailed`.
 - [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
+- [ ] Diagnostics download returns the raw register map via `async_diagnostics()`.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).

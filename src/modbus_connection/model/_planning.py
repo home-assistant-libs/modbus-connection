@@ -242,6 +242,38 @@ async def _bulk_read_registers(
         item.store[field.name] = field.decode(field_words, scale_exponent)
 
 
+async def _read_raw(
+    unit: ModbusUnit,
+    register_blocks: dict[RegisterSpace, list[tuple[int, int]]],
+    bit_blocks: dict[BitSpace, list[tuple[int, int]]],
+) -> dict[str, dict[int, int | bool]]:
+    """Read every planned block and return the raw values keyed by address.
+
+    The diagnostics counterpart of the bulk readers: it issues the same pooled
+    block reads but keeps each raw register word / bit value under its absolute
+    address instead of decoding it into a field. The result is
+    ``{space: {address: value}}`` for each space that has blocks — register
+    spaces (``"holding"`` / ``"input"``) map to 16-bit words and bit spaces
+    (``"coil"`` / ``"discrete"``) to booleans, addresses ascending. A block
+    answering with a Modbus exception raises :class:`BlockReadError`, like an
+    update.
+    """
+    raw: dict[str, dict[int, int | bool]] = {}
+    words = await _read_blocks_by_space(
+        {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
+        register_blocks,
+    )
+    for (register_space, address), word in words.items():
+        raw.setdefault(register_space, {})[address] = word
+    bits = await _read_blocks_by_space(
+        {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
+        bit_blocks,
+    )
+    for (bit_space, address), bit in bits.items():
+        raw.setdefault(bit_space, {})[address] = bool(bit)
+    return raw
+
+
 async def _bulk_read_bits(
     unit: ModbusUnit,
     items: list[BitItem],
