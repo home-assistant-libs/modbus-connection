@@ -166,12 +166,14 @@ async def test_uncomputable_scale_factor_decodes_none(scale_factor: int) -> None
 
     The exponent comes from a device register, so it can be anything; when it is
     too large or too small to represent, the value cannot be scaled and is
-    unknown rather than a crash (0x8000, the SunSpec sentinel, underflows here).
+    unknown rather than a crash. Uses the generic integer field: it declares no
+    exponent range, so the computability guard itself is what rejects these
+    (a SunSpec field would already reject them as outside the sunssf range).
     """
     unit = _unit()
     unit.holding.update({0: 1234, 5: scale_factor & 0xFFFF})
     mc = ManualComponent(unit)
-    mc.add("current", uint16(0, scale_register=5))
+    mc.add("current", integer(0, signed=False, scale_register=5))
     await mc.async_update()
     assert mc.get("current") is None
 
@@ -184,17 +186,21 @@ async def test_scaled_value_overflow_decodes_none() -> None:
     unit = _unit()
     unit.holding.update({0: 1234, 5: 308})
     mc = ManualComponent(unit)
-    mc.add("current", uint16(0, scale_register=5))
+    mc.add("current", integer(0, signed=False, scale_register=5))
     await mc.async_update()
     assert mc.get("current") is None
 
 
 async def test_large_representable_scale_factor_still_computes() -> None:
-    """A large but representable exponent is scaled, not rejected."""
+    """A large but representable exponent is scaled, not rejected.
+
+    Only fields that declare an exponent range (like SunSpec's) bound the
+    exponent; the generic integer field takes any representable one.
+    """
     unit = _unit()
     unit.holding.update({0: 2, 5: 15})  # 10**15 is large but finite
     mc = ManualComponent(unit)
-    mc.add("value", uint16(0, scale_register=5))
+    mc.add("value", integer(0, signed=False, scale_register=5))
     await mc.async_update()
     assert mc.get("value") == 2 * 10**15
 

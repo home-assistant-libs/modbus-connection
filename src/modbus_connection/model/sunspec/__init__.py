@@ -95,6 +95,10 @@ _INT64_NAN = 0x8000_0000_0000_0000
 _UINT64_NAN = 0xFFFF_FFFF_FFFF_FFFF
 _ACC_NAN = 0x0  # acc16/32/64: 0 means "not accumulated"
 _FLOAT_NAN = 0x7FC0_0000  # any NaN; used as a flag so float fields decode NaN to None
+# The spec constrains a sunssf exponent to -10..10; devices have been seen
+# reporting garbage outside it (typically around an inverter's sleep/wake
+# transition), which would otherwise scale a sane raw value into an absurd one.
+_SUNSSF_RANGE = (-10, 10)
 
 
 def _scaled(
@@ -118,6 +122,7 @@ def _scaled(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
+        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -292,6 +297,7 @@ def acc16(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
+        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )
@@ -315,6 +321,7 @@ def acc32(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
+        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )
@@ -338,6 +345,7 @@ def acc64(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
+        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )

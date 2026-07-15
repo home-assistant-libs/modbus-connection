@@ -75,6 +75,59 @@ async def test_unimplemented_values_decode_to_none() -> None:
     assert inv.events is None
 
 
+@pytest.mark.parametrize("scale_factor", [11, -11, 100, -32768])
+async def test_out_of_spec_scale_factor_decodes_to_none(scale_factor: int) -> None:
+    """A sunssf exponent outside the spec's -10..10 decodes the value to None.
+
+    Devices have been seen reporting garbage exponents (typically around an
+    inverter's sleep/wake transition); scaling a sane raw value by one would
+    turn it into an absurd reading, so the value is unknown instead.
+    """
+    inv = _inverter({0: 1234, 1: scale_factor & 0xFFFF, 2: 250, 3: 1})
+    await inv.async_update()
+    assert inv.a is None
+    assert inv.power == 2500  # its own exponent is fine
+
+
+async def test_spec_range_boundary_scale_factors_compute() -> None:
+    """The spec range is inclusive: -10 and 10 still scale normally."""
+    inv = _inverter({0: 2, 1: 10, 2: 2, 3: (-10) & 0xFFFF})
+    await inv.async_update()
+    assert inv.a == 2 * 10**10
+    assert inv.power == pytest.approx(2e-10)
+
+
+async def test_accumulator_out_of_spec_scale_factor_decodes_to_none() -> None:
+    """Accumulators bound their dynamic exponent to the sunssf range too."""
+
+    class Accumulating(Component):
+        wh = ss.acc32(0, scale_register=2, unit="Wh")
+        wh_sf = ss.sunssf(2)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0x0001, 1: 0x86A0, 2: 11})
+    comp = Accumulating(unit)
+    await comp.async_update()
+    assert comp.wh is None
+
+
+async def test_write_with_out_of_spec_scale_factor_raises() -> None:
+    """A write never scales by an out-of-spec exponent; it raises instead.
+
+    Unlike a read, which decodes such a value to None, a write must never
+    guess, so nothing may reach the device.
+    """
+
+    class Control(Component):
+        limit = ss.uint16(0, scale_register=1, writable=True)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[1] = 11
+    with pytest.raises(ValueError, match="outside the spec range"):
+        await Control(unit).write("limit", 100)
+    assert 0 not in unit.holding  # nothing was written
+
+
 async def test_accumulator_dynamic_scale_factor() -> None:
     # SunSpec scales accumulators dynamically too (model 103's WH via WH_SF).
     class Accumulating(Component):

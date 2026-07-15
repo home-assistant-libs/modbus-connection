@@ -202,27 +202,44 @@ class _ScaledField[T](RegisterField[T]):
         scale: float = 1.0,
         offset: float = 0.0,
         nan: int | None = None,
+        scale_exponent_range: tuple[int, int] | None = None,
         **kwargs: Any,
     ) -> None:
-        """``scale``/``offset`` map the number affinely; ``nan`` decodes to ``None``."""
+        """``scale``/``offset`` map the number affinely; ``nan`` decodes to ``None``.
+
+        ``scale_exponent_range`` bounds (inclusive) the exponent a scale-factor
+        register may hold, for specs that constrain it (SunSpec's ``sunssf`` is
+        -10..10); an exponent outside it decodes the value to ``None``.
+        """
         super().__init__(address, **kwargs)
         self.scale = scale
         self.offset = offset
         self.nan = nan
+        self.scale_exponent_range = scale_exponent_range
         # Rounding precision: the finer of what scale and offset each imply, so an
         # integer offset on a 0.1 scale still keeps the scale's decimal.
         self._decimals = max(_decimals(scale), _decimals(offset))
+
+    def _exponent_in_range(self, scale_exponent: int) -> bool:
+        """Whether a register-sourced exponent is within the declared spec range."""
+        if self.scale_exponent_range is None:
+            return True
+        low, high = self.scale_exponent_range
+        return low <= scale_exponent <= high
 
     def _scale(self, value: float, scale_exponent: int | None) -> Any:
         """Apply this field's scale (incl. optional 10**sf) and offset, then round.
 
         A dynamic ``scale_exponent`` comes from a device register, so it may be
-        anything. When it, or the scaled result, is too large or small to
-        represent as a finite number, the value cannot be scaled, so it decodes
-        to None rather than raising or returning a wrong number.
+        anything. When it falls outside the field's declared spec range, or it
+        (or the scaled result) is too large or small to represent as a finite
+        number, the value cannot be scaled, so it decodes to None rather than
+        raising or returning a wrong number.
         """
         factor = self.scale
         if scale_exponent is not None:
+            if not self._exponent_in_range(scale_exponent):
+                return None  # exponent outside the field's declared spec range
             try:
                 dynamic = 10.0**scale_exponent
             except OverflowError:
@@ -258,6 +275,11 @@ class _ScaledField[T](RegisterField[T]):
             )
         factor = self.scale
         if scale_exponent is not None:
+            if not self._exponent_in_range(scale_exponent):
+                raise ValueError(
+                    f"field {self.name!r}: scale factor {scale_exponent} is"
+                    f" outside the spec range {self.scale_exponent_range}"
+                )
             try:
                 dynamic = 10.0**scale_exponent
             except OverflowError:

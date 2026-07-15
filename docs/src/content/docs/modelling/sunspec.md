@@ -42,6 +42,12 @@ point works too: pass the engineering value and the scale factor is read
 fresh in the same write, so a factor the device shifted meanwhile cannot
 mis-scale it. A not-implemented factor raises `ValueError`.
 
+The spec constrains a `sunssf` exponent to **-10..10**. Devices have been seen
+reporting garbage exponents outside that range (typically around an inverter's
+sleep/wake transition), which would scale a sane raw value into an absurd
+reading. A point whose exponent falls outside the spec range therefore decodes
+to `None`, and a write with one raises `ValueError`.
+
 ## Numeric points
 
 Each factory bakes in the SunSpec "unimplemented" sentinel for its type, so an
