@@ -228,7 +228,7 @@ class ManualComponent(_RepeatingGroups):
         self.notify()
         return dict(self._values)
 
-    async def async_diagnostics(self) -> dict[str, dict[int, int | bool]]:
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Read this component's blocks raw, keyed by address, for diagnostics.
 
         Issues the same pooled block reads as :meth:`async_update` but returns the

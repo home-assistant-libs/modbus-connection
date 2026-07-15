@@ -1231,7 +1231,7 @@ async def test_component_diagnostics_returns_raw_registers_by_address() -> None:
     unit.coils[0] = True
 
     # No prior async_update: diagnostics reads the device fresh.
-    raw = await _Diag(unit).async_diagnostics()
+    raw = await _Diag(unit).async_read_raw()
 
     # count at 0, energy at 3..4 -> holding 0..4 pooled; the raw words land under
     # their absolute addresses, undecoded, and the coil under "coil".
@@ -1261,7 +1261,7 @@ async def test_group_diagnostics_covers_every_space() -> None:
     unit = _SpyUnit(inner)
 
     group = ComponentGroup(unit, [Holding(unit), Input(unit), Bits(unit)])  # type: ignore[list-item]
-    raw = await group.async_diagnostics()
+    raw = await group.async_read_raw()
 
     assert raw == {
         "holding": {0: 11},
@@ -1284,7 +1284,7 @@ async def test_group_diagnostics_pools_adjacent_reads() -> None:
     unit = _Counting(inner)
     group = ComponentGroup(unit, [Meter(unit)])  # type: ignore[list-item]
 
-    await group.async_diagnostics()
+    await group.async_read_raw()
 
     # Meter's holding fields span 0..8 -> one pooled block, like async_update.
     assert unit.reads == [(0, 9)]
@@ -1297,7 +1297,7 @@ async def test_manual_component_diagnostics() -> None:
     manual.add("a", integer(5, signed=False))
     manual.add("b", integer(6, signed=False))
 
-    raw = await manual.async_diagnostics()
+    raw = await manual.async_read_raw()
 
     assert raw == {"holding": {5: 42, 6: 99}}
 
@@ -1306,4 +1306,4 @@ async def test_diagnostics_raises_block_read_error() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.fail_read(0, ModbusExceptionError(2))  # illegal data address
     with pytest.raises(BlockReadError):
-        await _Diag(unit).async_diagnostics()
+        await _Diag(unit).async_read_raw()

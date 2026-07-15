@@ -95,12 +95,12 @@ await group.async_update(notify=False)
 ## Raw diagnostics
 
 To capture the group's **raw** register map — for a diagnostics download rather
-than decoded values — call `async_diagnostics()`. It issues the same consolidated
+than decoded values — call `async_read_raw()`. It issues the same consolidated
 block reads as `async_update()`, merged across the members, but returns the raw
 words and bits keyed by absolute address instead of decoding them into fields:
 
 ```python
-raw = await group.async_diagnostics()
+raw = await group.async_read_raw()
 # {
 #     "holding": {0: 2301, 1: 47, ...},   # merged across the group's members
 #     "input": {507: 12, ...},

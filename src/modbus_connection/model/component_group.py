@@ -147,7 +147,7 @@ class ComponentGroup:
             for component in self._components:
                 component.notify()
 
-    async def async_diagnostics(self) -> dict[str, dict[int, int | bool]]:
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Read the group's pooled blocks raw, keyed by address, for diagnostics.
 
         Issues the same consolidated block reads as :meth:`async_update` — merged

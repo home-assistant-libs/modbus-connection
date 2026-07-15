@@ -186,11 +186,11 @@ unsubscribe()
 
 `async_update()` decodes each register into a typed field. To capture the
 device's **raw** register map instead — for a diagnostics download, or to debug a
-register layout — call `async_diagnostics()`. It issues the same pooled block
+register layout — call `async_read_raw()`. It issues the same pooled block
 reads but returns the raw words and bits keyed by absolute address, undecoded:
 
 ```python
-raw = await meter.async_diagnostics()
+raw = await meter.async_read_raw()
 # {
 #     "holding": {0: 2301, 1: 47, 2: 0x0001, 3: 0x86A0},  # voltage, current, energy
 #     "coil": {0: True},                                   # relay
