@@ -148,32 +148,29 @@ class ComponentGroup:
                 component.notify()
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read the group's pooled blocks raw, keyed by address, for diagnostics.
+        """Read the group's registers and bits raw, keyed by address, for diagnostics.
 
-        Runs the same reads as :meth:`async_update` — the consolidated block reads
-        merged across the members, plus each member's :func:`repeating_group`
-        second pass — but returns the raw register words and bit values under their
-        absolute addresses instead of only decoding them into the components'
-        fields. The result is ``{space: {address: value}}`` for each space the
-        group reads, addresses ascending: ``"holding"`` / ``"input"`` map to
-        16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can hand
-        this straight to a diagnostics download.
-
-        Reads the device fresh (no prior update needed) and, like an update, sizes
-        and includes members' runtime-counted :func:`repeating_group` instances.
-        It refreshes the components' decoded values as it reads but does **not**
-        notify listeners. A block answering with a Modbus exception raises
-        :class:`~modbus_connection.exceptions.BlockReadError`.
+        The :class:`ComponentGroup` counterpart of
+        :meth:`Component.async_read_raw`: the same consolidated reads as
+        :meth:`async_update`, merged across the members and including their
+        repeating groups, returned raw as ``{space: {address: value}}`` without
+        notifying listeners.
         """
         raw: dict[str, dict[int, int | bool]] = {}
         _merge_raw(
             raw,
             await _bulk_read_registers(
-                self._unit, self._register_items, self._register_blocks
+                self._unit,
+                self._register_items,
+                self._register_blocks,
+                collect_raw=True,
             ),
         )
         _merge_raw(
-            raw, await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
+            raw,
+            await _bulk_read_bits(
+                self._unit, self._bit_items, self._bit_blocks, collect_raw=True
+            ),
         )
         for component in self._components:
             _merge_raw(raw, await component._read_raw_repeating_groups())

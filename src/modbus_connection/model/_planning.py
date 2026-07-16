@@ -212,6 +212,8 @@ async def _bulk_read_registers(
     unit: ModbusUnit,
     items: list[RegisterItem],
     blocks: dict[RegisterSpace, list[tuple[int, int]]],
+    *,
+    collect_raw: bool = False,
 ) -> dict[str, dict[int, int]]:
     """Read every register target over the precomputed per-space ``blocks``.
 
@@ -225,9 +227,9 @@ async def _bulk_read_registers(
     raises :class:`BlockReadError` (other errors propagate so the caller can mark
     the device down).
 
-    Returns the raw words read, grouped ``{space: {address: word}}`` — the same
-    words the decode drew from, handed back so a caller can expose them for
-    diagnostics (see ``async_read_raw``).
+    With ``collect_raw`` the raw words read are also returned, grouped
+    ``{space: {address: word}}``, for ``async_read_raw`` to expose; the normal
+    decode-only poll leaves it off and gets an empty dict.
     """
     if not items:
         return {}
@@ -244,6 +246,8 @@ async def _bulk_read_registers(
             scale_exponent = decode_int16([words[scale_key]])
         field_words = [words[key] for key in keys]
         item.store[field.name] = field.decode(field_words, scale_exponent)
+    if not collect_raw:
+        return {}
     raw: dict[str, dict[int, int]] = {}
     for (space, address), word in words.items():
         raw.setdefault(space, {})[address] = word
@@ -254,12 +258,14 @@ async def _bulk_read_bits(
     unit: ModbusUnit,
     items: list[BitItem],
     blocks: dict[BitSpace, list[tuple[int, int]]],
+    *,
+    collect_raw: bool = False,
 ) -> dict[str, dict[int, bool]]:
     """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
 
     The bit counterpart of :func:`_bulk_read_registers`; a block answering with a
-    Modbus exception raises :class:`BlockReadError`. Returns the raw bits read,
-    grouped ``{space: {address: value}}``, for the same diagnostics use.
+    Modbus exception raises :class:`BlockReadError`. With ``collect_raw`` the raw
+    bits are also returned, grouped ``{space: {address: value}}``.
     """
     if not items:
         return {}
@@ -269,6 +275,8 @@ async def _bulk_read_bits(
     )
     for address, field, store in items:
         store[field.name] = bool(bits[(field.space, address)])
+    if not collect_raw:
+        return {}
     raw: dict[str, dict[int, bool]] = {}
     for (space, address), value in bits.items():
         raw.setdefault(space, {})[address] = bool(value)

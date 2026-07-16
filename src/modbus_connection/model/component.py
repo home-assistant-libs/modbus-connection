@@ -278,31 +278,28 @@ class Component(_RepeatingGroups):
         self.notify()
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read this component's registers and bits raw, keyed by address.
+        """Read every register and bit raw, keyed by absolute address, for diagnostics.
 
-        Runs the same reads as :meth:`async_update` — the pooled block reads plus
-        the :func:`repeating_group` second pass — but returns the raw register
-        words and bit values under their absolute addresses instead of only
-        decoding them into fields. The result is ``{space: {address: value}}`` for
-        each space read, addresses ascending: ``"holding"`` / ``"input"`` map to
-        16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can hand
-        this straight to a diagnostics download.
-
-        Reads the device fresh (no prior update needed) and, like an update, sizes
-        and includes runtime-counted :func:`repeating_group` instances. It
-        refreshes the component's decoded values as it reads but does **not**
-        notify listeners. A block answering with a Modbus exception raises
-        :class:`~modbus_connection.exceptions.BlockReadError`.
+        Runs the same reads as :meth:`async_update` (pooled blocks plus the
+        :func:`repeating_group` second pass) but returns them raw as
+        ``{space: {address: value}}`` — words for ``"holding"`` / ``"input"``,
+        booleans for ``"coil"`` / ``"discrete"`` — rather than decoding into
+        fields. It refreshes the decoded values as it reads but does not notify
+        listeners, and raises
+        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
         """
         raw: dict[str, dict[int, int | bool]] = {}
         _merge_raw(
             raw,
             await _bulk_read_registers(
-                self._unit, self.register_items, self._register_blocks
+                self._unit, self.register_items, self._register_blocks, collect_raw=True
             ),
         )
         _merge_raw(
-            raw, await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
+            raw,
+            await _bulk_read_bits(
+                self._unit, self.bit_items, self._bit_blocks, collect_raw=True
+            ),
         )
         _merge_raw(raw, await self._read_raw_repeating_groups())
         return {space: dict(sorted(values.items())) for space, values in raw.items()}

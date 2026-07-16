@@ -161,13 +161,9 @@ class _RepeatingGroups:
         return instances
 
     async def _read_raw_repeating_groups(self) -> dict[str, dict[int, int | bool]]:
-        """Raw counterpart of :meth:`async_update_repeating_groups`.
-
-        The second pass for ``async_read_raw``: sizes each register-count group to
-        the count read on the first pass, reads the instances raw, and merges them
-        so runtime-counted ``repeating_group`` data is included. Mirrors the update
-        second pass, driving each fixed-count instance's own nested repeats too.
-        """
+        """Raw second pass for ``async_read_raw``: size the register-count groups
+        from the counts just read, read the instances raw, and merge them (the raw
+        mirror of :meth:`async_update_repeating_groups`)."""
         raw: dict[str, dict[int, int | bool]] = {}
         for name in self._static_groups:
             for instance in self._groups[name]:
