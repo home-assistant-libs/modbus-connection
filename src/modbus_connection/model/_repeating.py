@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import RegisterItem
+from ._planning import RegisterItem, _merge_raw
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
@@ -132,6 +132,20 @@ class _RepeatingGroups:
                 await instance.async_update_repeating_groups()
         if not self._repeating_fields:
             return
+        instances = self._size_repeating_instances()
+        if instances:
+            if self._instance_group is None:
+                self._instance_group = ComponentGroup(self._unit, instances)
+            await self._instance_group.async_update(notify=False)
+
+    def _size_repeating_instances(self) -> list[Component]:
+        """Size each register-count group to the count read into ``_counts``.
+
+        Grows or trims each group's instance list to match the count just read,
+        dropping the cached ``_instance_group`` when membership changes, and
+        returns every register-count instance flattened. Shared by the update and
+        the raw-read second passes.
+        """
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
             value = self._counts.get(name)
@@ -144,7 +158,25 @@ class _RepeatingGroups:
                 self._groups[name] = existing
                 self._instance_group = None
             instances.extend(existing)
+        return instances
+
+    async def _read_raw_repeating_groups(self) -> dict[str, dict[int, int | bool]]:
+        """Raw counterpart of :meth:`async_update_repeating_groups`.
+
+        The second pass for ``async_read_raw``: sizes each register-count group to
+        the count read on the first pass, reads the instances raw, and merges them
+        so runtime-counted ``repeating_group`` data is included. Mirrors the update
+        second pass, driving each fixed-count instance's own nested repeats too.
+        """
+        raw: dict[str, dict[int, int | bool]] = {}
+        for name in self._static_groups:
+            for instance in self._groups[name]:
+                _merge_raw(raw, await instance._read_raw_repeating_groups())
+        if not self._repeating_fields:
+            return raw
+        instances = self._size_repeating_instances()
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
-            await self._instance_group.async_update(notify=False)
+            _merge_raw(raw, await self._instance_group.async_read_raw())
+        return raw

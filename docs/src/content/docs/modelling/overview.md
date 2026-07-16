@@ -182,29 +182,6 @@ await meter.async_update()   # prints
 unsubscribe()
 ```
 
-## Raw diagnostics
-
-`async_update()` decodes each register into a typed field. To capture the
-device's **raw** register map instead — for a diagnostics download, or to debug a
-register layout — call `async_read_raw()`. It issues the same pooled block
-reads but returns the raw words and bits keyed by absolute address, undecoded:
-
-```python
-raw = await meter.async_read_raw()
-# {
-#     "holding": {0: 2301, 1: 47, 2: 0x0001, 3: 0x86A0},  # voltage, current, energy
-#     "coil": {0: True},                                   # relay
-# }
-```
-
-The result is `{space: {address: value}}` for each space the component reads —
-`"holding"` / `"input"` map to 16-bit words, `"coil"` / `"discrete"` to booleans.
-It reads the device fresh (no prior `async_update()` needed) and raises
-[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) the
-same way an update does. It covers the fixed layout; a runtime-counted
-[`repeating_group`](/modbus-connection/modelling/repeats/)'s instances — read in a
-separate second pass — are not included.
-
 ## Beyond the built-ins
 
 Shaping that the field types don't cover — composing or transforming a value,

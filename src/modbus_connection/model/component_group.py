@@ -16,9 +16,9 @@ from ._planning import (
     RegisterSpace,
     _bulk_read_bits,
     _bulk_read_registers,
+    _merge_raw,
     _plan_bit_blocks,
     _plan_register_blocks,
-    _read_raw,
 )
 
 if TYPE_CHECKING:
@@ -150,18 +150,31 @@ class ComponentGroup:
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Read the group's pooled blocks raw, keyed by address, for diagnostics.
 
-        Issues the same consolidated block reads as :meth:`async_update` — merged
-        across the group's members, one per space — but returns the raw register
-        words and bit values under their absolute addresses instead of decoding
-        them into the components' fields. The result is ``{space: {address:
-        value}}`` for each space the group reads: ``"holding"`` / ``"input"`` map
-        to 16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can
-        hand this straight to a diagnostics download.
+        Runs the same reads as :meth:`async_update` — the consolidated block reads
+        merged across the members, plus each member's :func:`repeating_group`
+        second pass — but returns the raw register words and bit values under their
+        absolute addresses instead of only decoding them into the components'
+        fields. The result is ``{space: {address: value}}`` for each space the
+        group reads, addresses ascending: ``"holding"`` / ``"input"`` map to
+        16-bit words, ``"coil"`` / ``"discrete"`` to booleans. Consumers can hand
+        this straight to a diagnostics download.
 
-        This reads the device fresh; it does not depend on a prior update. Like
-        :meth:`async_update`, a block answering with a Modbus exception raises
-        :class:`~modbus_connection.exceptions.BlockReadError`. The fixed pooled
-        plan is covered; a member's runtime-counted :func:`repeating_group`
-        instances — read in a separate second pass — are not included.
+        Reads the device fresh (no prior update needed) and, like an update, sizes
+        and includes members' runtime-counted :func:`repeating_group` instances.
+        It refreshes the components' decoded values as it reads but does **not**
+        notify listeners. A block answering with a Modbus exception raises
+        :class:`~modbus_connection.exceptions.BlockReadError`.
         """
-        return await _read_raw(self._unit, self._register_blocks, self._bit_blocks)
+        raw: dict[str, dict[int, int | bool]] = {}
+        _merge_raw(
+            raw,
+            await _bulk_read_registers(
+                self._unit, self._register_items, self._register_blocks
+            ),
+        )
+        _merge_raw(
+            raw, await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
+        )
+        for component in self._components:
+            _merge_raw(raw, await component._read_raw_repeating_groups())
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}

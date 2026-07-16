@@ -7,7 +7,7 @@ the results back. Not part of the public API — use :class:`Component` /
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from .._types import BitSpace
@@ -212,7 +212,7 @@ async def _bulk_read_registers(
     unit: ModbusUnit,
     items: list[RegisterItem],
     blocks: dict[RegisterSpace, list[tuple[int, int]]],
-) -> None:
+) -> dict[str, dict[int, int]]:
     """Read every register target over the precomputed per-space ``blocks``.
 
     ``blocks`` is the read plan (from :func:`_plan_register_blocks`); it is passed
@@ -224,9 +224,13 @@ async def _bulk_read_registers(
     its ``store`` under ``field.name``. A block answering with a Modbus exception
     raises :class:`BlockReadError` (other errors propagate so the caller can mark
     the device down).
+
+    Returns the raw words read, grouped ``{space: {address: word}}`` — the same
+    words the decode drew from, handed back so a caller can expose them for
+    diagnostics (see ``async_read_raw``).
     """
     if not items:
-        return
+        return {}
     words = await _read_blocks_by_space(
         {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
         blocks,
@@ -240,37 +244,9 @@ async def _bulk_read_registers(
             scale_exponent = decode_int16([words[scale_key]])
         field_words = [words[key] for key in keys]
         item.store[field.name] = field.decode(field_words, scale_exponent)
-
-
-async def _read_raw(
-    unit: ModbusUnit,
-    register_blocks: dict[RegisterSpace, list[tuple[int, int]]],
-    bit_blocks: dict[BitSpace, list[tuple[int, int]]],
-) -> dict[str, dict[int, int | bool]]:
-    """Read every planned block and return the raw values keyed by address.
-
-    The diagnostics counterpart of the bulk readers: it issues the same pooled
-    block reads but keeps each raw register word / bit value under its absolute
-    address instead of decoding it into a field. The result is
-    ``{space: {address: value}}`` for each space that has blocks — register
-    spaces (``"holding"`` / ``"input"``) map to 16-bit words and bit spaces
-    (``"coil"`` / ``"discrete"``) to booleans, addresses ascending. A block
-    answering with a Modbus exception raises :class:`BlockReadError`, like an
-    update.
-    """
-    raw: dict[str, dict[int, int | bool]] = {}
-    words = await _read_blocks_by_space(
-        {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
-        register_blocks,
-    )
-    for (register_space, address), word in words.items():
-        raw.setdefault(register_space, {})[address] = word
-    bits = await _read_blocks_by_space(
-        {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
-        bit_blocks,
-    )
-    for (bit_space, address), bit in bits.items():
-        raw.setdefault(bit_space, {})[address] = bool(bit)
+    raw: dict[str, dict[int, int]] = {}
+    for (space, address), word in words.items():
+        raw.setdefault(space, {})[address] = word
     return raw
 
 
@@ -278,17 +254,31 @@ async def _bulk_read_bits(
     unit: ModbusUnit,
     items: list[BitItem],
     blocks: dict[BitSpace, list[tuple[int, int]]],
-) -> None:
+) -> dict[str, dict[int, bool]]:
     """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
 
     The bit counterpart of :func:`_bulk_read_registers`; a block answering with a
-    Modbus exception raises :class:`BlockReadError`.
+    Modbus exception raises :class:`BlockReadError`. Returns the raw bits read,
+    grouped ``{space: {address: value}}``, for the same diagnostics use.
     """
     if not items:
-        return
+        return {}
     bits = await _read_blocks_by_space(
         {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
         blocks,
     )
     for address, field, store in items:
         store[field.name] = bool(bits[(field.space, address)])
+    raw: dict[str, dict[int, bool]] = {}
+    for (space, address), value in bits.items():
+        raw.setdefault(space, {})[address] = bool(value)
+    return raw
+
+
+def _merge_raw(
+    into: dict[str, dict[int, int | bool]],
+    more: Mapping[str, Mapping[int, int | bool]],
+) -> None:
+    """Merge a raw ``{space: {address: value}}`` map into an accumulator in place."""
+    for space, values in more.items():
+        into.setdefault(space, {}).update(values)

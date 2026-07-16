@@ -95,9 +95,9 @@ await group.async_update(notify=False)
 ## Raw diagnostics
 
 To capture the group's **raw** register map — for a diagnostics download rather
-than decoded values — call `async_read_raw()`. It issues the same consolidated
-block reads as `async_update()`, merged across the members, but returns the raw
-words and bits keyed by absolute address instead of decoding them into fields:
+than decoded values — call `async_read_raw()`. It runs the same reads as
+`async_update()`, merged across the members, but returns the raw words and bits
+keyed by absolute address instead of only decoding them into fields:
 
 ```python
 raw = await group.async_read_raw()
@@ -109,14 +109,13 @@ raw = await group.async_read_raw()
 # }
 ```
 
-The result is `{space: {address: value}}` for each space the group reads. It reads
-the device fresh (no prior update needed) and raises
-[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) on a
-Modbus exception, like an update. The fixed pooled plan is covered; a member's
-runtime-counted [`repeating_group`](/modbus-connection/modelling/repeats/)
-instances are not. See [Raw
-diagnostics](/modbus-connection/modelling/overview/#raw-diagnostics) for the
-per-component method.
+The result is `{space: {address: value}}` for each space the group reads,
+addresses ascending. It reads the device fresh (no prior update needed) and
+raises [`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror)
+on a Modbus exception, like an update. Because it mirrors the update read, it also
+sizes and includes members' runtime-counted
+[`repeating_group`](/modbus-connection/modelling/repeats/) instances. The same
+method is available on a single `Component` and on a `ManualComponent`.
 
 ## When to use which
 
