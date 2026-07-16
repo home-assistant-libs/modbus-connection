@@ -35,6 +35,12 @@ from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
 from .._callbacks import CallbackRegistry
+from .._client import (
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusTlsParams,
+    ModbusUdpParams,
+)
 from .._pacing import Pacer
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
@@ -46,6 +52,10 @@ from ..exceptions import (
 )
 
 __all__ = [
+    "ModbusSerialParams",
+    "ModbusTcpParams",
+    "ModbusTlsParams",
+    "ModbusUdpParams",
     "PymodbusConnection",
     "PymodbusUnit",
     "connect_serial",

@@ -1,8 +1,10 @@
 """modbus_connection — a small, backend-neutral Modbus connection abstraction.
 
 The top-level package is the pure interface: the ``ModbusConnection`` /
-``ModbusUnit`` Protocols and the exception hierarchy. It also re-exports the
-shared ``WordOrder`` datatype used by ``decode`` / ``encode`` / ``model`` for a
+``ModbusUnit`` Protocols, the exception hierarchy, and the shared
+connection-params dataclasses (``ModbusTcpParams`` / ``ModbusUdpParams`` /
+``ModbusTlsParams`` / ``ModbusSerialParams``). It also re-exports the shared
+``WordOrder`` datatype used by ``decode`` / ``encode`` / ``model`` for a
 convenient public import. It imports no Modbus backend.
 
 Pick a backend to actually talk to a device:
@@ -14,6 +16,12 @@ Pick a backend to actually talk to a device:
   extra), except UDP, which tmodbus has no transport for.
 """
 
+from ._client import (
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusTlsParams,
+    ModbusUdpParams,
+)
 from ._protocol import ModbusConnection, ModbusUnit
 from ._types import WordOrder
 from .exceptions import (
@@ -32,7 +40,11 @@ __all__ = [
     "ModbusError",
     "ModbusExceptionError",
     "ModbusProtocolError",
+    "ModbusSerialParams",
+    "ModbusTcpParams",
     "ModbusTimeoutError",
+    "ModbusTlsParams",
+    "ModbusUdpParams",
     "ModbusUnit",
     "WordOrder",
 ]
