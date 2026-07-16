@@ -265,7 +265,12 @@ scale factor is read fresh in the same write and the value is snapped to the
 precision the factor grants before encoding, so `12.349` with a `10**-2`
 factor writes raw `1235`. An exponent whose factor cannot scale — such as
 SunSpec's not-implemented `sunssf` value — raises `ValueError`: a write never
-guesses a scale, where a read decodes the same case to `None`. See the
+guesses a scale, where a read decodes the same case to `None`.
+
+A field may also declare `scale_exponent_range=(low, high)` for a spec that
+bounds the exponent; a register-sourced exponent outside it decodes the value
+to `None` and refuses writes the same way. The SunSpec point types declare the
+`sunssf` spec range (-10..10) out of the box. See the
 [SunSpec page](/modbus-connection/modelling/sunspec/) for the pre-wired point
 types built on this.
 
