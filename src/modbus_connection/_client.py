@@ -34,13 +34,12 @@ class ModbusTcpParams:
     framer: Literal["socket", "rtu", "ascii"] = "socket"
     """Wire framing: ``"socket"`` for native Modbus TCP (MBAP), ``"rtu"`` for
     RTU-over-TCP — what transparent serial-to-Ethernet gateways speak — or
-    ``"ascii"`` for ASCII frames tunnelled over the TCP stream (pymodbus
-    client only)."""
+    ``"ascii"`` for ASCII frames tunnelled over the TCP stream."""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusUdpParams:
-    """Connection parameters for a Modbus UDP link (pymodbus client only)."""
+    """Connection parameters for a Modbus UDP link."""
 
     host: str
     """Host name or IP address of the device."""
