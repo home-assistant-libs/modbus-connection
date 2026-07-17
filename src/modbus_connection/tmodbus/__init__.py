@@ -1,14 +1,4 @@
-"""tmodbus-backed implementation of the modbus_connection abstraction.
-
-Implements the ``ModbusConnection`` base class and the ``ModbusUnit`` Protocol
-over tmodbus. Per the design, three function codes have no tmodbus equivalent
-and raise ``NotImplementedError``: diagnostics (0x08), get-comm-event-counter
-(0x0B), and get-comm-event-log (0x0C).
-
-tmodbus ships no UDP transport, so ``connect_udp`` raises ``NotImplementedError``.
-
-Requires the ``[tmodbus]`` extra.
-"""
+"""tmodbus-backed implementation of the modbus_connection abstraction."""
 
 from __future__ import annotations
 
@@ -100,14 +90,33 @@ class TmodbusConnection(BaseModbusConnection):
 
     async def close(self) -> None:
         self._closing = True
-        if self._client is None:
+        client = self._client
+        if client is None:
             return
+        self._client = None
+        self._unit_clients.clear()
         try:
-            await self._client.disconnect()
+            await client.disconnect()
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(str(err)) from err
 
-    async def _async_create_client(self) -> AsyncModbusClient:
+    async def _connect_client(self) -> AsyncModbusClient:
+        client = await self._create_client()
+        error_message = (
+            f"could not open serial port {self._target}"
+            if isinstance(self._params, ModbusSerialParams)
+            else f"could not connect to {self._target}"
+        )
+        try:
+            await client.connect()
+        except TimeoutError as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except (TModbusError, OSError) as err:
+            raise ModbusConnectionError(error_message) from err
+        self._closing = False
+        return client
+
+    async def _create_client(self) -> AsyncModbusClient:
         params = self._params
         if isinstance(params, ModbusTcpParams):
             if params.framer == "socket":
@@ -171,23 +180,12 @@ class TmodbusConnection(BaseModbusConnection):
             on_connection_lost=self._on_connection_lost,
         )
 
-    async def _connect_client(self) -> None:
-        error_message = (
-            f"could not open serial port {self._target}"
-            if isinstance(self._params, ModbusSerialParams)
-            else f"could not connect to {self._target}"
-        )
-        try:
-            await self._client.connect()
-        except TimeoutError as err:
-            raise ModbusTimeoutError(str(err)) from err
-        except (TModbusError, OSError) as err:
-            raise ModbusConnectionError(error_message) from err
-
     def _on_connection_lost(self, exc: Exception | None) -> None:
         # Our own close() also triggers this hook, which is not a lost connection.
         if self._closing:
             return
+        self._client = None
+        self._unit_clients.clear()
         self._lost_callbacks.fire()
 
 

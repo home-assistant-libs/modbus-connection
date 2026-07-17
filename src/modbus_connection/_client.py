@@ -1,20 +1,4 @@
-"""The backend-neutral connection base class and its params dataclasses.
-
-The params dataclasses are shared and backend-neutral: one frozen,
-keyword-only dataclass per transport, describing the link rather than the
-backend that opens it. Being frozen and hashable, an instance doubles as a
-connection identity key — two equal params objects describe the same physical
-link. Import them from the top-level package or from either backend module.
-
-:class:`BaseModbusConnection` is the abstract surface every backend's
-connection type implements; it is exported from the top level as
-``modbus_connection.ModbusConnection`` for typing and isinstance checks. A
-connection is constructed from the params dataclass alone (no I/O) and
-established with ``connect()`` — a no-op when already connected. The base owns
-the pieces every backend shares — the stored params, the ``connect()``
-lifecycle, and the loss-callback registry — while a subclass supplies the
-params-to-client mapping, its unit type, and teardown.
-"""
+"""The backend-neutral connection base class and its params dataclasses."""
 
 from __future__ import annotations
 
@@ -160,26 +144,25 @@ class BaseModbusConnection(ABC):
         self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
-        # The backend client; built from the params on the first ``connect()``.
+        # The connected backend client; ``None`` whenever the link is down (not
+        # yet connected, dropped, or closed).
         self._client: Any = None
 
     @property
     def connected(self) -> bool:
-        return self._client is not None and bool(self._client.connected)
+        return self._client is not None
 
     async def connect(self) -> None:
         """Establish the connection; a no-op if already connected.
 
-        On the first call this builds the backend client from the stored
-        params; after a drop, calling it again reconnects. Raises
-        ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if the link
-        cannot be established.
+        Builds and connects a fresh backend client from the stored params —
+        after a drop the dead client was cleared, so calling this again
+        reconnects. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``)
+        if the link cannot be established.
         """
-        if self.connected:
+        if self._client is not None:
             return
-        if self._client is None:
-            self._client = await self._async_create_client()
-        await self._connect_client()
+        self._client = await self._connect_client()
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
@@ -196,9 +179,6 @@ class BaseModbusConnection(ABC):
     # -- backend hooks ----------------------------------------------------------
 
     @abstractmethod
-    async def _async_create_client(self) -> Any:
-        """Build the not-yet-connected backend client from ``self._params``."""
-
-    @abstractmethod
-    async def _connect_client(self) -> None:
-        """Connect ``self._client``, mapping failures onto the neutral hierarchy."""
+    async def _connect_client(self) -> Any:
+        """Build, connect, and return a backend client from ``self._params``,
+        mapping failures onto the neutral hierarchy."""

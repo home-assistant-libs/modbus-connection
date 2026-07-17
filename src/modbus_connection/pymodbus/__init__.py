@@ -113,17 +113,7 @@ def _safe_close(client: ModbusBaseClient) -> None:
 def _connect_error(
     err: Exception | None, params: ModbusParams, target: str
 ) -> Exception:
-    """Translate a pymodbus construct/connect failure to the neutral type.
-
-    Builds its own "could not …" message from ``params`` (serial vs not) and
-    ``target``. A ``ParameterException`` means the caller passed bad
-    configuration, not that the link is down — surface it as ``ValueError`` (as
-    the framer mappers do) instead of masking a caller bug as a transient
-    connection failure. A ``TimeoutError`` (the connect attempt did not complete
-    in time) stays a timeout, mirroring the operational path. Every other
-    transport failure — and a client that reported not-connected, passed as
-    ``err=None`` — becomes ``ModbusConnectionError``.
-    """
+    """Translate a pymodbus construct/connect failure to the neutral type."""
     if isinstance(err, ParameterException):
         return ValueError(str(err))
     if isinstance(err, TimeoutError):
@@ -173,22 +163,33 @@ class PymodbusConnection(BaseModbusConnection):
         return PymodbusUnit(self, unit_id)
 
     async def close(self) -> None:
-        if self._client is None:
+        client = self._client
+        if client is None:
             return
+        self._client = None
         try:
-            self._client.close()
+            client.close()
         except (ModbusException, OSError) as err:
             raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
 
-    async def _async_create_client(self) -> ModbusBaseClient:
+    async def _connect_client(self) -> ModbusBaseClient:
         # Unlike tmodbus's create_* functions, pymodbus client constructors can
         # raise; map those failures like any other connect failure.
         try:
-            return await self._create_client()
+            client = await self._create_client()
         except (ModbusException, OSError) as err:
             raise _connect_error(err, self._params, self._target) from err
+        try:
+            connected = await client.connect()
+        except (ModbusException, OSError) as err:
+            _safe_close(client)
+            raise _connect_error(err, self._params, self._target) from err
+        if not connected or not client.connected:
+            _safe_close(client)
+            raise _connect_error(None, self._params, self._target)
+        return client
 
     async def _create_client(self) -> ModbusBaseClient:
         params = self._params
@@ -254,19 +255,10 @@ class PymodbusConnection(BaseModbusConnection):
             trace_connect=self._on_trace_connect,
         )
 
-    async def _connect_client(self) -> None:
-        try:
-            connected = await self._client.connect()
-        except (ModbusException, OSError) as err:
-            _safe_close(self._client)
-            raise _connect_error(err, self._params, self._target) from err
-        if not connected or not self._client.connected:
-            _safe_close(self._client)
-            raise _connect_error(None, self._params, self._target)
-
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
         if not connecting:
+            self._client = None
             self._lost_callbacks.fire()
 
 

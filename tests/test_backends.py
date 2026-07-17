@@ -219,14 +219,18 @@ async def test_connect_reestablishes_a_downed_link(
     modbus_server: tuple[str, int], backend: str
 ) -> None:
     # Once the link is down (closed here, standing in for a drop), connect() is
-    # no longer a no-op: the owner reconnects by calling it again.
+    # no longer a no-op: the owner reconnects by calling it again — with a
+    # fresh backend client. Unit handles resolve through the owner, so a handle
+    # obtained before the drop keeps working over the new client.
     host, port = modbus_server
     conn = await _connect(backend, host, port)
     try:
+        unit = conn.for_unit(UNIT_ID)
+        assert await unit.read_holding_registers(0, 1) == [1234]
         await conn.close()
         assert conn.connected is False
         await conn.connect()
         assert conn.connected is True
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
+        assert await unit.read_holding_registers(0, 1) == [1234]
     finally:
         await conn.close()

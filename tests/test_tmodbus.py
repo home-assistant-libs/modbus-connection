@@ -117,14 +117,20 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> No
     assert calls == []
 
 
-async def test_transport_hook_fires_registered_callbacks() -> None:
-    conn = TmodbusConnection(_PARAMS)
+async def test_transport_hook_fires_callbacks_and_clears_the_client() -> None:
+    # A transport drop downs the connection: the dead client (and the unit-bound
+    # clients cached against it) are cleared, so the next connect() starts fresh.
+    unit = _unit_over(_FakeFileClient())
+    conn = unit._conn
+    await unit.read_file_record(file=4, record=1, length=2)  # populate the cache
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
     conn._on_connection_lost(TModbusConnectionError("link down"))
 
     assert calls == [1]
+    assert conn.connected is False
+    assert conn._unit_clients == {}
 
 
 async def test_close_suppresses_on_connection_lost_hook() -> None:
