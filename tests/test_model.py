@@ -1307,3 +1307,42 @@ async def test_diagnostics_raises_block_read_error() -> None:
     unit.fail_read(0, ModbusExceptionError(2))  # illegal data address
     with pytest.raises(BlockReadError):
         await _Diag(unit).async_read_raw()
+
+
+async def test_read_raw_snapshot_replays_into_a_mock_via_load_raw() -> None:
+    class Holding(Component):
+        a = integer(0, signed=False)
+
+    class Input(Component):
+        register_space = "input"
+        b = integer(0, signed=False)
+
+    class Bits(Component):
+        on = coil(0)
+        alarm = discrete_input(1)
+
+    # Capture a raw snapshot spanning all four spaces from one device.
+    src = MockModbusConnection().for_unit(1)
+    src.holding[0] = 11
+    src.input[0] = 22
+    src.coils[0] = True
+    src.discrete_inputs[1] = True
+    members = [Holding(src), Input(src), Bits(src)]
+    raw = await ComponentGroup(src, members).async_read_raw()
+
+    # Replay it into a fresh mock — no original device — and it reproduces itself.
+    dst = MockModbusConnection().for_unit(1)
+    dst.load_raw(raw)
+    replayed = [Holding(dst), Input(dst), Bits(dst)]
+    assert await ComponentGroup(dst, replayed).async_read_raw() == raw
+
+    # And a component decodes the replayed registers just as against the device.
+    holding = Holding(dst)
+    await holding.async_update()
+    assert holding.a == 11
+
+
+async def test_load_raw_rejects_an_unknown_space() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="unknown register space"):
+        unit.load_raw({"coils": {0: True}})  # the mock's attr name, not the space

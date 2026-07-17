@@ -171,6 +171,10 @@ catch them if you'd rather serialize a diagnostics payload than fail the downloa
 Its keys are the register spaces the device serves — `"holding"`, `"input"`,
 `"coil"`, `"discrete"` — each an address-keyed map of raw values.
 
+A downloaded snapshot also replays straight into the mock backend with
+[`load_raw()`](/modbus-connection/reference/testing/#replaying-a-raw-snapshot), so
+a raw dump attached to a bug report can back a regression test with no hardware.
+
 ## Testing without hardware
 
 The library layer is fully testable with the shipped

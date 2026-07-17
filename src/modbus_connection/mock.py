@@ -24,7 +24,7 @@ arm ``unit.fail_write(address, error)``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -243,6 +243,29 @@ class MockModbusUnit:
         ``"report_server_id"``). ``value`` may be a plain value or a zero-arg
         callable evaluated per call."""
         self._responses[method] = value
+
+    def load_raw(self, raw: Mapping[str, Mapping[int, int | bool]]) -> None:
+        """Load an ``async_read_raw`` snapshot into the stores, for replay in tests.
+
+        Maps the diagnostics ``{space: {address: value}}`` format onto the four
+        stores — ``"holding"`` / ``"input"`` to the register tables, ``"coil"`` /
+        ``"discrete"`` to ``coils`` / ``discrete_inputs`` — so a raw dump captured
+        from a real device backs the mock and exercises a component's decode with
+        no hardware. Entries are merged in; existing ones are left untouched.
+        """
+        for space, values in raw.items():
+            if space == "holding":
+                self.holding.update(values)
+            elif space == "input":
+                self.input.update(values)
+            elif space == "coil":
+                self.coils.update({addr: bool(v) for addr, v in values.items()})
+            elif space == "discrete":
+                self.discrete_inputs.update(
+                    {addr: bool(v) for addr, v in values.items()}
+                )
+            else:
+                raise ValueError(f"unknown register space {space!r} in raw snapshot")
 
     def _raise_if_write_fails(
         self, register_type: RegisterType, address: int, count: int = 1
