@@ -127,38 +127,6 @@ def _connect_error(err: Exception, error_message: str) -> Exception:
     return ModbusConnectionError(error_message)
 
 
-async def _open(
-    make_client: Callable[[Callable[[bool], None]], ModbusBaseClient],
-    message_spacing: float,
-    error_message: str,
-    params: ModbusParams,
-) -> PymodbusConnection:
-    """Construct, connect, and wrap a pymodbus client.
-
-    Maps every backend failure onto a neutral exception so callers never see a
-    raw pymodbus type: a bad-configuration ``ParameterException`` becomes
-    ``ValueError``, every other failure ``ModbusConnectionError``. ``make_client``
-    receives the connection's trace-connect hook and returns the not-yet-connected
-    client. ``params`` is the dataclass the caller built the connection
-    arguments from; the connection stores it.
-    """
-    connection = PymodbusConnection.__new__(PymodbusConnection)
-    try:
-        client = make_client(connection._on_trace_connect)
-    except (ModbusException, OSError) as err:
-        raise _connect_error(err, error_message) from err
-    PymodbusConnection.__init__(connection, params, client, message_spacing)
-    try:
-        connected = await client.connect()
-    except (ModbusException, OSError) as err:
-        _safe_close(client)
-        raise _connect_error(err, error_message) from err
-    if not connected or not client.connected:
-        _safe_close(client)
-        raise ModbusConnectionError(error_message)
-    return connection
-
-
 class _GenericDiagnostic(DiagnosticBase):
     """A diagnostics request (FC 0x08) with a caller-supplied sub-function.
 
@@ -196,12 +164,14 @@ def _serial_framer(framer: SerialFraming) -> FramerType:
 
 
 class PymodbusConnection(BaseModbusConnection):
-    """A live pymodbus connection.
+    """A pymodbus connection, constructed from params and established with
+    ``connect()`` (the ``connect_*`` factories do exactly that before
+    returning).
 
-    Created by ``connect_tcp`` / ``connect_serial``; never instantiated directly
-    by consumers. Owns the ``close()`` lifecycle. Request serialization is
-    pymodbus's job: its transaction manager already holds a per-client lock for
-    the full request/response cycle, so this wrapper adds none of its own.
+    ``name`` labels the underlying pymodbus client in its logs. Request
+    serialization is pymodbus's job: its transaction manager already holds a
+    per-client lock for the full request/response cycle, so this wrapper adds
+    none of its own.
 
     Inter-request spacing is the exception: pymodbus has no native pacing, so a
     shared :class:`~modbus_connection._pacing.Pacer` enforces the connection-wide
@@ -211,23 +181,113 @@ class PymodbusConnection(BaseModbusConnection):
     def __init__(
         self,
         params: ModbusParams,
-        client: ModbusBaseClient,
+        *,
+        timeout: float = 3,
         message_spacing: float = 0.0,
+        name: str = "modbus_connection",
     ) -> None:
-        super().__init__(params, client, message_spacing)
+        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
+        self._name = name
+        # A caller-supplied TLS context, set by connect_tls; overrides the
+        # context built from the params.
+        self._sslctx: ssl.SSLContext | None = None
 
     # -- spec surface ---------------------------------------------------------
 
     def for_unit(self, unit_id: int) -> PymodbusUnit:
+        if self._client is None:
+            raise ModbusConnectionError("connection is not established")
         return PymodbusUnit(self, unit_id)
 
     async def close(self) -> None:
+        if self._client is None:
+            return
         try:
             self._client.close()
         except (ModbusException, OSError) as err:
             raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
+
+    async def _async_create_client(self) -> ModbusBaseClient:
+        try:
+            return await self._build_client()
+        except (ModbusException, OSError) as err:
+            raise _connect_error(err, self._error_message()) from err
+
+    async def _build_client(self) -> ModbusBaseClient:
+        params = self._params
+        if isinstance(params, ModbusTcpParams):
+            return AsyncModbusTcpClient(
+                params.host,
+                port=params.port,
+                timeout=self._timeout,
+                name=self._name,
+                reconnect_delay=0,
+                framer=_socket_framer(params.framer),
+                trace_connect=self._on_trace_connect,
+            )
+        if isinstance(params, ModbusUdpParams):
+            return AsyncModbusUdpClient(
+                params.host,
+                port=params.port,
+                timeout=self._timeout,
+                name=self._name,
+                reconnect_delay=0,
+                framer=_socket_framer(params.framer),
+                trace_connect=self._on_trace_connect,
+            )
+        if isinstance(params, ModbusTlsParams):
+            context = (
+                self._sslctx
+                if self._sslctx is not None
+                else await asyncio.to_thread(
+                    build_tls_context,
+                    params.verify,
+                    params.check_hostname,
+                    params.client_cert,
+                    params.client_key,
+                    params.client_key_password,
+                )
+            )
+            return AsyncModbusTlsClient(
+                params.host,
+                sslctx=context,
+                port=params.port,
+                timeout=self._timeout,
+                name=self._name,
+                reconnect_delay=0,
+                framer=FramerType.TLS,
+                trace_connect=self._on_trace_connect,
+            )
+        return AsyncModbusSerialClient(
+            params.device,
+            framer=_serial_framer(params.framer),
+            baudrate=params.baudrate,
+            bytesize=params.bytesize,
+            parity=params.parity,
+            stopbits=params.stopbits,
+            timeout=self._timeout,
+            name=self._name,
+            reconnect_delay=0,
+            trace_connect=self._on_trace_connect,
+        )
+
+    async def _connect_client(self) -> None:
+        error_message = self._error_message()
+        try:
+            connected = await self._client.connect()
+        except (ModbusException, OSError) as err:
+            _safe_close(self._client)
+            raise _connect_error(err, error_message) from err
+        if not connected or not self._client.connected:
+            _safe_close(self._client)
+            raise ModbusConnectionError(error_message)
+
+    def _error_message(self) -> str:
+        if isinstance(self._params, ModbusSerialParams):
+            return f"could not open serial port {self._target}"
+        return f"could not connect to {self._target}"
 
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
@@ -458,22 +518,15 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    framer_type = _socket_framer(framer)
-    params = ModbusTcpParams(host=host, port=port, framer=framer)
-    return await _open(
-        lambda trace: AsyncModbusTcpClient(
-            params.host,
-            port=params.port,
-            timeout=timeout,
-            name=name,
-            reconnect_delay=0,
-            framer=framer_type,
-            trace_connect=trace,
-        ),
-        message_spacing,
-        f"could not connect to {params.host}:{params.port}",
-        params,
+    _socket_framer(framer)  # reject unknown framings before any I/O
+    connection = PymodbusConnection(
+        ModbusTcpParams(host=host, port=port, framer=framer),
+        timeout=timeout,
+        message_spacing=message_spacing,
+        name=name,
     )
+    await connection.connect()
+    return connection
 
 
 async def connect_udp(
@@ -499,22 +552,15 @@ async def connect_udp(
 
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
-    framer_type = _socket_framer(framer)
-    params = ModbusUdpParams(host=host, port=port, framer=framer)
-    return await _open(
-        lambda trace: AsyncModbusUdpClient(
-            params.host,
-            port=params.port,
-            timeout=timeout,
-            name=name,
-            reconnect_delay=0,
-            framer=framer_type,
-            trace_connect=trace,
-        ),
-        message_spacing,
-        f"could not connect to {params.host}:{params.port}",
-        params,
+    _socket_framer(framer)  # reject unknown framings before any I/O
+    connection = PymodbusConnection(
+        ModbusUdpParams(host=host, port=port, framer=framer),
+        timeout=timeout,
+        message_spacing=message_spacing,
+        name=name,
     )
+    await connection.connect()
+    return connection
 
 
 async def connect_tls(
@@ -561,42 +607,23 @@ async def connect_tls(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    context = (
-        sslctx
-        if sslctx is not None
-        else await asyncio.to_thread(
-            build_tls_context,
-            verify,
-            check_hostname,
-            client_cert,
-            client_key,
-            client_key_password,
-        )
-    )
-    params = ModbusTlsParams(
-        host=host,
-        port=port,
-        verify=verify,
-        check_hostname=check_hostname,
-        client_cert=client_cert,
-        client_key=client_key,
-        client_key_password=client_key_password,
-    )
-    return await _open(
-        lambda trace: AsyncModbusTlsClient(
-            params.host,
-            sslctx=context,
-            port=params.port,
-            timeout=timeout,
-            name=name,
-            reconnect_delay=0,
-            framer=FramerType.TLS,
-            trace_connect=trace,
+    connection = PymodbusConnection(
+        ModbusTlsParams(
+            host=host,
+            port=port,
+            verify=verify,
+            check_hostname=check_hostname,
+            client_cert=client_cert,
+            client_key=client_key,
+            client_key_password=client_key_password,
         ),
-        message_spacing,
-        f"could not connect to {params.host}:{params.port}",
-        params,
+        timeout=timeout,
+        message_spacing=message_spacing,
+        name=name,
     )
+    connection._sslctx = sslctx
+    await connection.connect()
+    return connection
 
 
 async def connect_serial(
@@ -622,29 +649,19 @@ async def connect_serial(
 
     Raises ``ModbusConnectionError`` if the port cannot be opened.
     """
-    framer_type = _serial_framer(framer)
-    params = ModbusSerialParams(
-        device=port,
-        baudrate=baudrate,
-        bytesize=bytesize,  # type: ignore[arg-type]
-        parity=parity,  # type: ignore[arg-type]
-        stopbits=stopbits,  # type: ignore[arg-type]
-        framer=framer,
-    )
-    return await _open(
-        lambda trace: AsyncModbusSerialClient(
-            params.device,
-            framer=framer_type,
-            baudrate=params.baudrate,
-            bytesize=params.bytesize,
-            parity=params.parity,
-            stopbits=params.stopbits,
-            timeout=timeout,
-            name=name,
-            reconnect_delay=0,
-            trace_connect=trace,
+    _serial_framer(framer)  # reject unknown framings before any I/O
+    connection = PymodbusConnection(
+        ModbusSerialParams(
+            device=port,
+            baudrate=baudrate,
+            bytesize=bytesize,  # type: ignore[arg-type]
+            parity=parity,  # type: ignore[arg-type]
+            stopbits=stopbits,  # type: ignore[arg-type]
+            framer=framer,
         ),
-        message_spacing,
-        f"could not open serial port {params.device}",
-        params,
+        timeout=timeout,
+        message_spacing=message_spacing,
+        name=name,
     )
+    await connection.connect()
+    return connection

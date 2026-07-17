@@ -63,11 +63,7 @@ def test_pacer_rejects_negative_unit_spacing() -> None:
 
 def test_connection_rejects_negative_message_spacing() -> None:
     with pytest.raises(ValueError):
-        PymodbusConnection(
-            ModbusTcpParams(host="test"),
-            None,  # type: ignore[arg-type]
-            message_spacing=-0.1,
-        )
+        PymodbusConnection(ModbusTcpParams(host="test"), message_spacing=-0.1)
 
 
 async def test_tmodbus_connect_rejects_negative_message_spacing() -> None:

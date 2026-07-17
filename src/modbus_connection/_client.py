@@ -8,11 +8,13 @@ link. Import them from the top-level package or from either backend module.
 
 :class:`BaseModbusConnection` is the abstract surface every backend's
 connection type implements; it is exported from the top level as
-``modbus_connection.ModbusConnection`` for typing and isinstance checks. It
-owns the pieces every backend shares — the stored params the connection was
-opened from, the loss-callback registry, and the pacer enforcing
-inter-request spacing — while a subclass supplies the backend client, its
-unit type, and teardown.
+``modbus_connection.ModbusConnection`` for typing and isinstance checks. A
+connection is constructed from the params dataclass alone (no I/O) and
+established with ``connect()`` — a no-op when already connected. The base owns
+the pieces every backend shares — the stored params, the ``connect()``
+lifecycle, the loss-callback registry, and the pacer enforcing inter-request
+spacing — while a subclass supplies the params-to-client mapping, its unit
+type, and teardown.
 """
 
 from __future__ import annotations
@@ -128,27 +130,57 @@ class ModbusSerialParams:
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
 
 
+def _target(params: ModbusParams) -> str:
+    if isinstance(params, ModbusSerialParams):
+        return params.device
+    return f"{params.host}:{params.port}"
+
+
 class BaseModbusConnection(ABC):
     """A shared, internally-serialized link to a Modbus network.
 
-    The concrete classes are the backends' connection types; a backend connect
-    function returns a live, already-connected instance. Consumers NEVER
-    receive this object — only a ``ModbusUnit`` from ``for_unit``. It is held
-    by the connection's OWNER, and only the owner tears it down with
-    ``close()``; reconnecting after a drop is likewise the owner's job.
+    The concrete classes are the backends' connection types. Construction takes
+    only the params dataclass — the credentials for every connect — and does
+    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
+    factories do exactly that before returning). Consumers NEVER receive this
+    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
+    connection's OWNER, and only the owner tears it down with ``close()``;
+    reconnecting after a drop is likewise the owner's job — by calling
+    ``connect()`` again.
     """
 
     def __init__(
-        self, params: ModbusParams, client: Any, message_spacing: float = 0.0
+        self,
+        params: ModbusParams,
+        *,
+        timeout: float = 3,
+        message_spacing: float = 0.0,
     ) -> None:
         self._params = params
-        self._client = client
+        self._timeout = timeout
         self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
+        self._target = _target(params)
+        # The backend client; built from the params on the first ``connect()``.
+        self._client: Any = None
 
     @property
     def connected(self) -> bool:
-        return bool(self._client.connected)
+        return self._client is not None and bool(self._client.connected)
+
+    async def connect(self) -> None:
+        """Establish the connection; a no-op if already connected.
+
+        On the first call this builds the backend client from the stored
+        params; after a drop, calling it again reconnects. Raises
+        ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if the link
+        cannot be established.
+        """
+        if self.connected:
+            return
+        if self._client is None:
+            self._client = await self._async_create_client()
+        await self._connect_client()
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
@@ -161,3 +193,13 @@ class BaseModbusConnection(ABC):
     @abstractmethod
     async def close(self) -> None:
         """Tear the connection down — owner only."""
+
+    # -- backend hooks ----------------------------------------------------------
+
+    @abstractmethod
+    async def _async_create_client(self) -> Any:
+        """Build the not-yet-connected backend client from ``self._params``."""
+
+    @abstractmethod
+    async def _connect_client(self) -> None:
+        """Connect ``self._client``, mapping failures onto the neutral hierarchy."""
