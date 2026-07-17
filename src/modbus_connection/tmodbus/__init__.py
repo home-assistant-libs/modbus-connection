@@ -1,14 +1,4 @@
-"""tmodbus-backed implementation of the modbus_connection Protocols.
-
-Implements the ``ModbusConnection`` / ``ModbusUnit`` Protocols over tmodbus. Per
-the design, three function codes have no tmodbus equivalent and raise
-``NotImplementedError``: diagnostics (0x08), get-comm-event-counter (0x0B), and
-get-comm-event-log (0x0C).
-
-tmodbus ships no UDP transport, so ``connect_udp`` raises ``NotImplementedError``.
-
-Requires the ``[tmodbus]`` extra.
-"""
+"""tmodbus-backed implementation of the modbus_connection abstraction."""
 
 from __future__ import annotations
 
@@ -35,8 +25,14 @@ from tmodbus.exceptions import (
     ModbusConnectionError as TModbusConnectionError,
 )
 
-from .._callbacks import CallbackRegistry
-from .._pacing import Pacer
+from .._client import (
+    BaseModbusConnection,
+    ModbusParams,
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusTlsParams,
+    ModbusUdpParams,
+)
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -63,68 +59,134 @@ __all__ = [
 _PLACEHOLDER_UNIT_ID = 1
 
 
-class TmodbusConnection:
-    """A live tmodbus connection.
+class TmodbusConnection(BaseModbusConnection):
+    """A Modbus connection backed by tmodbus."""
 
-    Inter-request spacing (connection-wide ``message_spacing`` and per-unit gaps)
-    is enforced by a shared :class:`~modbus_connection._pacing.Pacer`, not by
-    tmodbus's native ``wait_between_requests`` — so both backends pace requests
-    identically.
-
-    ``on_connection_lost`` callbacks fire once, as soon as the link drops — even
-    while no request is in flight — but not for a deliberate ``close()``.
-    """
-
-    def __init__(self, client: AsyncModbusClient, message_spacing: float = 0.0) -> None:
-        self._client = client
-        self._pacer = Pacer(message_spacing)
-        self._lost_callbacks = CallbackRegistry()
+    def __init__(
+        self,
+        params: ModbusParams,
+        *,
+        timeout: float = 3,
+        message_spacing: float = 0.0,
+    ) -> None:
+        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
         self._closing = False
-
-    @property
-    def connected(self) -> bool:
-        return self._client.connected
+        self._unit_clients: dict[int, AsyncModbusClient] = {}
+        # A caller-supplied TLS context, set by connect_tls; overrides the
+        # context built from the params.
+        self._sslctx: ssl.SSLContext | None = None
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
-        return TmodbusUnit(self, unit_id, self._client.for_unit_id(unit_id))
+        return TmodbusUnit(self, unit_id)
 
-    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        return self._lost_callbacks.subscribe(callback)
+    def _unit_client(self, unit_id: int) -> AsyncModbusClient:
+        """The unit-bound tmodbus client for ``unit_id``."""
+        if self._client is None:
+            raise ModbusConnectionError("connection is not established")
+        client = self._unit_clients.get(unit_id)
+        if client is None:
+            client = self._unit_clients[unit_id] = self._client.for_unit_id(unit_id)
+        return client
 
     async def close(self) -> None:
         self._closing = True
+        client = self._client
+        if client is None:
+            return
+        self._client = None
+        self._unit_clients.clear()
         try:
-            await self._client.disconnect()
+            await client.disconnect()
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(str(err)) from err
+
+    async def _connect_client(self) -> AsyncModbusClient:
+        client = await self._create_client()
+        error_message = (
+            f"could not open serial port {self._target}"
+            if isinstance(self._params, ModbusSerialParams)
+            else f"could not connect to {self._target}"
+        )
+        try:
+            await client.connect()
+        except TimeoutError as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except (TModbusError, OSError) as err:
+            raise ModbusConnectionError(error_message) from err
+        self._closing = False
+        return client
+
+    async def _create_client(self) -> AsyncModbusClient:
+        params = self._params
+        if isinstance(params, ModbusTcpParams):
+            if params.framer == "socket":
+                create = create_async_tcp_client
+            elif params.framer == "rtu":
+                create = create_async_rtu_over_tcp_client
+            elif params.framer == "ascii":
+                raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
+            else:
+                raise ValueError(
+                    f"unknown framer {params.framer!r}; "
+                    "expected 'socket', 'rtu', or 'ascii'"
+                )
+            return create(
+                params.host,
+                params.port,
+                unit_id=_PLACEHOLDER_UNIT_ID,
+                timeout=self._timeout,
+                auto_reconnect=False,
+                on_connection_lost=self._on_connection_lost,
+            )
+        if isinstance(params, ModbusUdpParams):
+            raise NotImplementedError("tmodbus has no UDP transport")
+        if isinstance(params, ModbusTlsParams):
+            context = self._sslctx or await asyncio.to_thread(
+                build_tls_context,
+                params.verify,
+                params.check_hostname,
+                params.client_cert,
+                params.client_key,
+                params.client_key_password,
+            )
+            return create_async_tcp_client(
+                params.host,
+                params.port,
+                unit_id=_PLACEHOLDER_UNIT_ID,
+                timeout=self._timeout,
+                auto_reconnect=False,
+                ssl=context,
+                on_connection_lost=self._on_connection_lost,
+            )
+        if params.framer == "rtu":
+            create_serial = create_async_rtu_client
+        elif params.framer == "ascii":
+            create_serial = create_async_ascii_client
+        else:
+            raise ValueError(
+                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
+            )
+        # tmodbus' SerialXOptions under-declares the serial options serialx accepts
+        # at runtime: it omits ``bytesize`` and types ``parity``/``stopbits`` as
+        # enums though serialx also takes the str/int forms we pass here.
+        return create_serial(  # type: ignore[call-arg]
+            params.device,
+            unit_id=_PLACEHOLDER_UNIT_ID,
+            baudrate=params.baudrate,
+            bytesize=params.bytesize,
+            parity=params.parity,  # type: ignore[arg-type]
+            stopbits=params.stopbits,  # type: ignore[arg-type]
+            auto_reconnect=False,
+            on_connection_lost=self._on_connection_lost,
+        )
 
     def _on_connection_lost(self, exc: Exception | None) -> None:
         # Our own close() also triggers this hook, which is not a lost connection.
         if self._closing:
             return
+        self._client = None
+        self._unit_clients.clear()
         self._lost_callbacks.fire()
-
-
-async def _open(
-    make_client: Callable[[Callable[[Exception | None], None]], AsyncModbusClient],
-    error_message: str,
-    message_spacing: float = 0.0,
-) -> TmodbusConnection:
-    """Construct and connect a tmodbus client, wrapping the result.
-
-    ``make_client`` receives the connection's ``on_connection_lost`` hook and
-    returns the client wired to it.
-    """
-    connection = TmodbusConnection.__new__(TmodbusConnection)
-    try:
-        client = make_client(connection._on_connection_lost)
-        TmodbusConnection.__init__(connection, client, message_spacing)
-        await client.connect()
-    except TimeoutError as err:
-        raise ModbusTimeoutError(str(err)) from err
-    except (TModbusError, OSError) as err:
-        raise ModbusConnectionError(error_message) from err
-    return connection
 
 
 def _map_errors[**P, R](
@@ -155,14 +217,20 @@ def _map_errors[**P, R](
 
 
 class TmodbusUnit:
-    """A stateless per-unit handle over a unit-bound tmodbus client."""
+    """A stateless per-unit handle over a unit-bound tmodbus client.
 
-    def __init__(
-        self, connection: TmodbusConnection, unit_id: int, client: AsyncModbusClient
-    ) -> None:
+    The unit-bound client is resolved through the owning connection on use, so
+    handles can be handed out before the connection is established; a request
+    on an unestablished connection raises ``ModbusConnectionError``.
+    """
+
+    def __init__(self, connection: TmodbusConnection, unit_id: int) -> None:
         self._conn = connection
         self._unit_id = unit_id
-        self._client = client
+
+    @property
+    def _client(self) -> AsyncModbusClient:
+        return self._conn._unit_client(self._unit_id)
 
     @property
     def connected(self) -> bool:
@@ -297,28 +365,13 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    if framer == "socket":
-        create = create_async_tcp_client
-    elif framer == "rtu":
-        create = create_async_rtu_over_tcp_client
-    elif framer == "ascii":
-        raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
-    else:
-        raise ValueError(
-            f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
-        )
-    return await _open(
-        lambda on_lost: create(
-            host,
-            port,
-            unit_id=_PLACEHOLDER_UNIT_ID,
-            timeout=timeout,
-            auto_reconnect=False,
-            on_connection_lost=on_lost,
-        ),
-        f"could not connect to {host}:{port}",
-        message_spacing,
+    connection = TmodbusConnection(
+        ModbusTcpParams(host=host, port=port, framer=framer),
+        timeout=timeout,
+        message_spacing=message_spacing,
     )
+    await connection.connect()
+    return connection
 
 
 async def connect_udp(
@@ -334,7 +387,13 @@ async def connect_udp(
     tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
     Kept here so the backend's connect surface stays complete.
     """
-    raise NotImplementedError("tmodbus has no UDP transport")
+    connection = TmodbusConnection(
+        ModbusUdpParams(host=host, port=port, framer=framer),
+        timeout=timeout,
+        message_spacing=message_spacing,
+    )
+    await connection.connect()
+    return connection
 
 
 async def connect_tls(
@@ -380,27 +439,22 @@ async def connect_tls(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    context = sslctx or await asyncio.to_thread(
-        build_tls_context,
-        verify,
-        check_hostname,
-        client_cert,
-        client_key,
-        client_key_password,
-    )
-    return await _open(
-        lambda on_lost: create_async_tcp_client(
-            host,
-            port,
-            unit_id=_PLACEHOLDER_UNIT_ID,
-            timeout=timeout,
-            auto_reconnect=False,
-            ssl=context,
-            on_connection_lost=on_lost,
+    connection = TmodbusConnection(
+        ModbusTlsParams(
+            host=host,
+            port=port,
+            verify=verify,
+            check_hostname=check_hostname,
+            client_cert=client_cert,
+            client_key=client_key,
+            client_key_password=client_key_password,
         ),
-        f"could not connect to {host}:{port}",
-        message_spacing,
+        timeout=timeout,
+        message_spacing=message_spacing,
     )
+    connection._sslctx = sslctx
+    await connection.connect()
+    return connection
 
 
 async def connect_serial(
@@ -424,26 +478,16 @@ async def connect_serial(
 
     Raises ``ModbusConnectionError`` on failure.
     """
-    if framer == "rtu":
-        create = create_async_rtu_client
-    elif framer == "ascii":
-        create = create_async_ascii_client
-    else:
-        raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
-    # tmodbus' SerialXOptions under-declares the serial options serialx accepts at
-    # runtime: it omits ``bytesize`` and types ``parity``/``stopbits`` as enums
-    # though serialx also takes the str/int forms we pass here.
-    return await _open(
-        lambda on_lost: create(  # type: ignore[call-arg]
-            port,
-            unit_id=_PLACEHOLDER_UNIT_ID,
+    connection = TmodbusConnection(
+        ModbusSerialParams(
+            device=port,
             baudrate=baudrate,
-            bytesize=bytesize,
+            bytesize=bytesize,  # type: ignore[arg-type]
             parity=parity,  # type: ignore[arg-type]
             stopbits=stopbits,  # type: ignore[arg-type]
-            auto_reconnect=False,
-            on_connection_lost=on_lost,
+            framer=framer,
         ),
-        f"could not open serial port {port}",
-        message_spacing,
+        message_spacing=message_spacing,
     )
+    await connection.connect()
+    return connection

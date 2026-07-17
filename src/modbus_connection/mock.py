@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ._callbacks import CallbackRegistry
+from ._client import BaseModbusConnection
 from .exceptions import ModbusConnectionError
 
 __all__ = [
@@ -127,6 +128,11 @@ class MockModbusConnection:
         """Flip the link down and fire every ``on_connection_lost`` callback."""
         self._connected = False
         self._lost_callbacks.fire()
+
+
+# The mock stands in for a real connection without subclassing the base;
+# registering it keeps isinstance(mock, ModbusConnection) checks working.
+BaseModbusConnection.register(MockModbusConnection)
 
 
 class MockModbusUnit:

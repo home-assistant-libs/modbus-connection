@@ -1,18 +1,20 @@
-"""The shared, backend-neutral connection-params dataclasses.
-
-One frozen, keyword-only dataclass per transport, describing the link rather
-than the backend that opens it. Being frozen and hashable, an instance doubles
-as a connection identity key — two equal params objects describe the same
-physical link. Import them from the top-level package or from either backend
-module.
-"""
+"""The backend-neutral connection base class and its params dataclasses."""
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+from ._callbacks import CallbackRegistry
+from ._pacing import Pacer
+
+if TYPE_CHECKING:
+    from ._protocol import ModbusUnit
 
 __all__ = [
+    "BaseModbusConnection",
     "ModbusParams",
     "ModbusSerialParams",
     "ModbusTcpParams",
@@ -109,3 +111,74 @@ class ModbusSerialParams:
 
 
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+
+
+def _target(params: ModbusParams) -> str:
+    if isinstance(params, ModbusSerialParams):
+        return params.device
+    return f"{params.host}:{params.port}"
+
+
+class BaseModbusConnection(ABC):
+    """A shared, internally-serialized link to a Modbus network.
+
+    The concrete classes are the backends' connection types. Construction takes
+    only the params dataclass — the credentials for every connect — and does
+    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
+    factories do exactly that before returning). Consumers NEVER receive this
+    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
+    connection's OWNER, and only the owner tears it down with ``close()``;
+    reconnecting after a drop is likewise the owner's job — by calling
+    ``connect()`` again.
+    """
+
+    def __init__(
+        self,
+        params: ModbusParams,
+        *,
+        timeout: float = 3,
+        message_spacing: float = 0.0,
+    ) -> None:
+        self._params = params
+        self._timeout = timeout
+        self._pacer = Pacer(message_spacing)
+        self._lost_callbacks = CallbackRegistry()
+        self._target = _target(params)
+        # The connected backend client; ``None`` whenever the link is down (not
+        # yet connected, dropped, or closed).
+        self._client: Any = None
+
+    @property
+    def connected(self) -> bool:
+        return self._client is not None
+
+    async def connect(self) -> None:
+        """Establish the connection; a no-op if already connected.
+
+        Builds and connects a fresh backend client from the stored params —
+        after a drop the dead client was cleared, so calling this again
+        reconnects. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``)
+        if the link cannot be established.
+        """
+        if self._client is not None:
+            return
+        self._client = await self._connect_client()
+
+    @abstractmethod
+    def for_unit(self, unit_id: int) -> ModbusUnit:
+        """Return this backend's unit handle bound to ``unit_id``."""
+
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback fired when the link drops; returns an unsubscribe."""
+        return self._lost_callbacks.subscribe(callback)
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Tear the connection down — owner only."""
+
+    # -- backend hooks ----------------------------------------------------------
+
+    @abstractmethod
+    async def _connect_client(self) -> Any:
+        """Build, connect, and return a backend client from ``self._params``,
+        mapping failures onto the neutral hierarchy."""

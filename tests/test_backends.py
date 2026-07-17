@@ -9,10 +9,14 @@ import pytest
 
 from modbus_connection import (
     ModbusConnection,
+    ModbusConnectionError,
     ModbusExceptionError,
+    ModbusTcpParams,
     ModbusUnit,
 )
+from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
+from modbus_connection.tmodbus import TmodbusConnection
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import COILS, DEVICE_ID, DISCRETE, HOLDING, INPUT, UNIT_ID
@@ -151,3 +155,82 @@ async def test_parity_across_backends(modbus_server: tuple[str, int]) -> None:
         finally:
             await conn.close()
     assert results["pymodbus"] == results["tmodbus"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_connection_stores_its_params(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # The factories build the shared params dataclass the connection was opened
+    # from and the connection carries it.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        assert conn._params == ModbusTcpParams(host=host, port=port)
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_direct_construction_and_explicit_connect(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # A connection constructs from params alone with no I/O; connect()
+    # establishes it (exactly what the factories do before returning).
+    host, port = modbus_server
+    params = ModbusTcpParams(host=host, port=port)
+    conn: ModbusConnection = (
+        PymodbusConnection(params)
+        if backend == "pymodbus"
+        else TmodbusConnection(params)
+    )
+    try:
+        assert conn.connected is False
+        # Unit handles are handed out regardless of connection state; a request
+        # before connect() surfaces the not-established error at request time.
+        unit = conn.for_unit(UNIT_ID)
+        with pytest.raises(ModbusConnectionError):
+            await unit.read_holding_registers(0, 1)
+        await conn.connect()
+        assert conn.connected is True
+        assert await unit.read_holding_registers(0, 1) == [1234]
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_connect_is_a_noop_when_connected(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        unit = conn.for_unit(UNIT_ID)
+        await conn.connect()  # already connected: nothing happens
+        assert conn.connected is True
+        # The link (and the unit handle riding on it) is undisturbed.
+        assert await unit.read_holding_registers(0, 1) == [1234]
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_connect_reestablishes_a_downed_link(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # Once the link is down (closed here, standing in for a drop), connect() is
+    # no longer a no-op: the owner reconnects by calling it again — with a
+    # fresh backend client. Unit handles resolve through the owner, so a handle
+    # obtained before the drop keeps working over the new client.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        unit = conn.for_unit(UNIT_ID)
+        assert await unit.read_holding_registers(0, 1) == [1234]
+        await conn.close()
+        assert conn.connected is False
+        await conn.connect()
+        assert conn.connected is True
+        assert await unit.read_holding_registers(0, 1) == [1234]
+    finally:
+        await conn.close()
