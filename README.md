@@ -2,10 +2,9 @@
 
 A small, **backend-neutral** Modbus connection abstraction.
 
-The top-level `modbus_connection` package is a pure interface — the
-`ModbusConnection` base class, the `ModbusUnit`
-[Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html),
-a tiny exception hierarchy, and shared connection-params dataclasses — so
+The top-level `modbus_connection` package is a pure interface —
+`ModbusConnection`, `ModbusUnit`, a tiny exception hierarchy, and shared
+connection-params dataclasses — so
 consumers can type against it without committing to a backend. Two backends
 each export their own `ModbusConnection`:
 [tmodbus](https://github.com/wlcrs/tmodbus) and
