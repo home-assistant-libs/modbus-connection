@@ -183,7 +183,7 @@ class ComponentGroup:
         :meth:`async_update`, merged across the members and including their
         repeating groups. Like an update it refreshes the members' decoded values
         and notifies each member's listeners; it additionally returns the raw
-        values as ``{table: {address: value}}``.
+        values as ``{space: {address: value}}``.
         """
         raw = await self._refresh(collect_raw=True, notify=True)
         return {space: dict(sorted(values.items())) for space, values in raw.items()}

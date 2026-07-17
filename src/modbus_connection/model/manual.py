@@ -255,7 +255,7 @@ class ManualComponent(_RepeatingGroups):
         The :class:`ManualComponent` counterpart of
         :meth:`Component.async_read_raw` — the same reads as :meth:`async_update`;
         like an update it refreshes the decoded values and notifies listeners, and
-        additionally returns the raw values as ``{table: {address: value}}``.
+        additionally returns the raw values as ``{space: {address: value}}``.
         """
         raw = await self._refresh(collect_raw=True)
         return {space: dict(sorted(values.items())) for space, values in raw.items()}
