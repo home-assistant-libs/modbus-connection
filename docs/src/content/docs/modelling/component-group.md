@@ -92,34 +92,6 @@ caller that notifies them itself:
 await group.async_update(notify=False)
 ```
 
-## Raw diagnostics
-
-To capture the group's **raw** register map — for a diagnostics download rather
-than decoded values — call `async_read_raw()`. It runs the same reads as
-`async_update()`, merged across the members, but returns the raw words and bits
-keyed by absolute address instead of only decoding them into fields:
-
-```python
-raw = await group.async_read_raw()
-# {
-#     "holding": {0: 2301, 1: 47, ...},   # merged across the group's members
-#     "input": {507: 12, ...},
-#     "coil": {0: True},
-#     "discrete": {3: False},
-# }
-```
-
-The result is keyed by the four Modbus spaces (`holding`, `input`, `coil`,
-`discrete`), each an address-keyed map, addresses ascending. It reads the
-device fresh (no prior update needed) and raises
-[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) on a
-Modbus exception, like an update. Because it mirrors the update read, it is a
-superset of `async_update()`: it refreshes each member's decoded fields and fires
-their listeners as well as returning the raw map, and it sizes and includes
-members' runtime-counted
-[`repeating_group`](/modbus-connection/modelling/repeats/) instances. The same
-method is available on a single `Component` and on a `ManualComponent`.
-
 ## When to use which
 
 - One sub-system, or sub-systems polled on different schedules → individual

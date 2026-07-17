@@ -40,7 +40,7 @@ callbacks.
 ## Replaying a raw snapshot
 
 A raw dump from
-[`async_read_raw()`](/modbus-connection/modelling/component-group/#raw-diagnostics)
+[`async_read_raw()`](/modbus-connection/modelling/overview/#raw-diagnostics)
 — e.g. captured from a real device in a bug report — loads straight into the mock
 with `load_raw()`, so you can reproduce that device and check your model decodes
 it. The dump is keyed by the four Modbus spaces — `holding`, `input`, `coil`,
