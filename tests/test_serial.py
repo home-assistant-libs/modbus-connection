@@ -1,4 +1,4 @@
-"""connect_serial over a pty bridge: RTU and ASCII framing, both backends.
+"""Serial ModbusConnection over a pty bridge: RTU and ASCII framing, both backends.
 
 A real serial link is emulated with two pty pairs whose masters are wired
 together by an asyncio relay, so a pymodbus serial *server* on one slave and the
@@ -18,8 +18,9 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusSerialServer
 
-from modbus_connection.pymodbus import connect_serial as pymodbus_connect_serial
-from modbus_connection.tmodbus import connect_serial as tmodbus_connect_serial
+import modbus_connection.pymodbus as pymodbus_backend
+import modbus_connection.tmodbus as tmodbus_backend
+from modbus_connection import ModbusSerialParams
 
 from .conftest import sim_holding_device
 
@@ -91,32 +92,23 @@ async def serial_port() -> AsyncIterator[Callable[[FramerType], Any]]:
         await cleanup()
 
 
+@pytest.mark.parametrize("backend", ["pymodbus", "tmodbus"])
 @pytest.mark.parametrize(
     ("framing", "framer"),
     [("rtu", FramerType.RTU), ("ascii", FramerType.ASCII)],
 )
-async def test_pymodbus_serial_reads(
-    serial_port: Callable[[FramerType], Any], framing: str, framer: FramerType
+async def test_serial_reads(
+    serial_port: Callable[[FramerType], Any],
+    backend: str,
+    framing: str,
+    framer: FramerType,
 ) -> None:
     client_port = await serial_port(framer)
-    conn = await pymodbus_connect_serial(
-        client_port, framer=framing, baudrate=9600, timeout=2
-    )
-    try:
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
-    finally:
-        await conn.close()
-
-
-@pytest.mark.parametrize(
-    ("framing", "framer"),
-    [("rtu", FramerType.RTU), ("ascii", FramerType.ASCII)],
-)
-async def test_tmodbus_serial_reads(
-    serial_port: Callable[[FramerType], Any], framing: str, framer: FramerType
-) -> None:
-    client_port = await serial_port(framer)
-    conn = await tmodbus_connect_serial(client_port, framer=framing, baudrate=9600)
+    params = ModbusSerialParams(device=client_port, baudrate=9600, framer=framing)  # type: ignore[arg-type]
+    if backend == "pymodbus":
+        conn = pymodbus_backend.ModbusConnection(params, timeout=2)
+    else:
+        conn = tmodbus_backend.ModbusConnection(params, timeout=2)
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

@@ -1,4 +1,4 @@
-"""connect_tls talks Modbus over TLS.
+"""ModbusTlsParams talks Modbus over TLS on both backends' clients.
 
 A self-signed certificate is generated with the ``openssl`` CLI so the test can
 stand up a real ``ModbusTlsServer`` and complete an actual TLS handshake.
@@ -18,17 +18,18 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusTlsServer
 
-from modbus_connection import ModbusError
-from modbus_connection.pymodbus import connect_tls as pymodbus_connect_tls
-from modbus_connection.tmodbus import connect_tls as tmodbus_connect_tls
+import modbus_connection.pymodbus as pymodbus_backend
+import modbus_connection.tmodbus as tmodbus_backend
+from modbus_connection import ModbusError, ModbusTlsParams
+from modbus_connection._client import BaseModbusConnection
 
 from .conftest import sim_holding_device
 
 UNIT_ID = 1
 
 backends = pytest.mark.parametrize(
-    "connect_tls",
-    [pymodbus_connect_tls, tmodbus_connect_tls],
+    "client_cls",
+    [pymodbus_backend.ModbusConnection, tmodbus_backend.ModbusConnection],
     ids=["pymodbus", "tmodbus"],
 )
 
@@ -103,59 +104,52 @@ async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
 
 @openssl
 @backends
-async def test_tls_explicit_sslctx_overrides_verify(
-    connect_tls: object, tls_server: tuple[str, int, str]
+async def test_tls_verify_with_pinned_cafile(
+    client_cls: type[BaseModbusConnection], tls_server: tuple[str, int, str]
 ) -> None:
-    """A caller-supplied sslctx takes precedence over verify."""
-    host, port, _ = tls_server
-    sslctx = ssl.create_default_context()
-    sslctx.check_hostname = False
-    sslctx.verify_mode = ssl.CERT_NONE
-    conn = await connect_tls(host, port=port, sslctx=sslctx)
+    """verify=<path> pins the device's own cert as the CA to verify against.
+
+    The client is lazy: the certificate context is only built (and the socket
+    opened) on the first request.
+    """
+    host, port, certfile = tls_server
+    client = client_cls(ModbusTlsParams(host=host, port=port, verify=certfile))
     try:
-        assert conn.connected is True
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert client.connected is False
+        assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert client.connected is True
     finally:
-        await conn.close()
-
-
-@openssl
-@backends
-async def test_tls_verifies_by_default(
-    connect_tls: object, tls_server: tuple[str, int, str]
-) -> None:
-    """The default (verify=True) rejects a server whose cert isn't trusted."""
-    host, port, _ = tls_server
-    with pytest.raises(ModbusError):
-        await connect_tls(host, port=port, timeout=1)
+        await client.close()
 
 
 @openssl
 @backends
 async def test_tls_verify_false_connects(
-    connect_tls: object, tls_server: tuple[str, int, str]
+    client_cls: type[BaseModbusConnection], tls_server: tuple[str, int, str]
 ) -> None:
-    """verify=False accepts a self-signed server without an explicit sslctx."""
+    """verify=False accepts a self-signed server."""
     host, port, _ = tls_server
-    conn = await connect_tls(host, port=port, verify=False)
+    client = client_cls(ModbusTlsParams(host=host, port=port, verify=False))
     try:
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
-        await conn.close()
+        await client.close()
 
 
 @openssl
 @backends
-async def test_tls_verify_with_pinned_cafile(
-    connect_tls: object, tls_server: tuple[str, int, str]
+async def test_tls_verifies_by_default(
+    client_cls: type[BaseModbusConnection], tls_server: tuple[str, int, str]
 ) -> None:
-    """verify=<path> pins the device's own cert as the CA to verify against."""
-    host, port, certfile = tls_server
-    conn = await connect_tls(host, port=port, verify=certfile)
+    """The default (verify=True) rejects a server whose cert isn't trusted —
+    surfaced on the first request, not at construction."""
+    host, port, _ = tls_server
+    client = client_cls(ModbusTlsParams(host=host, port=port), timeout=1)
     try:
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        with pytest.raises(ModbusError):
+            await client.for_unit(UNIT_ID).read_holding_registers(0, 1)
     finally:
-        await conn.close()
+        await client.close()
 
 
 def test_build_tls_context_hostname_and_verify_flags() -> None:

@@ -9,7 +9,6 @@ import pytest
 
 from modbus_connection import (
     ModbusConnection,
-    ModbusConnectionError,
     ModbusExceptionError,
     ModbusTcpParams,
     ModbusUnit,
@@ -176,7 +175,9 @@ async def test_direct_construction_and_explicit_connect(
     modbus_server: tuple[str, int], backend: str
 ) -> None:
     # A connection constructs from params alone with no I/O; connect()
-    # establishes it (exactly what the factories do before returning).
+    # establishes it (exactly what the factories do before returning) — but
+    # calling it is optional: unit handles are handed out regardless of
+    # connection state, and a request establishes the link on demand.
     host, port = modbus_server
     params = ModbusTcpParams(host=host, port=port)
     conn: ModbusConnection = (
@@ -186,13 +187,10 @@ async def test_direct_construction_and_explicit_connect(
     )
     try:
         assert conn.connected is False
-        # Unit handles are handed out regardless of connection state; a request
-        # before connect() surfaces the not-established error at request time.
         unit = conn.for_unit(UNIT_ID)
-        with pytest.raises(ModbusConnectionError):
-            await unit.read_holding_registers(0, 1)
-        await conn.connect()
+        assert await unit.read_holding_registers(0, 1) == [1234]  # connects
         assert conn.connected is True
+        await conn.connect()  # already connected: nothing happens
         assert await unit.read_holding_registers(0, 1) == [1234]
     finally:
         await conn.close()
@@ -218,16 +216,16 @@ async def test_connect_is_a_noop_when_connected(
 async def test_connect_reestablishes_a_downed_link(
     modbus_server: tuple[str, int], backend: str
 ) -> None:
-    # Once the link is down (closed here, standing in for a drop), connect() is
-    # no longer a no-op: the owner reconnects by calling it again — with a
-    # fresh backend client. Unit handles resolve through the owner, so a handle
+    # Once the link is down (a transport drop), connect() is no longer a
+    # no-op: the next request — or an explicit call — reconnects with a fresh
+    # backend client. Unit handles resolve through the owner, so a handle
     # obtained before the drop keeps working over the new client.
     host, port = modbus_server
     conn = await _connect(backend, host, port)
     try:
         unit = conn.for_unit(UNIT_ID)
         assert await unit.read_holding_registers(0, 1) == [1234]
-        await conn.close()
+        await conn._drop_connection()
         assert conn.connected is False
         await conn.connect()
         assert conn.connected is True
