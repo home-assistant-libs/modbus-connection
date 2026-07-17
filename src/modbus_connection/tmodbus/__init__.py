@@ -36,12 +36,6 @@ from tmodbus.exceptions import (
 )
 
 from .._callbacks import CallbackRegistry
-from .._client import (
-    ModbusSerialParams,
-    ModbusTcpParams,
-    ModbusTlsParams,
-    ModbusUdpParams,
-)
 from .._pacing import Pacer
 from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
@@ -54,10 +48,6 @@ from ..exceptions import (
 )
 
 __all__ = [
-    "ModbusSerialParams",
-    "ModbusTcpParams",
-    "ModbusTlsParams",
-    "ModbusUdpParams",
     "TmodbusConnection",
     "TmodbusUnit",
     "connect_serial",
