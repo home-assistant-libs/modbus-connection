@@ -73,8 +73,8 @@ async def test_mixes_all_four_tables() -> None:
     unit = _unit()
     unit.holding.update({40: 215, 2: 0x0001, 3: 0x86A0})
     unit.input.update({5: 555, 6: 777})
-    unit.coil.update({5: True})
-    unit.discrete.update({9: True})
+    unit.coils.update({5: True})
+    unit.discrete_inputs.update({9: True})
 
     mc = ManualComponent(unit)
     mc.add("temp", gauge(40, 0.1))  # holding (default)
@@ -99,8 +99,8 @@ async def test_pools_adjacent_registers_but_keeps_tables_apart() -> None:
     inner = _unit()
     inner.holding.update({0: 1, 4: 2})  # within max_gap -> one read
     inner.input.update({0: 3})
-    inner.coil.update({0: True})
-    inner.discrete.update({0: False})
+    inner.coils.update({0: True})
+    inner.discrete_inputs.update({0: False})
     unit = _Spy(inner)
 
     mc = ManualComponent(unit)  # type: ignore[arg-type]
@@ -134,7 +134,7 @@ async def test_max_gap_override_merges_wider() -> None:
 async def test_ranges_keep_reads_within_a_table() -> None:
     inner = _unit()
     inner.holding.update({0: 1, 9: 2})  # 7-8 unreadable per the ranges
-    inner.coil.update({0: True, 9: False})
+    inner.coils.update({0: True, 9: False})
     unit = _Spy(inner)
     mc = ManualComponent(  # type: ignore[arg-type]
         unit, holding_ranges=((0, 6), (9, 40)), coil_ranges=((0, 6), (9, 40))

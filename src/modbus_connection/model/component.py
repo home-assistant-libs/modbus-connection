@@ -281,11 +281,11 @@ class Component(_RepeatingGroups):
         """Read every register and bit raw, keyed by absolute address, for diagnostics.
 
         Runs the same reads as :meth:`async_update` (pooled blocks plus the
-        :func:`repeating_group` second pass) but returns them raw as
-        ``{space: {address: value}}`` — words for ``"holding"`` / ``"input"``,
-        booleans for ``"coil"`` / ``"discrete"`` — rather than decoding into
-        fields. It refreshes the decoded values as it reads but does not notify
-        listeners, and raises
+        :func:`repeating_group` second pass) but returns them raw, keyed by the
+        four Modbus data tables — ``{table: {address: value}}``, words for
+        ``"holding"`` / ``"input"`` and booleans for ``"coils"`` /
+        ``"discrete_inputs"`` — rather than decoding into fields. It refreshes the
+        decoded values as it reads but does not notify listeners, and raises
         :class:`~modbus_connection.exceptions.BlockReadError` like an update.
         """
         raw: dict[str, dict[int, int | bool]] = {}
