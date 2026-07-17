@@ -110,21 +110,30 @@ def _safe_close(client: ModbusBaseClient) -> None:
         pass
 
 
-def _connect_error(err: Exception, error_message: str) -> Exception:
+def _connect_error(
+    err: Exception | None, params: ModbusParams, target: str
+) -> Exception:
     """Translate a pymodbus construct/connect failure to the neutral type.
 
-    A ``ParameterException`` means the caller passed bad configuration, not that
-    the link is down — surface it as ``ValueError`` (as the framer guards do)
-    instead of masking a caller bug as a transient connection failure. A
-    ``TimeoutError`` (the connect attempt did not complete in time) stays a
-    timeout, mirroring the operational path. Every other transport failure
-    becomes ``ModbusConnectionError``.
+    Builds its own "could not …" message from ``params`` (serial vs not) and
+    ``target``. A ``ParameterException`` means the caller passed bad
+    configuration, not that the link is down — surface it as ``ValueError`` (as
+    the framer mappers do) instead of masking a caller bug as a transient
+    connection failure. A ``TimeoutError`` (the connect attempt did not complete
+    in time) stays a timeout, mirroring the operational path. Every other
+    transport failure — and a client that reported not-connected, passed as
+    ``err=None`` — becomes ``ModbusConnectionError``.
     """
     if isinstance(err, ParameterException):
         return ValueError(str(err))
     if isinstance(err, TimeoutError):
         return ModbusTimeoutError(str(err))
-    return ModbusConnectionError(error_message)
+    message = (
+        f"could not open serial port {target}"
+        if isinstance(params, ModbusSerialParams)
+        else f"could not connect to {target}"
+    )
+    return ModbusConnectionError(message)
 
 
 class _GenericDiagnostic(DiagnosticBase):
@@ -143,26 +152,25 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
     return request
 
 
-def _reject_unsupported_framer(framer: SocketFraming) -> FramerType:
-    """Reject an unknown TCP/UDP framing name; valid names map onto pymodbus's
-    FramerType."""
-    if framer == "socket":
-        return FramerType.SOCKET
-    if framer == "rtu":
-        return FramerType.RTU
-    if framer == "ascii":
-        return FramerType.ASCII
-    raise ValueError(f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'")
+# Framing name -> pymodbus FramerType. Serial links accept only the rtu/ascii
+# subset (see the serial branch of ``_create_client``); the socket transports
+# take any of the three.
+_FRAMER_TYPES: dict[str, FramerType] = {
+    "socket": FramerType.SOCKET,
+    "rtu": FramerType.RTU,
+    "ascii": FramerType.ASCII,
+}
 
 
-def _reject_unsupported_serial_framer(framer: SerialFraming) -> FramerType:
-    """Reject an unknown serial framing name; valid names map onto pymodbus's
-    FramerType."""
-    if framer == "rtu":
-        return FramerType.RTU
-    if framer == "ascii":
-        return FramerType.ASCII
-    raise ValueError(f"unknown serial framer {framer!r}; expected 'rtu' or 'ascii'")
+def _framer_type(framer: SocketFraming) -> FramerType:
+    """Map a TCP/UDP framing name onto pymodbus's ``FramerType``; raise
+    ``ValueError`` on an unknown name."""
+    try:
+        return _FRAMER_TYPES[framer]
+    except KeyError:
+        raise ValueError(
+            f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
+        ) from None
 
 
 class PymodbusConnection(BaseModbusConnection):
@@ -201,7 +209,7 @@ class PymodbusConnection(BaseModbusConnection):
         try:
             return await self._create_client()
         except (ModbusException, OSError) as err:
-            raise _connect_error(err, self._error_message()) from err
+            raise _connect_error(err, self._params, self._target) from err
 
     async def _create_client(self) -> ModbusBaseClient:
         params = self._params
@@ -212,7 +220,7 @@ class PymodbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
-                framer=_reject_unsupported_framer(params.framer),
+                framer=_framer_type(params.framer),
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusUdpParams):
@@ -222,7 +230,7 @@ class PymodbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
-                framer=_reject_unsupported_framer(params.framer),
+                framer=_framer_type(params.framer),
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusTlsParams):
@@ -248,9 +256,13 @@ class PymodbusConnection(BaseModbusConnection):
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
+        if params.framer not in ("rtu", "ascii"):
+            raise ValueError(
+                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
+            )
         return AsyncModbusSerialClient(
             params.device,
-            framer=_reject_unsupported_serial_framer(params.framer),
+            framer=_FRAMER_TYPES[params.framer],
             baudrate=params.baudrate,
             bytesize=params.bytesize,
             parity=params.parity,
@@ -262,20 +274,14 @@ class PymodbusConnection(BaseModbusConnection):
         )
 
     async def _connect_client(self) -> None:
-        error_message = self._error_message()
         try:
             connected = await self._client.connect()
         except (ModbusException, OSError) as err:
             _safe_close(self._client)
-            raise _connect_error(err, error_message) from err
+            raise _connect_error(err, self._params, self._target) from err
         if not connected or not self._client.connected:
             _safe_close(self._client)
-            raise ModbusConnectionError(error_message)
-
-    def _error_message(self) -> str:
-        if isinstance(self._params, ModbusSerialParams):
-            return f"could not open serial port {self._target}"
-        return f"could not connect to {self._target}"
+            raise _connect_error(None, self._params, self._target)
 
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
