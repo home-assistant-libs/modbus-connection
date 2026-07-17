@@ -42,10 +42,8 @@ class ModbusUdpParams:
     """Connection parameters for a Modbus UDP link (pymodbus client only).
 
     UDP carries the same wire framings as TCP; ``framer`` selects ``"socket"``
-    for native Modbus (MBAP), ``"rtu"``, or ``"ascii"``. UDP is connectionless,
-    so "connecting" only binds the local endpoint — a dead peer surfaces as a
-    timeout on the first request. Frozen and hashable, so an instance doubles as
-    a connection identity key.
+    for native Modbus (MBAP), ``"rtu"``, or ``"ascii"``. Frozen and hashable,
+    so an instance doubles as a connection identity key.
     """
 
     host: str
