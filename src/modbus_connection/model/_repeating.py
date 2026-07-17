@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import RegisterItem, _merge_raw
+from ._planning import ReadTargets, RegisterItem, _bulk_read, _merge_raw
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
@@ -35,6 +35,33 @@ class _RepeatingGroups:
     _instance_offset: int = 0
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
+
+    # -- host-supplied hooks (Component / ManualComponent implement these) ----
+
+    def _read_targets(self) -> ReadTargets:
+        """The first-pass read plan — ``(register_items, register_blocks, bit_items,
+        bit_blocks)`` — supplied by the host: a Component from its cached field
+        layout, a ManualComponent from its built plan.
+        """
+        raise NotImplementedError
+
+    def notify(self) -> None:
+        """Fire this component's update listeners; provided by the host class."""
+        raise NotImplementedError
+
+    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
+        """Read registers, bits and repeating groups once, then notify — the core
+        shared by ``async_update`` and ``async_read_raw``.
+
+        With ``collect_raw`` the raw words and bits are merged and returned;
+        without it the readers collect nothing and the returned dict is empty.
+        """
+        raw = await _bulk_read(
+            self._unit, *self._read_targets(), collect_raw=collect_raw
+        )
+        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        self.notify()
+        return raw
 
     @property
     def _count_space(self) -> RegisterSpace:

@@ -12,10 +12,10 @@ from ._planning import (
     BitItem,
     BitSpace,
     Range,
+    ReadTargets,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_bits,
-    _bulk_read_registers,
+    _bulk_read,
     _merge_raw,
     _plan_bit_blocks,
     _plan_register_blocks,
@@ -139,6 +139,14 @@ class ComponentGroup:
         """
         await self._refresh(collect_raw=False, notify=notify)
 
+    def _read_targets(self) -> ReadTargets:
+        return (
+            self._register_items,
+            self._register_blocks,
+            self._bit_items,
+            self._bit_blocks,
+        )
+
     async def _refresh(
         self, *, collect_raw: bool, notify: bool
     ) -> dict[str, dict[int, int | bool]]:
@@ -150,21 +158,8 @@ class ComponentGroup:
         ``notify`` fires each member's listeners (skipped when this group is an
         inner repeating pass, so the top-level read notifies once).
         """
-        raw: dict[str, dict[int, int | bool]] = {}
-        _merge_raw(
-            raw,
-            await _bulk_read_registers(
-                self._unit,
-                self._register_items,
-                self._register_blocks,
-                collect_raw=collect_raw,
-            ),
-        )
-        _merge_raw(
-            raw,
-            await _bulk_read_bits(
-                self._unit, self._bit_items, self._bit_blocks, collect_raw=collect_raw
-            ),
+        raw = await _bulk_read(
+            self._unit, *self._read_targets(), collect_raw=collect_raw
         )
         for component in self._components:
             _merge_raw(

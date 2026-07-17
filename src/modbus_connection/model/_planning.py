@@ -45,6 +45,16 @@ class RegisterItem(NamedTuple):
 # A bit read target (the field carries its own ``space``): address, field, store.
 BitItem = tuple[int, "_BitField", dict[str, Any]]
 
+# A component's read targets: register items and their per-space read plan, plus
+# bit items and theirs. Supplied by each host (a Component from its cached layout,
+# a ManualComponent from its built plan) and consumed by the shared read passes.
+ReadTargets = tuple[
+    list[RegisterItem],
+    dict[RegisterSpace, list[tuple[int, int]]],
+    list[BitItem],
+    dict[BitSpace, list[tuple[int, int]]],
+]
+
 
 def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
     """The readable range containing ``address``, or ``None``."""
@@ -290,3 +300,31 @@ def _merge_raw(
     """Merge a raw ``{space: {address: value}}`` map into an accumulator in place."""
     for space, values in more.items():
         into.setdefault(space, {}).update(values)
+
+
+async def _bulk_read(
+    unit: ModbusUnit,
+    register_items: list[RegisterItem],
+    register_blocks: dict[RegisterSpace, list[tuple[int, int]]],
+    bit_items: list[BitItem],
+    bit_blocks: dict[BitSpace, list[tuple[int, int]]],
+    *,
+    collect_raw: bool = False,
+) -> dict[str, dict[int, int | bool]]:
+    """Read a component's registers and bits in one pass, decoding into their stores.
+
+    The first-pass read shared by ``async_update`` and ``async_read_raw``. With
+    ``collect_raw`` the raw words and bits are also returned, merged as
+    ``{space: {address: value}}``; otherwise the returned dict is empty.
+    """
+    raw: dict[str, dict[int, int | bool]] = {}
+    _merge_raw(
+        raw,
+        await _bulk_read_registers(
+            unit, register_items, register_blocks, collect_raw=collect_raw
+        ),
+    )
+    _merge_raw(
+        raw, await _bulk_read_bits(unit, bit_items, bit_blocks, collect_raw=collect_raw)
+    )
+    return raw

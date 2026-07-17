@@ -12,11 +12,9 @@ from ._planning import (
     BitItem,
     BitSpace,
     Range,
+    ReadTargets,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_bits,
-    _bulk_read_registers,
-    _merge_raw,
     _plan_bit_blocks,
     _plan_register_blocks,
 )
@@ -272,32 +270,13 @@ class Component(_RepeatingGroups):
         """
         await self._refresh(collect_raw=False)
 
-    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
-        """Read registers, bits and repeating groups once, then notify — the core
-        shared by :meth:`async_update` and :meth:`async_read_raw`.
-
-        With ``collect_raw`` the raw words and bits are merged and returned;
-        without it the readers collect nothing and the returned dict is empty.
-        """
-        raw: dict[str, dict[int, int | bool]] = {}
-        _merge_raw(
-            raw,
-            await _bulk_read_registers(
-                self._unit,
-                self.register_items,
-                self._register_blocks,
-                collect_raw=collect_raw,
-            ),
+    def _read_targets(self) -> ReadTargets:
+        return (
+            self.register_items,
+            self._register_blocks,
+            self.bit_items,
+            self._bit_blocks,
         )
-        _merge_raw(
-            raw,
-            await _bulk_read_bits(
-                self._unit, self.bit_items, self._bit_blocks, collect_raw=collect_raw
-            ),
-        )
-        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
-        self.notify()
-        return raw
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Read every register and bit raw, keyed by absolute address, for diagnostics.
