@@ -70,18 +70,7 @@ _PLACEHOLDER_UNIT_ID = 1
 
 
 class TmodbusConnection(BaseModbusConnection):
-    """A tmodbus connection, constructed from params and established with
-    ``connect()`` (the ``connect_*`` factories do exactly that before
-    returning).
-
-    Inter-request spacing (connection-wide ``message_spacing`` and per-unit gaps)
-    is enforced by a shared :class:`~modbus_connection._pacing.Pacer`, not by
-    tmodbus's native ``wait_between_requests`` — so both backends pace requests
-    identically.
-
-    ``on_connection_lost`` callbacks fire once, as soon as the link drops — even
-    while no request is in flight — but not for a deliberate ``close()``.
-    """
+    """A Modbus connection backed by tmodbus."""
 
     def __init__(
         self,
@@ -92,14 +81,22 @@ class TmodbusConnection(BaseModbusConnection):
     ) -> None:
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
         self._closing = False
+        self._unit_clients: dict[int, AsyncModbusClient] = {}
         # A caller-supplied TLS context, set by connect_tls; overrides the
         # context built from the params.
         self._sslctx: ssl.SSLContext | None = None
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
+        return TmodbusUnit(self, unit_id)
+
+    def _unit_client(self, unit_id: int) -> AsyncModbusClient:
+        """The unit-bound tmodbus client for ``unit_id``."""
         if self._client is None:
             raise ModbusConnectionError("connection is not established")
-        return TmodbusUnit(self, unit_id, self._client.for_unit_id(unit_id))
+        client = self._unit_clients.get(unit_id)
+        if client is None:
+            client = self._unit_clients[unit_id] = self._client.for_unit_id(unit_id)
+        return client
 
     async def close(self) -> None:
         self._closing = True
@@ -222,14 +219,20 @@ def _map_errors[**P, R](
 
 
 class TmodbusUnit:
-    """A stateless per-unit handle over a unit-bound tmodbus client."""
+    """A stateless per-unit handle over a unit-bound tmodbus client.
 
-    def __init__(
-        self, connection: TmodbusConnection, unit_id: int, client: AsyncModbusClient
-    ) -> None:
+    The unit-bound client is resolved through the owning connection on use, so
+    handles can be handed out before the connection is established; a request
+    on an unestablished connection raises ``ModbusConnectionError``.
+    """
+
+    def __init__(self, connection: TmodbusConnection, unit_id: int) -> None:
         self._conn = connection
         self._unit_id = unit_id
-        self._client = client
+
+    @property
+    def _client(self) -> AsyncModbusClient:
+        return self._conn._unit_client(self._unit_id)
 
     @property
     def connected(self) -> bool:

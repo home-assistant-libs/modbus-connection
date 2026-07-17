@@ -12,9 +12,8 @@ connection type implements; it is exported from the top level as
 connection is constructed from the params dataclass alone (no I/O) and
 established with ``connect()`` — a no-op when already connected. The base owns
 the pieces every backend shares — the stored params, the ``connect()``
-lifecycle, the loss-callback registry, and the pacer enforcing inter-request
-spacing — while a subclass supplies the params-to-client mapping, its unit
-type, and teardown.
+lifecycle, and the loss-callback registry — while a subclass supplies the
+params-to-client mapping, its unit type, and teardown.
 """
 
 from __future__ import annotations

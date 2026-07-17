@@ -1,12 +1,4 @@
-"""The backend-neutral ``ModbusUnit`` Protocol.
-
-This module defines the unit contract that every backend (pymodbus, tmodbus,
-...) implements. It imports nothing from any Modbus library and nothing from
-Home Assistant. Consumers type against ``ModbusUnit`` (and against
-``modbus_connection.ModbusConnection`` — the connection base class in
-``_client`` — for the owner side) and stay ignorant of which backend produced
-them.
-"""
+"""The backend-neutral ``ModbusUnit`` Protocol."""
 
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable

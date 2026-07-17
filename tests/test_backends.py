@@ -9,6 +9,7 @@ import pytest
 
 from modbus_connection import (
     ModbusConnection,
+    ModbusConnectionError,
     ModbusExceptionError,
     ModbusTcpParams,
     ModbusUnit,
@@ -185,9 +186,14 @@ async def test_direct_construction_and_explicit_connect(
     )
     try:
         assert conn.connected is False
+        # Unit handles are handed out regardless of connection state; a request
+        # before connect() surfaces the not-established error at request time.
+        unit = conn.for_unit(UNIT_ID)
+        with pytest.raises(ModbusConnectionError):
+            await unit.read_holding_registers(0, 1)
         await conn.connect()
         assert conn.connected is True
-        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
+        assert await unit.read_holding_registers(0, 1) == [1234]
     finally:
         await conn.close()
 
