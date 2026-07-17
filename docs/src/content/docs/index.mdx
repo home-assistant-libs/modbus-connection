@@ -18,12 +18,13 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 **modbus-connection** is two things in one package:
 
-1. A **connection abstraction** — the `ModbusConnection` and `ModbusUnit`
-   [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
+1. A **connection abstraction** — the `ModbusConnection` base class and the
+   `ModbusUnit`
+   [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
    lets you type against Modbus without committing to a backend. Two
    interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
    [pymodbus](https://github.com/pymodbus-dev/pymodbus), each implement it with
-   a lazily-connecting `ModbusConnection` and eager `connect_*` factories.
+   their own `ModbusConnection`.
 2. An optional **device-modelling framework** (`modbus_connection.model`) that
    maps a device's registers and coils to typed Python attributes and reads the
    whole device — or one sub-system — in as few Modbus calls as possible.
@@ -81,10 +82,9 @@ asyncio.run(main())
 <CardGrid>
   <Card title="ModbusConnection" icon="random">
     The shared link to a Modbus network. One physical link addresses many units
-    (1–247). It is **owner-held** with no `connect()`: each backend's lazy
-    `ModbusConnection` connects on its first request (or up front via a
-    `connect_*` factory) and reconnects on demand. Only
-    the owner ever holds it, and only the owner tears it down with `close()`.
+    (1–247). It is **owner-held**: each backend's `ModbusConnection` connects on its
+    first request and reconnects on demand. Only the owner ever holds it, and
+    only the owner tears it down with `close()`.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
@@ -105,7 +105,7 @@ this abstraction makes possible while keeping the backend swappable.
 <CardGrid>
   <LinkCard
     title="Connections and units"
-    description="Direct construction and connect factories, transports, message spacing, and the raw ModbusUnit surface."
+    description="Constructing connections, transports, message spacing, and the raw ModbusUnit surface."
     href="/modbus-connection/getting-started/connections-and-units/"
   />
   <LinkCard

@@ -7,7 +7,7 @@ The top-level `modbus_connection` package is a pure interface — the
 [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html),
 a tiny exception hierarchy, and shared connection-params dataclasses — so
 consumers can type against it without committing to a backend. Two backends
-each export a lazily-connecting `ModbusConnection` and eager `connect_*` factories:
+each export their own `ModbusConnection`:
 [tmodbus](https://github.com/wlcrs/tmodbus) and
 [pymodbus](https://github.com/pymodbus-dev/pymodbus); the bare install pulls
 neither.

@@ -7,19 +7,30 @@ modbus-connection requires **Python 3.12 or newer**.
 
 The top-level package is a pure interface and imports no Modbus library, so a
 bare install pulls **no** backend. Pick one with an extra — each provides a
-[`ModbusConnection`](/modbus-connection/getting-started/connections-and-units/)
-and eager `connect_*` factories to connect with:
+[`ModbusConnection`](/modbus-connection/getting-started/connections-and-units/):
 
 ```bash
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
 pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
-You can install both extras and choose per connection — the params dataclasses
-and the `ModbusConnection` / `ModbusUnit` Protocols are identical across them.
-See [Which backend?](/modbus-connection/getting-started/connections-and-units/#which-backend)
-for the transport matrix: tmodbus reports protocol errors more precisely, while
-pymodbus additionally covers Modbus UDP and ASCII-over-TCP.
+## Which backend?
+
+The backends differ only in transport coverage — device code typed against
+`ModbusUnit` runs unchanged over either.
+
+| Transport | `tmodbus.ModbusConnection` | `pymodbus.ModbusConnection` |
+| --- | --- | --- |
+| TCP (`socket` / `rtu` framing) | ✅ | ✅ |
+| TCP (`ascii` framing) | ❌ | ✅ |
+| UDP | ❌ | ✅ |
+| Modbus/TLS | ✅ | ✅ |
+| Serial (`rtu` / `ascii`) | ✅ | ✅ |
+
+Beyond coverage, tmodbus distinguishes a garbled reply from a missing one
+(`ModbusProtocolError` vs `ModbusTimeoutError` — see
+[Exceptions](/modbus-connection/reference/exceptions/)); pick pymodbus when you
+need UDP or ASCII-over-TCP.
 
 ## Verifying the install
 

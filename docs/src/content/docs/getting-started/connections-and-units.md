@@ -116,9 +116,8 @@ asyncio.run(main())
 **The connect factories** — `connect_tcp` / `connect_udp` / `connect_tls` /
 `connect_serial` on each backend module — build the params and call
 `connect()` before returning, so an unreachable device raises
-`ModbusConnectionError` right at the call. Use them when you want an immediate
-go/no-go answer (probes, CLI tools, validation flows). Afterwards the returned
-connection self-heals exactly like a directly-constructed one.
+`ModbusConnectionError` right at the call. Afterwards the returned connection
+self-heals exactly like a directly-constructed one.
 
 ```python
 from modbus_connection.tmodbus import connect_tcp
@@ -127,30 +126,13 @@ conn = await connect_tcp("192.168.1.50", port=502)  # raises if unreachable
 print(conn.connected)  # True — already live
 ```
 
-### Which backend?
-
-The backends differ only in transport coverage — device code typed against
-`ModbusUnit` runs unchanged over either. Each connection validates its supported
-params/framer combinations at construction, and an unsupported combination
-raises an error naming the backend that carries it.
-
-| Transport | `tmodbus.ModbusConnection` | `pymodbus.ModbusConnection` |
-| --- | --- | --- |
-| TCP (`socket` / `rtu` framing) | ✅ | ✅ |
-| TCP (`ascii` framing) | ❌ | ✅ |
-| UDP | ❌ | ✅ |
-| Modbus/TLS | ✅ | ✅ |
-| Serial (`rtu` / `ascii`) | ✅ | ✅ |
-
-Beyond coverage, tmodbus distinguishes a garbled reply from a missing one
-(`ModbusProtocolError` vs `ModbusTimeoutError` — see
-[Exceptions](/modbus-connection/reference/exceptions/)); pick pymodbus when you
-need UDP or ASCII-over-TCP.
+See [Which backend?](/modbus-connection/getting-started/installation/#which-backend)
+for the transport matrix.
 
 ### Parameters
 
-The params dataclasses are shared and backend-neutral (import them from
-`modbus_connection` or either backend module). One dataclass per transport, all
+The params dataclasses are shared and backend-neutral. One dataclass per
+transport, all
 frozen and keyword-only, so an instance doubles as a connection identity key:
 
 | Dataclass | Fields (with defaults) |
@@ -179,14 +161,13 @@ by default (`verify=True`) and checks the hostname (`check_hostname=True`):
 - `client_cert` / `client_key` / `client_key_password` — present a client
   certificate for **mutual TLS**.
 
-Both backends honor the same fields (as do their `connect_tls` factories). The
-certificate context is built on the first connect (in a thread), so direct
+The certificate context is built on the first connect (in a thread), so direct
 construction stays free of I/O.
 
 ## Message spacing
 
 Some devices need a pause between frames. Pass `message_spacing` (seconds) to
-`ModbusConnection` (or a `connect_*` factory) and every request — from any unit
+`ModbusConnection` and every request — from any unit
 sharing the link — waits until that gap has elapsed since the previous one
 **finished**:
 
