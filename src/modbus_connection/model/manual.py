@@ -2,38 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from .._types import BitSpace
+from ._component_base import _ComponentBase
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
-    BitItem,
     Range,
-    RegisterItem,
+    ReadItem,
+    ReadPlan,
     RegisterSpace,
-    _plan_bit_blocks,
-    _plan_register_blocks,
+    Space,
 )
-from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
-from .component import RepeatingGroupField, UpdateListener
+from .component import RepeatingGroupField
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
-# Cached read plan: register items + their per-space blocks, bit items + theirs.
-_Plan = tuple[
-    list[RegisterItem],
-    dict[RegisterSpace, list[tuple[int, int]]],
-    list[BitItem],
-    dict[BitSpace, list[tuple[int, int]]],
-]
 
-
-class ManualComponent(_RepeatingGroups):
+class ManualComponent(_ComponentBase):
     """A register/bit read group assembled imperatively at runtime.
 
     The imperative sibling of :class:`Component`: instead of declaring fields as
@@ -72,15 +61,15 @@ class ManualComponent(_RepeatingGroups):
         self._max_span = max_span
         # Readable address ranges per table; a table left None falls back to
         # gap-based planning, like Component does.
-        self._holding_ranges = holding_ranges
-        self._input_ranges = input_ranges
-        self._coil_ranges = coil_ranges
-        self._discrete_ranges = discrete_ranges
+        self._ranges: dict[Space, tuple[Range, ...] | None] = {
+            "holding": holding_ranges,
+            "input": input_ranges,
+            "coil": coil_ranges,
+            "discrete": discrete_ranges,
+        }
         self._registers: dict[str, tuple[RegisterField[Any], RegisterSpace]] = {}
         self._bits: dict[str, _BitField] = {}
         self._values: dict[str, Any] = {}
-        self._listeners: list[UpdateListener] = []
-        self._plan: _Plan | None = None
         # repeating_group support (counts read from holding); groups are added by
         # key like any other target. base_offset stays 0 — addresses are absolute.
         self._static_groups: dict[str, RepeatingGroupField[Any]] = {}
@@ -117,7 +106,7 @@ class ManualComponent(_RepeatingGroups):
                     "space is fixed by the field type for bits; "
                     "use coil() or discrete_input()"
                 )
-            target.name = key  # the bit reader scatters into store[field.name]
+            target.name = key  # the read pass scatters into store[field.name]
             self._bits[key] = target
         elif isinstance(target, RegisterField):
             register_space = space or "holding"
@@ -125,7 +114,7 @@ class ManualComponent(_RepeatingGroups):
                 raise ValueError(
                     f"register space must be 'holding' or 'input', got {space!r}"
                 )
-            target.name = key  # the register reader scatters into store[field.name]
+            target.name = key  # the read pass scatters into store[field.name]
             self._registers[key] = (target, register_space)
         else:
             raise TypeError(
@@ -143,7 +132,7 @@ class ManualComponent(_RepeatingGroups):
         if self._groups.pop(key, None) is not None:
             self._instance_group = None
         self._invalidate_group_cache()
-        self._plan = None
+        self._invalidate_plan()
 
     # -- values --------------------------------------------------------------
 
@@ -158,57 +147,23 @@ class ManualComponent(_RepeatingGroups):
         """A copy of all decoded values from the last update."""
         return dict(self._values)
 
-    # -- listeners -----------------------------------------------------------
-
-    def add_update_listener(self, listener: UpdateListener) -> Callable[[], None]:
-        """Register a callback fired after each update; returns an unsubscribe."""
-        self._listeners.append(listener)
-
-        def remove() -> None:
-            try:
-                self._listeners.remove(listener)
-            except ValueError:
-                pass
-
-        return remove
-
     # -- update --------------------------------------------------------------
 
-    def notify(self) -> None:
-        """Fire this component's update listeners, and each sub-instance's."""
-        for group in self._groups.values():
-            for instance in group:
-                instance.notify()
-        for listener in list(self._listeners):
-            listener()
-
-    def _build_plan(self) -> _Plan:
-        register_items = [
-            RegisterItem(
-                field.address, field, self._values, field.scale_register, space
-            )
+    def _build_plan(self) -> ReadPlan:
+        items = [
+            ReadItem(field.address, field, self._values, space, field.scale_register)
             for field, space in self._registers.values()
         ]
-        # Fold in each group's count register and any fixed-count instances, so the
-        # normal read fetches the counts and static instances in one pass.
-        register_items += self._count_items + self._static_register_items
-        register_blocks = _plan_register_blocks(
-            register_items,
-            {"holding": self._holding_ranges, "input": self._input_ranges},
-            max_gap=self._max_gap,
-            max_span=self._max_span,
-        )
-        bit_items: list[BitItem] = [
-            (field.address, field, self._values) for field in self._bits.values()
+        items += [
+            ReadItem(field.address, field, self._values, field.space)
+            for field in self._bits.values()
         ]
-        bit_items += self._static_bit_items
-        bit_blocks = _plan_bit_blocks(
-            bit_items,
-            {"coil": self._coil_ranges, "discrete": self._discrete_ranges},
-            max_gap=self._max_gap,
-            max_span=self._max_span,
+        # Fold in each group's count register and any fixed-count instances, so
+        # the normal read fetches the counts and static instances in one pass.
+        items += self._count_items + self._static_items
+        return ReadPlan.build(
+            items, self._ranges, max_gap=self._max_gap, max_span=self._max_span
         )
-        return register_items, register_blocks, bit_items, bit_blocks
 
     async def async_update(self) -> dict[str, Any]:
         """Read every target in pooled block reads; return the decoded values.
@@ -218,22 +173,6 @@ class ManualComponent(_RepeatingGroups):
         """
         await self._refresh(collect_raw=False)
         return dict(self._values)
-
-    def _read_targets(self) -> _Plan:
-        if self._plan is None:
-            self._plan = self._build_plan()
-        return self._plan
-
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read every target raw, keyed by absolute address, for diagnostics.
-
-        The :class:`ManualComponent` counterpart of
-        :meth:`Component.async_read_raw` — the same reads as :meth:`async_update`;
-        like an update it refreshes the decoded values and notifies listeners, and
-        additionally returns the raw values as ``{space: {address: value}}``.
-        """
-        raw = await self._refresh(collect_raw=True)
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

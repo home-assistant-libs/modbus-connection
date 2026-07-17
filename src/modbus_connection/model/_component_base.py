@@ -1,67 +1,66 @@
-"""Shared ``repeating_group`` machinery for ``Component`` and ``ManualComponent``.
+"""The base shared by ``Component`` and ``ManualComponent``.
 
-Not part of the public API — mixed into the two component classes, which supply
-the group classifications and read the folded targets.
+What the two component classes have in common beyond the ``_Readable`` refresh
+template: update listeners, and the ``repeating_group`` machinery — fixed-count
+(static) groups fold into the normal read plan, register-count groups are sized
+and read in a second pass. Not part of the public API.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import ReadTargets, RegisterItem, _bulk_read, _merge_raw
+from ._planning import Raw, ReadItem, RegisterSpace, _merge_raw, _Readable
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
-    from .._protocol import ModbusUnit
-    from ._planning import BitItem, RegisterSpace
     from .component import Component, RepeatingGroupField
     from .fields import RegisterField
 
+UpdateListener = Callable[[], None]
 
-class _RepeatingGroups:
-    """``repeating_group`` state and update, shared by the two component classes.
 
-    The host supplies ``_unit`` and, split by count kind, ``_static_groups``
+class _ComponentBase(_Readable):
+    """Listeners plus ``repeating_group`` state and update, shared by the two
+    component classes.
+
+    The subclass supplies ``_unit`` and, split by count kind, ``_static_groups``
     (fixed ``int``) and ``_repeating_fields`` (``RegisterField``). It calls
     :meth:`_build_groups` once to set up per-instance state (and build the static
-    instances), folds :attr:`_count_items` and the fixed-count instances' items
-    into its read plan, and awaits :meth:`async_update_repeating_groups` as the second
-    pass.
+    instances), and folds :attr:`_count_items` and :attr:`_static_items` into its
+    read plan; the inherited refresh then runs the second pass.
     """
 
-    _unit: ModbusUnit
     _base_offset: int = 0
     _instance_offset: int = 0
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
-    # -- host-supplied hooks (Component / ManualComponent implement these) ----
+    # -- listeners -----------------------------------------------------------
 
-    def _read_targets(self) -> ReadTargets:
-        """The first-pass read plan — ``(register_items, register_blocks, bit_items,
-        bit_blocks)`` — supplied by the host: a Component from its cached field
-        layout, a ManualComponent from its built plan.
-        """
-        raise NotImplementedError
+    def add_update_listener(self, listener: UpdateListener) -> Callable[[], None]:
+        """Register a callback fired after each update; returns an unsubscribe."""
+        self._listeners.append(listener)
+
+        def remove() -> None:
+            try:
+                self._listeners.remove(listener)
+            except ValueError:
+                pass
+
+        return remove
 
     def notify(self) -> None:
-        """Fire this component's update listeners; provided by the host class."""
-        raise NotImplementedError
+        """Fire this component's update listeners, and each sub-instance's."""
+        for group in self._groups.values():
+            for instance in group:
+                instance.notify()
+        for listener in list(self._listeners):
+            listener()
 
-    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
-        """Read registers, bits and repeating groups once, then notify — the core
-        shared by ``async_update`` and ``async_read_raw``.
-
-        With ``collect_raw`` the raw words and bits are merged and returned;
-        without it the readers collect nothing and the returned dict is empty.
-        """
-        raw = await _bulk_read(
-            self._unit, *self._read_targets(), collect_raw=collect_raw
-        )
-        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
-        self.notify()
-        return raw
+    # -- repeating groups ----------------------------------------------------
 
     @property
     def _count_space(self) -> RegisterSpace:
@@ -70,7 +69,8 @@ class _RepeatingGroups:
         return "holding"
 
     def _build_groups(self) -> None:
-        """Initialise group state and build the fixed-count (static) instances."""
+        """Initialise listener and group state; build the fixed-count instances."""
+        self._listeners: list[UpdateListener] = []
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
         self._instance_group: ComponentGroup | None = None
@@ -97,7 +97,7 @@ class _RepeatingGroups:
         ]
 
     @cached_property
-    def _count_items(self) -> list[RegisterItem]:
+    def _count_items(self) -> list[ReadItem]:
         """Read targets for each register-count group's count register."""
         items = []
         for name, field in self._repeating_fields.items():
@@ -105,39 +105,28 @@ class _RepeatingGroups:
             count_field = cast("RegisterField[int]", field.count)
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
-                RegisterItem(
+                ReadItem(
                     count_field.address + self._base_offset + self._instance_offset,
                     count_field,
                     self._counts,
-                    None,
                     self._count_space,
                 )
             )
         return items
 
     @cached_property
-    def _static_register_items(self) -> list[RegisterItem]:
-        """Register read targets of every fixed-count group's instances."""
+    def _static_items(self) -> list[ReadItem]:
+        """Read targets of every fixed-count group's instances."""
         return [
             item
             for name in self._static_groups
             for instance in self._groups[name]
-            for item in instance.register_items
-        ]
-
-    @cached_property
-    def _static_bit_items(self) -> list[BitItem]:
-        """Bit read targets of every fixed-count group's instances."""
-        return [
-            item
-            for name in self._static_groups
-            for instance in self._groups[name]
-            for item in instance.bit_items
+            for item in instance._read_items
         ]
 
     def _invalidate_group_cache(self) -> None:
         """Drop the cached group read targets after group membership changes."""
-        for attr in ("_count_items", "_static_register_items", "_static_bit_items"):
+        for attr in ("_count_items", "_static_items"):
             self.__dict__.pop(attr, None)
 
     async def async_update_repeating_groups(self) -> None:
@@ -156,9 +145,7 @@ class _RepeatingGroups:
         """
         await self._refresh_repeating_groups(collect_raw=False)
 
-    async def _refresh_repeating_groups(
-        self, *, collect_raw: bool
-    ) -> dict[str, dict[int, int | bool]]:
+    async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
         """The register-count second pass, shared by the update and raw reads.
 
         Sizes each register-count group to the count read on the first pass and
@@ -166,9 +153,9 @@ class _RepeatingGroups:
         top-level read notifies once, cascading to these instances. Also drives
         each fixed-count instance's own nested second pass. With ``collect_raw``
         the instances' raw values are merged and returned; otherwise the returned
-        dict is empty (the readers collect nothing).
+        dict is empty (the reads collect nothing).
         """
-        raw: dict[str, dict[int, int | bool]] = {}
+        raw: Raw = {}
         for name in self._static_groups:
             for instance in self._groups[name]:
                 _merge_raw(

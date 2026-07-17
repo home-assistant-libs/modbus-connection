@@ -1,13 +1,21 @@
-"""Read-planning internals shared by Component and ComponentGroup.
+"""Read planning and execution shared by the component classes.
 
-Groups field read targets into as few Modbus block reads as possible and scatters
-the results back. Not part of the public API — use :class:`Component` /
-:class:`ComponentGroup`.
+Groups field read targets into as few Modbus block reads as possible and
+scatters the results back. Two ideas live here:
+
+- :class:`ReadPlan` — the read targets (:class:`ReadItem`) of one poll and the
+  block reads that cover them, buildable from the targets plus the device's
+  readable ranges, and executable against a ``ModbusUnit``.
+- :class:`_Readable` — the template shared by :class:`Component`,
+  :class:`ManualComponent` and :class:`ComponentGroup`: cache a plan, execute
+  it, run the ``repeating_group`` second pass, notify listeners.
+
+Not part of the public API — use the component classes.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from .._types import BitSpace
@@ -31,29 +39,32 @@ Range = tuple[int, int]  # an inclusive (low, high) readable address range
 # from different spaces are never merged into one read.
 RegisterSpace = Literal["input", "holding"]
 
+# Any of the four Modbus address spaces a read target can live in.
+Space = RegisterSpace | BitSpace
 
-class RegisterItem(NamedTuple):
-    """A register read target: where to read, what field, and where to store it."""
+# Raw read results, grouped ``{space: {address: value}}`` — words for the
+# register spaces, booleans for the bit spaces.
+Raw = dict[str, dict[int, int | bool]]
 
-    address: int  # absolute start address of the field's own registers
-    field: RegisterField[Any]
+
+class ReadItem(NamedTuple):
+    """One read target: where to read, what field, and where to store the value."""
+
+    address: int  # absolute start address of the field's own registers/bit
+    field: RegisterField[Any] | _BitField
     store: dict[str, Any]  # the component store decoded values land in
-    scale_address: int | None  # absolute address of the field's scale register
-    space: RegisterSpace  # the register space to read this field from
+    space: Space  # the address space to read this field from
+    scale_address: int | None = None  # absolute address of the scale register
 
 
-# A bit read target (the field carries its own ``space``): address, field, store.
-BitItem = tuple[int, "_BitField", dict[str, Any]]
+def _item_field(item: ReadItem) -> RegisterField[Any] | _BitField:
+    """The field stored in a :class:`ReadItem`, with its real type.
 
-# A component's read targets: register items and their per-space read plan, plus
-# bit items and theirs. Supplied by each host (a Component from its cached layout,
-# a ManualComponent from its built plan) and consumed by the shared read passes.
-ReadTargets = tuple[
-    list[RegisterItem],
-    dict[RegisterSpace, list[tuple[int, int]]],
-    list[BitItem],
-    dict[BitSpace, list[tuple[int, int]]],
-]
+    ``item.field`` reads the field off the NamedTuple; since the fields are
+    descriptors, mypy applies their instance-access overload and widens the
+    value to the *attribute* type, so pin it back to the stored object.
+    """
+    return cast("RegisterField[Any] | _BitField", item.field)
 
 
 def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
@@ -135,162 +146,112 @@ def _plan_blocks(
     return blocks
 
 
-def _register_spans(items: list[RegisterItem]) -> list[tuple[int, int]]:
-    """The ``(address, width)`` spans a register read must cover (values + scales)."""
-    spans: list[tuple[int, int]] = []
-    for item in items:
-        # ``item.field`` reads the stored RegisterField off the NamedTuple; since
-        # RegisterField is a descriptor, mypy applies its instance-access overload
-        # and widens the value to ``T | None``, so pin it back to the real type.
-        field = cast("RegisterField[Any]", item.field)
-        spans.append((item.address, field.count))
-        if item.scale_address is not None:
-            spans.append((item.scale_address, 1))
-    return spans
+def _reader(
+    unit: ModbusUnit, space: Space
+) -> Callable[[int, int], Awaitable[Sequence[int | bool]]]:
+    """The unit's read call for one address space (FC03/FC04/FC01/FC02)."""
+    match space:
+        case "holding":
+            return unit.read_holding_registers
+        case "input":
+            return unit.read_input_registers
+        case "coil":
+            return unit.read_coils
+        case "discrete":
+            return unit.read_discrete_inputs
 
 
-def _plan_register_blocks(
-    items: list[RegisterItem],
-    ranges_by_space: dict[RegisterSpace, tuple[Range, ...] | None],
-    *,
-    max_gap: int = _MAX_GAP,
-    max_span: int = _MAX_SPAN,
-) -> dict[RegisterSpace, list[tuple[int, int]]]:
-    """Plan read blocks separately per register space; spaces never merge.
+class ReadPlan(NamedTuple):
+    """The read targets of one poll and the block reads that cover them.
 
-    Items are partitioned by :attr:`RegisterItem.space` and each partition planned
-    on its own. ``ranges_by_space`` gives each space's readable address ranges.
+    Built once from the targets plus the device's readable ranges
+    (:meth:`build`) and executed on every poll (:meth:`execute`). Each of the
+    four Modbus spaces is planned and read on its own — blocks never merge
+    across spaces.
     """
-    by_space: dict[RegisterSpace, list[RegisterItem]] = {}
-    for item in items:
-        by_space.setdefault(item.space, []).append(item)
-    return {
-        space: _plan_blocks(
-            _register_spans(space_items),
-            ranges_by_space.get(space),
-            max_gap=max_gap,
-            max_span=max_span,
+
+    items: list[ReadItem]
+    blocks: dict[Space, list[tuple[int, int]]]
+
+    @classmethod
+    def build(
+        cls,
+        items: Iterable[ReadItem],
+        ranges: Mapping[Space, tuple[Range, ...] | None],
+        *,
+        max_gap: int = _MAX_GAP,
+        max_span: int = _MAX_SPAN,
+    ) -> ReadPlan:
+        """Plan block reads covering ``items`` (values and scale registers).
+
+        ``ranges`` gives each space's readable address ranges; a space left out
+        (or ``None``) falls back to gap-based planning.
+        """
+        items = list(items)
+        spans: dict[Space, list[tuple[int, int]]] = {}
+        for item in items:
+            spans.setdefault(item.space, []).append(
+                (item.address, _item_field(item).count)
+            )
+            if item.scale_address is not None:
+                spans[item.space].append((item.scale_address, 1))
+        return cls(
+            items,
+            {
+                space: _plan_blocks(
+                    space_spans, ranges.get(space), max_gap=max_gap, max_span=max_span
+                )
+                for space, space_spans in spans.items()
+            },
         )
-        for space, space_items in by_space.items()
-    }
 
+    async def execute(self, unit: ModbusUnit, *, collect_raw: bool = False) -> Raw:
+        """Read every block, decode each item into its store, return the raw values.
 
-def _plan_bit_blocks(
-    items: list[BitItem],
-    ranges_by_space: dict[BitSpace, tuple[Range, ...] | None],
-    *,
-    max_gap: int = _MAX_GAP,
-    max_span: int = _MAX_SPAN,
-) -> dict[BitSpace, list[tuple[int, int]]]:
-    """Plan bit read blocks per space; coils and discrete inputs never merge."""
-    by_space: dict[BitSpace, list[tuple[int, int]]] = {}
-    for address, field, _store in items:
-        by_space.setdefault(field.space, []).append((address, 1))
-    return {
-        space: _plan_blocks(
-            spans, ranges_by_space.get(space), max_gap=max_gap, max_span=max_span
-        )
-        for space, spans in by_space.items()
-    }
+        Each space's blocks are read with the matching function call — FC03/FC04
+        for holding/input registers, FC01/FC02 for coils/discrete inputs — and a
+        field's scale register (read from the same space) is applied at decode.
+        Each field's decoded value lands in its ``store`` under ``field.name``.
+        A block answering with a Modbus exception raises :class:`BlockReadError`
+        naming the block that failed; any other error propagates unchanged so
+        the caller can mark the device down.
 
-
-async def _read_blocks_by_space[S: str, E](
-    readers: dict[S, Callable[[int, int], Awaitable[list[E]]]],
-    blocks: dict[S, list[tuple[int, int]]],
-) -> dict[tuple[S, int], E]:
-    """Read every block per space, keyed by ``(space, address)``.
-
-    The shared core of the bulk readers: each space's blocks are read with that
-    space's reader. A ``ModbusExceptionError`` on a block is re-raised as a
-    :class:`BlockReadError` naming the block that failed; any other error propagates
-    unchanged so the caller can mark the device down.
-    """
-    values: dict[tuple[S, int], E] = {}
-    for space, space_blocks in blocks.items():
-        read = readers[space]
-        for start, count in space_blocks:
-            try:
-                got = await read(start, count)
-            except ModbusExceptionError as err:
-                raise BlockReadError(space, start, count, err.exception_code) from err
-            for offset in range(count):
-                values[(space, start + offset)] = got[offset]
-    return values
-
-
-async def _bulk_read_registers(
-    unit: ModbusUnit,
-    items: list[RegisterItem],
-    blocks: dict[RegisterSpace, list[tuple[int, int]]],
-    *,
-    collect_raw: bool = False,
-) -> dict[str, dict[int, int]]:
-    """Read every register target over the precomputed per-space ``blocks``.
-
-    ``blocks`` is the read plan (from :func:`_plan_register_blocks`); it is passed
-    in rather than recomputed so a polling component plans its static layout once.
-    Each space's blocks are read with the matching function — ``read_input_registers``
-    (FC04) for ``"input"``, ``read_holding_registers`` (FC03) for ``"holding"`` —
-    and a field's scale register (read from the same space) is fetched
-    in the same pass and applied at decode. Each field's decoded value lands in
-    its ``store`` under ``field.name``. A block answering with a Modbus exception
-    raises :class:`BlockReadError` (other errors propagate so the caller can mark
-    the device down).
-
-    With ``collect_raw`` the raw words read are also returned, grouped
-    ``{space: {address: word}}``, for ``async_read_raw`` to expose; the normal
-    decode-only poll leaves it off and gets an empty dict.
-    """
-    if not items:
-        return {}
-    words = await _read_blocks_by_space(
-        {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
-        blocks,
-    )
-    for item in items:
-        field = cast("RegisterField[Any]", item.field)  # descriptor widening, see above
-        keys = [(item.space, item.address + offset) for offset in range(field.count)]
-        scale_exponent: int | None = None
-        if item.scale_address is not None:
-            scale_key = (item.space, item.scale_address)
-            scale_exponent = decode_int16([words[scale_key]])
-        field_words = [words[key] for key in keys]
-        item.store[field.name] = field.decode(field_words, scale_exponent)
-    if not collect_raw:
-        return {}
-    raw: dict[str, dict[int, int]] = {}
-    for (space, address), word in words.items():
-        raw.setdefault(space, {})[address] = word
-    return raw
-
-
-async def _bulk_read_bits(
-    unit: ModbusUnit,
-    items: list[BitItem],
-    blocks: dict[BitSpace, list[tuple[int, int]]],
-    *,
-    collect_raw: bool = False,
-) -> dict[str, dict[int, bool]]:
-    """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
-
-    The bit counterpart of :func:`_bulk_read_registers`; a block answering with a
-    Modbus exception raises :class:`BlockReadError`. With ``collect_raw`` the raw
-    bits are also returned, grouped ``{space: {address: value}}``.
-    """
-    if not items:
-        return {}
-    bits = await _read_blocks_by_space(
-        {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
-        blocks,
-    )
-    for address, field, store in items:
-        store[field.name] = bool(bits[(field.space, address)])
-    if not collect_raw:
-        return {}
-    raw: dict[str, dict[int, bool]] = {}
-    for (space, address), value in bits.items():
-        raw.setdefault(space, {})[address] = bool(value)
-    return raw
+        With ``collect_raw`` the raw words and bits read are also returned,
+        grouped ``{space: {address: value}}``, for ``async_read_raw`` to expose;
+        the normal decode-only poll leaves it off and gets an empty dict.
+        """
+        if not self.items:
+            return {}
+        values: dict[tuple[Space, int], int | bool] = {}
+        for space, space_blocks in self.blocks.items():
+            read = _reader(unit, space)
+            for start, count in space_blocks:
+                try:
+                    got = await read(start, count)
+                except ModbusExceptionError as err:
+                    raise BlockReadError(
+                        space, start, count, err.exception_code
+                    ) from err
+                for offset in range(count):
+                    values[(space, start + offset)] = got[offset]
+        for item in self.items:
+            field = _item_field(item)
+            words = [
+                values[(item.space, item.address + offset)]
+                for offset in range(field.count)
+            ]
+            scale_exponent: int | None = None
+            if item.scale_address is not None:
+                scale_exponent = decode_int16(
+                    [values[(item.space, item.scale_address)]]
+                )
+            item.store[field.name] = field.decode(words, scale_exponent)
+        if not collect_raw:
+            return {}
+        raw: Raw = {}
+        for (space, address), value in values.items():
+            raw.setdefault(space, {})[address] = value
+        return raw
 
 
 def _merge_raw(
@@ -302,29 +263,62 @@ def _merge_raw(
         into.setdefault(space, {}).update(values)
 
 
-async def _bulk_read(
-    unit: ModbusUnit,
-    register_items: list[RegisterItem],
-    register_blocks: dict[RegisterSpace, list[tuple[int, int]]],
-    bit_items: list[BitItem],
-    bit_blocks: dict[BitSpace, list[tuple[int, int]]],
-    *,
-    collect_raw: bool = False,
-) -> dict[str, dict[int, int | bool]]:
-    """Read a component's registers and bits in one pass, decoding into their stores.
+class _Readable:
+    """The refresh template shared by the three component classes.
 
-    The first-pass read shared by ``async_update`` and ``async_read_raw``. With
-    ``collect_raw`` the raw words and bits are also returned, merged as
-    ``{space: {address: value}}``; otherwise the returned dict is empty.
+    A subclass supplies ``_unit`` and three hooks — :meth:`_build_plan` (its
+    read targets and ranges as a :class:`ReadPlan`), :meth:`notify` (fire its
+    listeners) and :meth:`_refresh_repeating_groups` (the ``repeating_group``
+    second pass) — and inherits the whole update cycle: the plan is built on the
+    first refresh and cached until :meth:`_invalidate_plan`.
     """
-    raw: dict[str, dict[int, int | bool]] = {}
-    _merge_raw(
-        raw,
-        await _bulk_read_registers(
-            unit, register_items, register_blocks, collect_raw=collect_raw
-        ),
-    )
-    _merge_raw(
-        raw, await _bulk_read_bits(unit, bit_items, bit_blocks, collect_raw=collect_raw)
-    )
-    return raw
+
+    _unit: ModbusUnit
+    _plan: ReadPlan | None = None
+
+    def _build_plan(self) -> ReadPlan:
+        """This object's read plan; built lazily and cached by :meth:`_refresh`."""
+        raise NotImplementedError
+
+    def notify(self) -> None:
+        """Fire update listeners; provided by the subclass."""
+        raise NotImplementedError
+
+    async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
+        """The register-count ``repeating_group`` second pass; subclass-provided."""
+        raise NotImplementedError
+
+    def _invalidate_plan(self) -> None:
+        """Drop the cached plan so the next refresh rebuilds it."""
+        self._plan = None
+
+    async def _refresh(self, *, collect_raw: bool, notify: bool = True) -> Raw:
+        """Read registers, bits and repeating groups once, then notify — the core
+        shared by ``async_update`` and ``async_read_raw``.
+
+        With ``collect_raw`` the raw words and bits are merged and returned;
+        without it the reads collect nothing and the returned dict is empty.
+        ``notify=False`` skips the listeners, for a caller that notifies itself
+        (an inner repeating pass, whose top-level read notifies once).
+        """
+        if self._plan is None:
+            self._plan = self._build_plan()
+        raw = await self._plan.execute(self._unit, collect_raw=collect_raw)
+        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        if notify:
+            self.notify()
+        return raw
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read every target raw, keyed by absolute address, for diagnostics.
+
+        Runs the same reads as ``async_update`` (pooled blocks plus the
+        :func:`repeating_group` second pass) and, like an update, refreshes the
+        decoded values and notifies listeners — it additionally returns the raw
+        values, keyed by the four Modbus spaces: ``{space: {address: value}}``,
+        words for ``"holding"`` / ``"input"`` and booleans for ``"coil"`` /
+        ``"discrete"``. Raises
+        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
+        """
+        raw = await self._refresh(collect_raw=True)
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}

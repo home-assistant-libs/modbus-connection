@@ -219,13 +219,11 @@ async def test_word_order_little() -> None:
 async def test_plan_is_built_once_across_polls() -> None:
     meter = _meter({0: 7})
     await meter.async_update()
-    register_blocks = meter._register_blocks
-    bit_blocks = meter._bit_blocks
+    plan = meter._plan
     await meter.async_update()
     await meter.async_update()
-    # The cached_property plan is the same object each poll, never rebuilt.
-    assert meter._register_blocks is register_blocks
-    assert meter._bit_blocks is bit_blocks
+    # The cached plan is the same object each poll, never rebuilt.
+    assert meter._plan is plan
 
 
 async def test_dynamic_scale_register() -> None:
@@ -756,7 +754,7 @@ async def test_component_max_gap_override_changes_plan() -> None:
     comp = Wide(unit)
     await comp.async_update()
     # With max_gap=20 the two fields merge into one block read (0..10).
-    assert comp._register_blocks["holding"] == [(0, 11)]
+    assert comp._plan is not None and comp._plan.blocks["holding"] == [(0, 11)]
     assert comp.a == 1 and comp.b == 2
 
 

@@ -467,10 +467,15 @@ class _BitField:
     name: str = ""  # set by __set_name__ when used as a class descriptor
     space: ClassVar[BitSpace]  # which bit space this field's address lives in
     writable: bool | WriteValidator = False  # discrete inputs are never writable
+    count = 1  # a bit field occupies a single address in its space
 
     def __init__(self, address: int, *, stride: int = 0) -> None:
         self.address = address
         self.stride = stride
+
+    def decode(self, words: list[int], scale_exponent: int | None = None) -> bool:
+        """Decode the single bit read for this field (scaling does not apply)."""
+        return bool(words[0])
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
