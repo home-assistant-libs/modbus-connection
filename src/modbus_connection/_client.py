@@ -1,18 +1,35 @@
-"""The shared, backend-neutral connection-params dataclasses.
+"""The backend-neutral connection base class and its params dataclasses.
 
-One frozen, keyword-only dataclass per transport, describing the link rather
-than the backend that opens it. Being frozen and hashable, an instance doubles
-as a connection identity key — two equal params objects describe the same
-physical link. Import them from the top-level package or from either backend
-module.
+The params dataclasses are shared and backend-neutral: one frozen,
+keyword-only dataclass per transport, describing the link rather than the
+backend that opens it. Being frozen and hashable, an instance doubles as a
+connection identity key — two equal params objects describe the same physical
+link. Import them from the top-level package or from either backend module.
+
+:class:`BaseModbusConnection` is the abstract surface every backend's
+connection type implements; it is exported from the top level as
+``modbus_connection.ModbusConnection`` for typing and isinstance checks. It
+owns the pieces every backend shares — the stored params the connection was
+opened from, the loss-callback registry, and the pacer enforcing
+inter-request spacing — while a subclass supplies the backend client, its
+unit type, and teardown.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+from ._callbacks import CallbackRegistry
+from ._pacing import Pacer
+
+if TYPE_CHECKING:
+    from ._protocol import ModbusUnit
 
 __all__ = [
+    "BaseModbusConnection",
     "ModbusParams",
     "ModbusSerialParams",
     "ModbusTcpParams",
@@ -109,3 +126,38 @@ class ModbusSerialParams:
 
 
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+
+
+class BaseModbusConnection(ABC):
+    """A shared, internally-serialized link to a Modbus network.
+
+    The concrete classes are the backends' connection types; a backend connect
+    function returns a live, already-connected instance. Consumers NEVER
+    receive this object — only a ``ModbusUnit`` from ``for_unit``. It is held
+    by the connection's OWNER, and only the owner tears it down with
+    ``close()``; reconnecting after a drop is likewise the owner's job.
+    """
+
+    def __init__(
+        self, params: ModbusParams, client: Any, message_spacing: float = 0.0
+    ) -> None:
+        self._params = params
+        self._client = client
+        self._pacer = Pacer(message_spacing)
+        self._lost_callbacks = CallbackRegistry()
+
+    @property
+    def connected(self) -> bool:
+        return bool(self._client.connected)
+
+    @abstractmethod
+    def for_unit(self, unit_id: int) -> ModbusUnit:
+        """Return this backend's unit handle bound to ``unit_id``."""
+
+    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback fired when the link drops; returns an unsubscribe."""
+        return self._lost_callbacks.subscribe(callback)
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Tear the connection down — owner only."""

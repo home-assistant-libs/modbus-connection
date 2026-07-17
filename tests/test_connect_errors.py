@@ -13,7 +13,11 @@ from tmodbus.exceptions import TModbusError
 
 import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
-from modbus_connection import ModbusConnectionError, ModbusTimeoutError
+from modbus_connection import (
+    ModbusConnectionError,
+    ModbusTcpParams,
+    ModbusTimeoutError,
+)
 from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import TmodbusConnection
@@ -80,7 +84,7 @@ async def test_pymodbus_close_maps_backend_error() -> None:
         def close(self) -> None:
             raise ModbusException("close blew up")
 
-    conn = PymodbusConnection(RaisingClient())
+    conn = PymodbusConnection(ModbusTcpParams(host="test"), RaisingClient())
     with pytest.raises(ModbusConnectionError):
         await conn.close()
 
@@ -128,7 +132,7 @@ async def test_tmodbus_close_maps_backend_error() -> None:
         async def disconnect(self) -> None:
             raise TModbusError("disconnect blew up")
 
-    conn = TmodbusConnection(RaisingClient())
+    conn = TmodbusConnection(ModbusTcpParams(host="test"), RaisingClient())
     with pytest.raises(ModbusConnectionError):
         await conn.close()
 

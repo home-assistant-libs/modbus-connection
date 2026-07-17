@@ -7,13 +7,15 @@ from typing import Any
 import pytest
 
 from modbus_connection import ModbusConnection, ModbusUnit
+from modbus_connection.mock import MockModbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import UNIT_ID
 
-# `connected` is a non-method protocol member, so issubclass() is unavailable on
-# these runtime_checkable Protocols; isinstance() on live instances is the check.
+# ModbusConnection is the abstract connection base class (both backend
+# connections subclass it; the mock is a registered virtual subclass), while
+# ModbusUnit is a runtime_checkable Protocol checked on live instances.
 
 
 async def test_pymodbus_instances_satisfy_protocols(
@@ -58,3 +60,11 @@ async def test_tmodbus_unsupported_codes_raise(
                 await getattr(unit, method)()
     finally:
         await conn.close()
+
+
+def test_mock_satisfies_connection_type() -> None:
+    # The in-memory mock stands in for a real connection in consumer tests, so
+    # isinstance checks against ModbusConnection must keep passing for it.
+    mock = MockModbusConnection()
+    assert isinstance(mock, ModbusConnection)
+    assert isinstance(mock.for_unit(UNIT_ID), ModbusUnit)

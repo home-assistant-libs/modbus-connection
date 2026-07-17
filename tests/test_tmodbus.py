@@ -6,8 +6,14 @@ import pytest
 from tmodbus.exceptions import InvalidResponseError
 from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 
-from modbus_connection import ModbusConnectionError, ModbusProtocolError
+from modbus_connection import (
+    ModbusConnectionError,
+    ModbusProtocolError,
+    ModbusTcpParams,
+)
 from modbus_connection.tmodbus import TmodbusConnection, TmodbusUnit
+
+_PARAMS = ModbusTcpParams(host="test")
 
 
 class _FakeFileClient:
@@ -33,7 +39,7 @@ class _FakeFileClient:
 
 async def test_read_file_record_decodes_to_words() -> None:
     client = _FakeFileClient(b"\x00\x2a\x01\x00")  # words 42 and 256
-    unit = TmodbusUnit(TmodbusConnection(object()), 1, client)  # type: ignore[arg-type]
+    unit = TmodbusUnit(TmodbusConnection(_PARAMS, object()), 1, client)  # type: ignore[arg-type]
 
     words = await unit.read_file_record(file=4, record=1, length=2)
 
@@ -43,7 +49,7 @@ async def test_read_file_record_decodes_to_words() -> None:
 
 async def test_write_file_record_encodes_words_to_payload() -> None:
     client = _FakeFileClient()
-    unit = TmodbusUnit(TmodbusConnection(object()), 1, client)  # type: ignore[arg-type]
+    unit = TmodbusUnit(TmodbusConnection(_PARAMS, object()), 1, client)  # type: ignore[arg-type]
 
     await unit.write_file_record(file=7, record=9, values=[42, 256])
 
@@ -58,7 +64,11 @@ class _InvalidResponseClient:
 
 
 async def test_invalid_response_maps_to_protocol_error() -> None:
-    unit = TmodbusUnit(TmodbusConnection(object()), 1, _InvalidResponseClient())  # type: ignore[arg-type]
+    unit = TmodbusUnit(
+        TmodbusConnection(_PARAMS, object()),  # type: ignore[arg-type]
+        1,
+        _InvalidResponseClient(),  # type: ignore[arg-type]
+    )
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
@@ -81,7 +91,7 @@ class _ClosableClient:
 async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> None:
     # Loss is reported by the transport's on_connection_lost hook, not by a failed
     # request, so a request that hits a dropped link only translates the error.
-    conn = TmodbusConnection(object())  # type: ignore[arg-type]
+    conn = TmodbusConnection(_PARAMS, object())  # type: ignore[arg-type]
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
     unit = TmodbusUnit(conn, 1, _DroppingClient())  # type: ignore[arg-type]
@@ -94,7 +104,7 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> No
 
 
 async def test_transport_hook_fires_registered_callbacks() -> None:
-    conn = TmodbusConnection(object())  # type: ignore[arg-type]
+    conn = TmodbusConnection(_PARAMS, object())  # type: ignore[arg-type]
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -106,7 +116,7 @@ async def test_transport_hook_fires_registered_callbacks() -> None:
 async def test_close_suppresses_on_connection_lost_hook() -> None:
     # A deliberate close() also triggers tmodbus's on_connection_lost hook (with a
     # None cause); that is not a lost connection, so it must not fire callbacks.
-    conn = TmodbusConnection(_ClosableClient())  # type: ignore[arg-type]
+    conn = TmodbusConnection(_PARAMS, _ClosableClient())  # type: ignore[arg-type]
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 

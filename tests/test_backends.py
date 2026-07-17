@@ -10,6 +10,7 @@ import pytest
 from modbus_connection import (
     ModbusConnection,
     ModbusExceptionError,
+    ModbusTcpParams,
     ModbusUnit,
 )
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
@@ -151,3 +152,17 @@ async def test_parity_across_backends(modbus_server: tuple[str, int]) -> None:
         finally:
             await conn.close()
     assert results["pymodbus"] == results["tmodbus"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_connection_stores_its_params(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # The factories build the shared params dataclass the connection was opened
+    # from and the connection carries it.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        assert conn._params == ModbusTcpParams(host=host, port=port)
+    finally:
+        await conn.close()

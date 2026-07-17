@@ -1,9 +1,11 @@
-"""The backend-neutral Modbus Protocols.
+"""The backend-neutral ``ModbusUnit`` Protocol.
 
-This module defines the contract that every backend (pymodbus, tmodbus, ...)
-implements. It imports nothing from any Modbus library and nothing from Home
-Assistant. Consumers type against ``ModbusUnit`` / ``ModbusConnection`` and stay
-ignorant of which backend produced them.
+This module defines the unit contract that every backend (pymodbus, tmodbus,
+...) implements. It imports nothing from any Modbus library and nothing from
+Home Assistant. Consumers type against ``ModbusUnit`` (and against
+``modbus_connection.ModbusConnection`` — the connection base class in
+``_client`` — for the owner side) and stay ignorant of which backend produced
+them.
 """
 
 from collections.abc import Callable
@@ -74,26 +76,3 @@ class ModbusUnit(Protocol):
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
-
-
-@runtime_checkable
-class ModbusConnection(Protocol):
-    """A shared, internally-serialized, already-connected link to a Modbus network.
-
-    You never construct or ``connect()`` this — a backend connect function returns
-    a live instance (e.g. ``modbus_connection.pymodbus.connect_tcp(...)``).
-    Consumers NEVER receive this object — only a ``ModbusUnit``. It is held by the
-    connection's OWNER.
-    """
-
-    @property
-    def connected(self) -> bool: ...
-
-    def for_unit(self, unit_id: int) -> ModbusUnit: ...
-
-    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        """Owner-level drop callback; returns an unsubscribe."""
-
-    # Teardown — OWNER ONLY. There is no connect(): the instance is already live
-    # and reconnects are the owner's job, never the abstraction's.
-    async def close(self) -> None: ...

@@ -71,7 +71,8 @@ from collections.abc import Callable, Iterable
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
-from ._protocol import ModbusConnection, ModbusUnit
+from ._client import BaseModbusConnection
+from ._protocol import ModbusUnit
 from .exceptions import ModbusError
 from .model import CoilField, Component, DiscreteInputField, RegisterField
 
@@ -250,7 +251,7 @@ def add_connection_args(
 
 async def connect_from_args(
     args: argparse.Namespace, *, message_spacing: float = 0.0
-) -> ModbusConnection:
+) -> BaseModbusConnection:
     """Open the connection described by *args* (as parsed by ``add_connection_args``).
 
     Dispatches to ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` /

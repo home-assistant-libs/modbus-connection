@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import pytest
 
-from modbus_connection import _pacing
+from modbus_connection import ModbusTcpParams, _pacing
 from modbus_connection._pacing import Pacer
 from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
@@ -63,7 +63,11 @@ def test_pacer_rejects_negative_unit_spacing() -> None:
 
 def test_connection_rejects_negative_message_spacing() -> None:
     with pytest.raises(ValueError):
-        PymodbusConnection(None, message_spacing=-0.1)  # type: ignore[arg-type]
+        PymodbusConnection(
+            ModbusTcpParams(host="test"),
+            None,  # type: ignore[arg-type]
+            message_spacing=-0.1,
+        )
 
 
 async def test_tmodbus_connect_rejects_negative_message_spacing() -> None:
