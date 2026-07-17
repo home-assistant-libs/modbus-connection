@@ -83,22 +83,6 @@ async def test_input_and_discrete_are_separate_spaces(
     assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
 
 
-async def test_bit_store_aliases_are_backwards_compatible(
-    mock_modbus_unit: MockModbusUnit,
-) -> None:
-    # coils / discrete_inputs are aliases of the canonical coil / discrete stores:
-    # they read back the same dict and either name mutates the other.
-    assert mock_modbus_unit.coils is mock_modbus_unit.coil
-    assert mock_modbus_unit.discrete_inputs is mock_modbus_unit.discrete
-
-    mock_modbus_unit.coils[0] = True  # write via the old name
-    assert mock_modbus_unit.coil[0] is True  # visible under the new one
-    assert await mock_modbus_unit.read_coils(0, 1) == [True]
-
-    mock_modbus_unit.discrete = {3: True}  # replace via the new name
-    assert mock_modbus_unit.discrete_inputs == {3: True}  # visible under the old one
-
-
 # -- writes -------------------------------------------------------------------
 
 

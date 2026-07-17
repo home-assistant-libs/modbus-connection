@@ -1378,7 +1378,7 @@ async def test_read_raw_snapshot_replays_into_a_mock_via_load_raw() -> None:
 
 async def test_load_raw_rejects_an_unknown_space() -> None:
     unit = MockModbusConnection().for_unit(1)
-    # load_raw keys are the canonical spaces (async_read_raw's keys); the store
-    # alias "coils" is not one of them.
+    # load_raw keys are the canonical spaces (async_read_raw's keys), e.g. "coil";
+    # the store name "coils" is not one of them.
     with pytest.raises(ValueError, match="unknown space"):
         unit.load_raw({"coils": {0: True}})
