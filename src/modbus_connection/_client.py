@@ -23,72 +23,90 @@ __all__ = [
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusTcpParams:
-    """Connection parameters for a Modbus TCP link.
-
-    ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
-    (MBAP), ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
-    gateways speak — or ``"ascii"`` for ASCII frames tunnelled over the TCP
-    stream (pymodbus client only).
-    """
+    """Connection parameters for a Modbus TCP link."""
 
     host: str
+    """Host name or IP address of the device."""
+
     port: int = 502
+    """TCP port."""
+
     framer: Literal["socket", "rtu", "ascii"] = "socket"
+    """Wire framing: ``"socket"`` for native Modbus TCP (MBAP), ``"rtu"`` for
+    RTU-over-TCP — what transparent serial-to-Ethernet gateways speak — or
+    ``"ascii"`` for ASCII frames tunnelled over the TCP stream (pymodbus
+    client only)."""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusUdpParams:
-    """Connection parameters for a Modbus UDP link (pymodbus client only).
-
-    UDP carries the same wire framings as TCP; ``framer`` selects ``"socket"``
-    for native Modbus (MBAP), ``"rtu"``, or ``"ascii"``.
-    """
+    """Connection parameters for a Modbus UDP link (pymodbus client only)."""
 
     host: str
+    """Host name or IP address of the device."""
+
     port: int = 502
+    """UDP port."""
+
     framer: Literal["socket", "rtu", "ascii"] = "socket"
+    """Wire framing, same choices as TCP: ``"socket"`` for native Modbus
+    (MBAP), ``"rtu"``, or ``"ascii"``."""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusTlsParams:
-    """Connection parameters for a Modbus/TLS (Modbus Security) link.
-
-    Server verification — ``verify`` controls how the device's certificate is
-    checked (the ``httpx`` convention): ``True`` verifies against the system
-    trust store, ``False`` disables verification (self-signed devices), and a
-    path (``str``) verifies against a CA bundle file or directory of CAs (e.g.
-    to pin a device's own self-signed certificate). ``check_hostname`` gates
-    hostname matching while still verifying the certificate; it is ignored when
-    ``verify`` is ``False``.
-
-    Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
-    ``client_key_password`` are this side's own certificate, presented to the
-    device.
-    """
+    """Connection parameters for a Modbus/TLS (Modbus Security) link."""
 
     host: str
+    """Host name or IP address of the device."""
+
     port: int = 802
+    """TLS port."""
+
     verify: bool | str = True
+    """How the device's certificate is checked (the ``httpx`` convention):
+    ``True`` verifies against the system trust store, ``False`` disables
+    verification (self-signed devices), and a path (``str``) verifies against
+    a CA bundle file or directory of CAs (e.g. to pin a device's own
+    self-signed certificate)."""
+
     check_hostname: bool = True
+    """Match the certificate against the host name while verifying; ignored
+    when ``verify`` is ``False``."""
+
     client_cert: str | None = None
+    """Path to this side's own certificate, presented to the device
+    (mutual TLS)."""
+
     client_key: str | None = None
+    """Path to the private key belonging to ``client_cert``."""
+
     client_key_password: str | None = None
+    """Password for ``client_key``, if it is encrypted."""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusSerialParams:
-    """Connection parameters for a Modbus serial link.
-
-    ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU (the
-    default) or ``"ascii"`` for the ASCII transmission mode.
-    """
+    """Connection parameters for a Modbus serial link."""
 
     device: str
+    """Serial port device path (e.g. ``/dev/ttyUSB0``)."""
+
     baudrate: int = 9600
+    """Line speed in baud."""
+
     bytesize: Literal[7, 8] = 8
+    """Data bits per character."""
+
     parity: Literal["N", "E", "O"] = "N"
+    """Parity: none, even, or odd."""
+
     stopbits: Literal[1, 2] = 1
+    """Stop bits per character."""
+
     framer: Literal["rtu", "ascii"] = "rtu"
+    """Serial framing: ``"rtu"`` for binary Modbus RTU (the default) or
+    ``"ascii"`` for the ASCII transmission mode."""
 
 
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
