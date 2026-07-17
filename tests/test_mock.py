@@ -76,7 +76,7 @@ async def test_input_and_discrete_are_separate_spaces(
     mock_modbus_unit: MockModbusUnit,
 ) -> None:
     mock_modbus_unit.input[0] = 555
-    mock_modbus_unit.discrete_inputs[1] = True
+    mock_modbus_unit.discrete[1] = True
     assert await mock_modbus_unit.read_input_registers(0, 1) == [555]
     assert await mock_modbus_unit.read_discrete_inputs(0, 2) == [False, True]
     # Holding space untouched by the input write.

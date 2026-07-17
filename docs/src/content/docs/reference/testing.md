@@ -19,8 +19,8 @@ and no Home Assistant in the loop.
 
 ## Seeding registers
 
-Set values on the per-space stores (`holding`, `input`, `coils`,
-`discrete_inputs`). A single value fills one register; a list fills consecutive
+Set values on the per-space stores (`holding`, `input`, `coil`,
+`discrete`). A single value fills one register; a list fills consecutive
 registers; a callable is evaluated on every read:
 
 ```python
@@ -42,8 +42,8 @@ A raw dump from
 [`async_read_raw()`](/modbus-connection/modelling/component-group/#raw-diagnostics)
 — e.g. captured from a real device in a bug report — loads straight into the mock
 with `load_raw()`, so you can reproduce that device and check your model decodes
-it. It maps the `{space: {address: value}}` format onto the four stores (`"coil"`
-/ `"discrete"` go to `coils` / `discrete_inputs`):
+it. Each space names its store directly — `holding`, `input`, `coil`,
+`discrete`:
 
 ```python
 async def test_decodes_a_captured_device(mock_modbus_unit):
@@ -109,7 +109,7 @@ async def test_write_rejected(mock_modbus_unit):
 Arm `fail_read` and any read whose block covers that address raises the given
 error instead of returning values — mirroring a device that refuses a register
 block it doesn't serve, such as an uninstalled module. `register_type` defaults
-to `"holding"` (use `"input"`, `"coil"` or `"discrete_input"` for the other
+to `"holding"` (use `"input"`, `"coil"` or `"discrete"` for the other
 tables — they're independent); pass `None` to clear:
 
 ```python
