@@ -335,7 +335,6 @@ async def test_field_rows_reflects_fields_units_and_properties() -> None:
 
     # Internals and methods are not fields.
     assert "async_update" not in rows
-    assert "register_items" not in rows
 
 
 def test_field_rows_unread_renders_placeholder() -> None:

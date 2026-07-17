@@ -2,33 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, overload
 
+from ._component_base import _ComponentBase
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
-    BitItem,
-    BitSpace,
     Range,
-    ReadTargets,
-    RegisterItem,
+    ReadItem,
+    ReadPlan,
     RegisterSpace,
-    _plan_bit_blocks,
-    _plan_register_blocks,
+    Space,
 )
-from ._repeating import _RepeatingGroups
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
-UpdateListener = Callable[[], None]
 
-
-class Component(_RepeatingGroups):
+class Component(_ComponentBase):
     """A device sub-system whose attributes map to registers, coils and inputs.
 
     Subclasses declare ``RegisterField`` / ``CoilField`` / ``DiscreteInputField``
@@ -140,9 +134,9 @@ class Component(_RepeatingGroups):
         self._instance_offset = _instance_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
-        self._listeners: list[UpdateListener] = []
-        # Set up repeating_group state; fixed-count groups' instances are built
-        # now so they fold into the normal read plan like ordinary fields.
+        # Set up listener and repeating_group state; fixed-count groups'
+        # instances are built now so they fold into the normal read plan like
+        # ordinary fields.
         self._build_groups()
 
     @property
@@ -177,25 +171,11 @@ class Component(_RepeatingGroups):
             + self._instance_offset
         )
 
-    # -- listeners -----------------------------------------------------------
-
-    def add_update_listener(self, listener: UpdateListener) -> Callable[[], None]:
-        """Register a callback fired after each update; returns an unsubscribe."""
-        self._listeners.append(listener)
-
-        def remove() -> None:
-            try:
-                self._listeners.remove(listener)
-            except ValueError:
-                pass
-
-        return remove
-
     # -- update --------------------------------------------------------------
 
     @cached_property
-    def register_items(self) -> list[RegisterItem]:
-        """This component's register read targets, scale registers resolved.
+    def _read_items(self) -> list[ReadItem]:
+        """This component's read targets, scale registers resolved.
 
         Derived once from the static field layout and cached for the instance's
         life; do not mutate the field set afterwards.
@@ -206,59 +186,42 @@ class Component(_RepeatingGroups):
                 self._scale_address(field) if field.scale_register is not None else None
             )
             items.append(
-                RegisterItem(
+                ReadItem(
                     self._address(field),
                     field,
                     self._values,
-                    scale_address,
                     self.register_space,
+                    scale_address,
                 )
             )
-        return items + self._count_items + self._static_register_items
+        for bit_field in self._bit_fields.values():
+            items.append(
+                ReadItem(
+                    self._address(bit_field), bit_field, self._bits, bit_field.space
+                )
+            )
+        return items + self._count_items + self._static_items
 
-    @cached_property
-    def bit_items(self) -> list[BitItem]:
-        """This component's bit read targets (coils and discrete inputs)."""
-        own = [(self._address(f), f, self._bits) for f in self._bit_fields.values()]
-        return own + self._static_bit_items
-
-    @cached_property
-    def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
-        return _plan_register_blocks(
-            self.register_items,
-            {self.register_space: self.register_ranges},
-            max_gap=self.max_gap,
-            max_span=self.max_span,
-        )
-
-    @cached_property
-    def _bit_blocks(self) -> dict[BitSpace, list[tuple[int, int]]]:
-        ranges: dict[BitSpace, tuple[Range, ...] | None] = {
+    def _build_plan(self) -> ReadPlan:
+        ranges: dict[Space, tuple[Range, ...] | None] = {
+            self.register_space: self.register_ranges,
             "coil": self.coil_ranges,
             "discrete": self.discrete_ranges,
         }
-        return _plan_bit_blocks(
-            self.bit_items, ranges, max_gap=self.max_gap, max_span=self.max_span
+        return ReadPlan.build(
+            self._read_items, ranges, max_gap=self.max_gap, max_span=self.max_span
         )
-
-    def notify(self) -> None:
-        """Fire this component's update listeners, and each sub-instance's."""
-        for group in self._groups.values():
-            for instance in group:
-                instance.notify()
-        for listener in list(self._listeners):
-            listener()
 
     async def async_update(self) -> None:
         """Read this component's registers and coils, then notify listeners.
 
         Reads only this sub-system's own registers, so it can refresh on its own.
-        A device that owns several components can instead pool their
-        :attr:`register_items` / :attr:`bit_items` into one bulk read. The block
-        plan is built on the first call and reused on later polls.
+        A device that owns several components can instead pool them into one
+        bulk read with a :class:`ComponentGroup`. The block plan is built on the
+        first call and reused on later polls.
 
         A :func:`repeating_group` field needs a second pass: the first read
-        fetches the count (it is part of :attr:`register_items`), then
+        fetches the count (it is part of the read plan), then
         :meth:`async_update_repeating_groups` reads the sized-out instances.
 
         If the device answers one of the block reads with a Modbus exception
@@ -269,28 +232,6 @@ class Component(_RepeatingGroups):
         component so their absence doesn't fail this update.
         """
         await self._refresh(collect_raw=False)
-
-    def _read_targets(self) -> ReadTargets:
-        return (
-            self.register_items,
-            self._register_blocks,
-            self.bit_items,
-            self._bit_blocks,
-        )
-
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read every register and bit raw, keyed by absolute address, for diagnostics.
-
-        Runs the same reads as :meth:`async_update` (pooled blocks plus the
-        :func:`repeating_group` second pass) and, like an update, refreshes the
-        decoded fields and notifies listeners — it additionally returns the raw
-        values, keyed by the four Modbus spaces: ``{space: {address: value}}``,
-        words for ``"holding"`` / ``"input"`` and booleans for ``"coil"`` /
-        ``"discrete"``. Raises
-        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
-        """
-        raw = await self._refresh(collect_raw=True)
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

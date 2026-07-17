@@ -367,7 +367,7 @@ async def test_static_instance_listener_fires_via_parent() -> None:
 
 
 async def test_static_group_pooled_in_component_group() -> None:
-    # A fixed-count group's instances fold into register_items, so ComponentGroup
+    # A fixed-count group's instances fold into the read items, so ComponentGroup
     # reads them in its pooled reads and its notify() cascades to them.
     class Inverter(Component):
         modules = repeating_group(2, Module, stride=20)

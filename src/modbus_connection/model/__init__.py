@@ -62,11 +62,11 @@ here.
 from __future__ import annotations
 
 from .._types import BitSpace
+from ._component_base import UpdateListener
 from ._planning import Range, RegisterSpace
 from .component import (
     Component,
     RepeatingGroupField,
-    UpdateListener,
     repeating_group,
 )
 from .component_group import ComponentGroup

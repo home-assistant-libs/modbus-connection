@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from functools import cached_property
 from typing import TYPE_CHECKING
 
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
-    BitItem,
-    BitSpace,
     Range,
-    ReadTargets,
-    RegisterItem,
-    RegisterSpace,
-    _bulk_read,
+    Raw,
+    ReadPlan,
+    Space,
     _merge_raw,
-    _plan_bit_blocks,
-    _plan_register_blocks,
+    _Readable,
 )
 
 if TYPE_CHECKING:
@@ -26,7 +21,7 @@ if TYPE_CHECKING:
     from .component import Component
 
 
-class ComponentGroup:
+class ComponentGroup(_Readable):
     """Several :class:`Component`s on one unit, refreshed in pooled block reads.
 
     Groups the sub-systems of one physical device — e.g. a Trovis controller's
@@ -62,18 +57,16 @@ class ComponentGroup:
     ) -> None:
         self._unit = unit
         self._components = list(components)
-        self._register_ranges_by_space = self._ranges_by_space()
-        self._coil_ranges = self._shared("coil_ranges", None)
-        self._discrete_ranges = self._shared("discrete_ranges", None)
-        self._max_gap = self._shared("max_gap", _MAX_GAP)
-        self._max_span = self._shared("max_span", _MAX_SPAN)
+        self._ranges = self._ranges_by_space()
+        self._max_gap: int = self._shared("max_gap", _MAX_GAP)
+        self._max_span: int = self._shared("max_span", _MAX_SPAN)
 
-    def _ranges_by_space(self) -> dict[RegisterSpace, tuple[Range, ...] | None]:
-        """Per-space register ranges; components sharing a space must agree."""
-        by_space: dict[RegisterSpace, list[Component]] = {}
+    def _ranges_by_space(self) -> dict[Space, tuple[Range, ...] | None]:
+        """The readable ranges per space; components sharing a space must agree."""
+        by_space: dict[Space, list[Component]] = {}
         for component in self._components:
             by_space.setdefault(component.register_space, []).append(component)
-        ranges: dict[RegisterSpace, tuple[Range, ...] | None] = {}
+        ranges: dict[Space, tuple[Range, ...] | None] = {}
         for space, components in by_space.items():
             distinct = {c.register_ranges for c in components}
             if len(distinct) > 1:
@@ -82,6 +75,8 @@ class ComponentGroup:
                     f"register_ranges, but got differing values: {distinct}"
                 )
             ranges[space] = next(iter(distinct), None)
+        ranges["coil"] = self._shared("coil_ranges", None)
+        ranges["discrete"] = self._shared("discrete_ranges", None)
         return ranges
 
     def _shared[V](self, attr: str, default: V) -> V:
@@ -94,32 +89,28 @@ class ComponentGroup:
             )
         return next(iter(distinct), default)
 
-    @cached_property
-    def _register_items(self) -> list[RegisterItem]:
-        return [item for c in self._components for item in c.register_items]
-
-    @cached_property
-    def _bit_items(self) -> list[BitItem]:
-        return [item for c in self._components for item in c.bit_items]
-
-    @cached_property
-    def _register_blocks(self) -> dict[RegisterSpace, list[tuple[int, int]]]:
-        return _plan_register_blocks(
-            self._register_items,
-            self._register_ranges_by_space,
+    def _build_plan(self) -> ReadPlan:
+        return ReadPlan.build(
+            [item for c in self._components for item in c._read_items],
+            self._ranges,
             max_gap=self._max_gap,
             max_span=self._max_span,
         )
 
-    @cached_property
-    def _bit_blocks(self) -> dict[BitSpace, list[tuple[int, int]]]:
-        ranges: dict[BitSpace, tuple[Range, ...] | None] = {
-            "coil": self._coil_ranges,
-            "discrete": self._discrete_ranges,
-        }
-        return _plan_bit_blocks(
-            self._bit_items, ranges, max_gap=self._max_gap, max_span=self._max_span
-        )
+    def notify(self) -> None:
+        """Fire each member component's update listeners."""
+        for component in self._components:
+            component.notify()
+
+    async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
+        # the pooled first pass read each member's count registers; now drive
+        # each member's own second pass so their register-count groups refresh
+        raw: Raw = {}
+        for component in self._components:
+            _merge_raw(
+                raw, await component._refresh_repeating_groups(collect_raw=collect_raw)
+            )
+        return raw
 
     async def async_update(self, *, notify: bool = True) -> None:
         """Refresh every component in one pooled set of reads, then notify each.
@@ -138,47 +129,3 @@ class ComponentGroup:
         update — here that is any block across the pooled members.
         """
         await self._refresh(collect_raw=False, notify=notify)
-
-    def _read_targets(self) -> ReadTargets:
-        return (
-            self._register_items,
-            self._register_blocks,
-            self._bit_items,
-            self._bit_blocks,
-        )
-
-    async def _refresh(
-        self, *, collect_raw: bool, notify: bool
-    ) -> dict[str, dict[int, int | bool]]:
-        """Read every member once — registers, bits and repeating groups — the core
-        shared by :meth:`async_update` and :meth:`async_read_raw`.
-
-        With ``collect_raw`` the members' raw values are merged and returned;
-        without it the readers collect nothing and the returned dict is empty.
-        ``notify`` fires each member's listeners (skipped when this group is an
-        inner repeating pass, so the top-level read notifies once).
-        """
-        raw = await _bulk_read(
-            self._unit, *self._read_targets(), collect_raw=collect_raw
-        )
-        for component in self._components:
-            _merge_raw(
-                raw, await component._refresh_repeating_groups(collect_raw=collect_raw)
-            )
-        if notify:
-            for component in self._components:
-                component.notify()
-        return raw
-
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read the group's registers and bits raw, keyed by address, for diagnostics.
-
-        The :class:`ComponentGroup` counterpart of
-        :meth:`Component.async_read_raw`: the same consolidated reads as
-        :meth:`async_update`, merged across the members and including their
-        repeating groups. Like an update it refreshes the members' decoded values
-        and notifies each member's listeners; it additionally returns the raw
-        values as ``{space: {address: value}}``.
-        """
-        raw = await self._refresh(collect_raw=True, notify=True)
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
