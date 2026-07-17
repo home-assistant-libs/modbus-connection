@@ -194,12 +194,10 @@ class Component(_ComponentBase):
                     scale_address,
                 )
             )
-        for bit_field in self._bit_fields.values():
-            items.append(
-                ReadItem(
-                    self._address(bit_field), bit_field, self._bits, bit_field.space
-                )
-            )
+        items.extend(
+            ReadItem(self._address(field), field, self._bits, field.space)
+            for field in self._bit_fields.values()
+        )
         return items + self._count_items + self._static_items
 
     def _build_plan(self) -> ReadPlan:
