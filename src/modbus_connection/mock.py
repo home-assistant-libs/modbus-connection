@@ -132,11 +132,15 @@ class MockModbusConnection:
 class MockModbusUnit:
     """An in-memory ``ModbusUnit`` backed by per-space value-spec stores.
 
-    Configure ``holding``, ``input``, ``coils`` and ``discrete_inputs`` directly
-    (e.g. ``unit.holding[0] = 1234``). Reads resolve against them; writes mutate
-    ``holding`` / ``coils`` and notify ``on_write`` callbacks. The exotic
-    function codes (report-server-id, fifo, device-id, ...) raise
-    ``NotImplementedError`` until configured via ``set_response``.
+    Configure ``holding``, ``input``, ``coil`` and ``discrete`` directly
+    (e.g. ``unit.holding[0] = 1234``) — the stores are named by their Modbus
+    space, matching the keys of an ``async_read_raw`` snapshot. Reads resolve
+    against them; writes mutate ``holding`` / ``coil`` and notify ``on_write``
+    callbacks. The exotic function codes (report-server-id, fifo, device-id, ...)
+    raise ``NotImplementedError`` until configured via ``set_response``.
+
+    ``coils`` and ``discrete_inputs`` remain as backwards-compatible aliases of
+    ``coil`` and ``discrete``.
     """
 
     def __init__(self, connection: MockModbusConnection, unit_id: int) -> None:
@@ -144,13 +148,31 @@ class MockModbusUnit:
         self._unit_id = unit_id
         self.holding: dict[int, RegisterSpec] = {}
         self.input: dict[int, RegisterSpec] = {}
-        self.coils: dict[int, CoilSpec] = {}
-        self.discrete_inputs: dict[int, CoilSpec] = {}
+        self.coil: dict[int, CoilSpec] = {}
+        self.discrete: dict[int, CoilSpec] = {}
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
         self._read_failures: dict[tuple[ReadRegisterType, int], Exception] = {}
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
+
+    @property
+    def coils(self) -> dict[int, CoilSpec]:
+        """Backwards-compatible alias of :attr:`coil`."""
+        return self.coil
+
+    @coils.setter
+    def coils(self, value: dict[int, CoilSpec]) -> None:
+        self.coil = value
+
+    @property
+    def discrete_inputs(self) -> dict[int, CoilSpec]:
+        """Backwards-compatible alias of :attr:`discrete`."""
+        return self.discrete
+
+    @discrete_inputs.setter
+    def discrete_inputs(self, value: dict[int, CoilSpec]) -> None:
+        self.discrete = value
 
     @property
     def connected(self) -> bool:
@@ -247,21 +269,21 @@ class MockModbusUnit:
     def load_raw(self, raw: Mapping[str, Mapping[int, int | bool]]) -> None:
         """Load an ``async_read_raw`` snapshot into the stores, for replay in tests.
 
-        The snapshot is keyed by the four Modbus data tables — ``holding``,
-        ``input``, ``coils``, ``discrete_inputs`` — which are exactly the store
-        names, so a raw dump captured from a real device backs the mock and
-        exercises a component's decode with no hardware. Entries are merged in;
-        existing ones are left untouched.
+        The snapshot is keyed by the four Modbus spaces — ``holding``, ``input``,
+        ``coil``, ``discrete`` — which are exactly the store names, so a raw dump
+        captured from a real device backs the mock and exercises a component's
+        decode with no hardware. Entries are merged in; existing ones are left
+        untouched.
         """
         registers = {"holding": self.holding, "input": self.input}
-        bits = {"coils": self.coils, "discrete_inputs": self.discrete_inputs}
-        for table, values in raw.items():
-            if table in registers:
-                registers[table].update(values)
-            elif table in bits:
-                bits[table].update({addr: bool(v) for addr, v in values.items()})
+        bits = {"coil": self.coil, "discrete": self.discrete}
+        for space, values in raw.items():
+            if space in registers:
+                registers[space].update(values)
+            elif space in bits:
+                bits[space].update({addr: bool(v) for addr, v in values.items()})
             else:
-                raise ValueError(f"unknown data table {table!r} in raw snapshot")
+                raise ValueError(f"unknown space {space!r} in raw snapshot")
 
     def _raise_if_write_fails(
         self, register_type: RegisterType, address: int, count: int = 1
@@ -323,17 +345,17 @@ class MockModbusUnit:
     async def read_coils(self, address: int, count: int) -> list[bool]:
         self._ensure_connected()
         self._raise_if_read_fails("coil", address, count)
-        return _read_bits(self.coils, address, count)
+        return _read_bits(self.coil, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
         self._ensure_connected()
         self._raise_if_read_fails("discrete_input", address, count)
-        return _read_bits(self.discrete_inputs, address, count)
+        return _read_bits(self.discrete, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:
         self._ensure_connected()
         self._raise_if_write_fails("coil", address)
-        self.coils[address] = bool(value)
+        self.coil[address] = bool(value)
         self._fire_write(WriteEvent("coil", address, [bool(value)]))
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
@@ -341,7 +363,7 @@ class MockModbusUnit:
         bools = [bool(v) for v in values]
         self._raise_if_write_fails("coil", address, len(bools))
         for offset, value in enumerate(bools):
-            self.coils[address + offset] = value
+            self.coil[address + offset] = value
         self._fire_write(WriteEvent("coil", address, bools))
 
     # -- full function-code surface -------------------------------------------

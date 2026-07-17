@@ -154,7 +154,7 @@ device returned. `Component`, `ComponentGroup` and `ManualComponent` all expose
 `async_read_raw()` for this: it runs the same reads as `async_update()` —
 including any [`repeating_group`](/modbus-connection/modelling/repeats/) second
 pass — but returns the raw words and bits keyed by absolute address,
-`{table: {address: value}}`, undecoded.
+`{space: {address: value}}`, undecoded.
 
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
@@ -168,8 +168,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
 state at download time. It raises the same
 [`ModbusError`](/modbus-connection/reference/exceptions/) subclasses as an update;
 catch them if you'd rather serialize a diagnostics payload than fail the download.
-Its keys are the four Modbus data tables — `"holding"`, `"input"`, `"coils"`,
-`"discrete_inputs"` — each an address-keyed map of raw values.
+Its keys are the four Modbus spaces — `"holding"`, `"input"`, `"coil"`,
+`"discrete"` — each an address-keyed map of raw values.
 
 A downloaded snapshot also replays straight into the mock backend with
 [`load_raw()`](/modbus-connection/reference/testing/#replaying-a-raw-snapshot), so

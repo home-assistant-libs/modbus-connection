@@ -1234,10 +1234,10 @@ async def test_component_diagnostics_returns_raw_registers_by_address() -> None:
     raw = await _Diag(unit).async_read_raw()
 
     # count at 0, energy at 3..4 -> holding 0..4 pooled; the raw words land under
-    # their absolute addresses, undecoded, keyed by the four Modbus data tables.
+    # their absolute addresses, undecoded, keyed by their Modbus space.
     assert raw == {
         "holding": {0: 7, 1: 0, 2: 0, 3: 0x0001, 4: 0x86A0},
-        "coils": {0: True},
+        "coil": {0: True},
     }
 
 
@@ -1266,8 +1266,8 @@ async def test_group_diagnostics_covers_every_space() -> None:
     assert raw == {
         "holding": {0: 11},
         "input": {0: 22},
-        "coils": {0: True},
-        "discrete_inputs": {1: True},
+        "coil": {0: True},
+        "discrete": {1: True},
     }
     # Each space is read on its own; no space is skipped or merged into another.
     assert {space for space, _addr, _count in unit.reads} == {
@@ -1376,7 +1376,9 @@ async def test_read_raw_snapshot_replays_into_a_mock_via_load_raw() -> None:
     assert holding.a == 11
 
 
-async def test_load_raw_rejects_an_unknown_table() -> None:
+async def test_load_raw_rejects_an_unknown_space() -> None:
     unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="unknown data table"):
-        unit.load_raw({"coil": {0: True}})  # the space name, not the table "coils"
+    # load_raw keys are the canonical spaces (async_read_raw's keys); the store
+    # alias "coils" is not one of them.
+    with pytest.raises(ValueError, match="unknown space"):
+        unit.load_raw({"coils": {0: True}})

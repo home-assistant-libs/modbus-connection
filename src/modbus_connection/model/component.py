@@ -305,13 +305,13 @@ class Component(_RepeatingGroups):
         Runs the same reads as :meth:`async_update` (pooled blocks plus the
         :func:`repeating_group` second pass) and, like an update, refreshes the
         decoded fields and notifies listeners — it additionally returns the raw
-        values, keyed by the four Modbus data tables: ``{table: {address:
-        value}}``, words for ``"holding"`` / ``"input"`` and booleans for
-        ``"coils"`` / ``"discrete_inputs"``. Raises
+        values, keyed by the four Modbus spaces: ``{space: {address: value}}``,
+        words for ``"holding"`` / ``"input"`` and booleans for ``"coil"`` /
+        ``"discrete"``. Raises
         :class:`~modbus_connection.exceptions.BlockReadError` like an update.
         """
         raw = await self._refresh(collect_raw=True)
-        return {table: dict(sorted(values.items())) for table, values in raw.items()}
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

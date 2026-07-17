@@ -31,12 +31,6 @@ Range = tuple[int, int]  # an inclusive (low, high) readable address range
 # from different spaces are never merged into one read.
 RegisterSpace = Literal["input", "holding"]
 
-# The raw-dump key for each bit space: its Modbus data-table name. The register
-# spaces ("holding"/"input") already read as their table name; the bit spaces map
-# to the fuller "coils"/"discrete_inputs" so an async_read_raw() snapshot keys by
-# the four data tables and loads straight into a mock's like-named stores.
-_RAW_BIT_KEY: dict[BitSpace, str] = {"coil": "coils", "discrete": "discrete_inputs"}
-
 
 class RegisterItem(NamedTuple):
     """A register read target: where to read, what field, and where to store it."""
@@ -285,7 +279,7 @@ async def _bulk_read_bits(
         return {}
     raw: dict[str, dict[int, bool]] = {}
     for (space, address), value in bits.items():
-        raw.setdefault(_RAW_BIT_KEY[space], {})[address] = bool(value)
+        raw.setdefault(space, {})[address] = bool(value)
     return raw
 
 

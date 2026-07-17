@@ -129,28 +129,6 @@ class _RepeatingGroups:
         """
         await self._refresh_repeating_groups(collect_raw=False)
 
-    def _size_repeating_instances(self) -> list[Component]:
-        """Size each register-count group to the count read into ``_counts``.
-
-        Grows or trims each group's instance list to match the count just read,
-        dropping the cached ``_instance_group`` when membership changes, and
-        returns every register-count instance flattened. Shared by the update and
-        the raw-read second passes.
-        """
-        instances: list[Component] = []
-        for name, field in self._repeating_fields.items():
-            value = self._counts.get(name)
-            count = max(0, int(value)) if value is not None else 0
-            existing = self._groups.get(name, [])
-            if len(existing) != count:
-                existing = existing[:count] + self._build_instances(
-                    field, len(existing), count
-                )
-                self._groups[name] = existing
-                self._instance_group = None
-            instances.extend(existing)
-        return instances
-
     async def _refresh_repeating_groups(
         self, *, collect_raw: bool
     ) -> dict[str, dict[int, int | bool]]:
@@ -172,7 +150,20 @@ class _RepeatingGroups:
                 )
         if not self._repeating_fields:
             return raw
-        instances = self._size_repeating_instances()
+        # Size each register-count group to the count just read, growing or
+        # trimming its instances and dropping the cached pooled group on a change.
+        instances: list[Component] = []
+        for name, field in self._repeating_fields.items():
+            value = self._counts.get(name)
+            count = max(0, int(value)) if value is not None else 0
+            existing = self._groups.get(name, [])
+            if len(existing) != count:
+                existing = existing[:count] + self._build_instances(
+                    field, len(existing), count
+                )
+                self._groups[name] = existing
+                self._instance_group = None
+            instances.extend(existing)
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)

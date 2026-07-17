@@ -104,13 +104,13 @@ raw = await group.async_read_raw()
 # {
 #     "holding": {0: 2301, 1: 47, ...},   # merged across the group's members
 #     "input": {507: 12, ...},
-#     "coils": {0: True},
-#     "discrete_inputs": {3: False},
+#     "coil": {0: True},
+#     "discrete": {3: False},
 # }
 ```
 
-The result is keyed by the four Modbus data tables (`holding`, `input`, `coils`,
-`discrete_inputs`), each an address-keyed map, addresses ascending. It reads the
+The result is keyed by the four Modbus spaces (`holding`, `input`, `coil`,
+`discrete`), each an address-keyed map, addresses ascending. It reads the
 device fresh (no prior update needed) and raises
 [`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) on a
 Modbus exception, like an update. Because it mirrors the update read, it is a

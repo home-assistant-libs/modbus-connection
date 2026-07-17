@@ -19,8 +19,9 @@ and no Home Assistant in the loop.
 
 ## Seeding registers
 
-Set values on the per-space stores (`holding`, `input`, `coils`,
-`discrete_inputs`). A single value fills one register; a list fills consecutive
+Set values on the per-space stores (`holding`, `input`, `coil`, `discrete` — with
+`coils` / `discrete_inputs` as backwards-compatible aliases). A single value fills
+one register; a list fills consecutive
 registers; a callable is evaluated on every read:
 
 ```python
@@ -42,12 +43,12 @@ A raw dump from
 [`async_read_raw()`](/modbus-connection/modelling/component-group/#raw-diagnostics)
 — e.g. captured from a real device in a bug report — loads straight into the mock
 with `load_raw()`, so you can reproduce that device and check your model decodes
-it. The dump is keyed by the four Modbus data tables — `holding`, `input`,
-`coils`, `discrete_inputs` — which are exactly the store names:
+it. The dump is keyed by the four Modbus spaces — `holding`, `input`, `coil`,
+`discrete` — which are exactly the store names:
 
 ```python
 async def test_decodes_a_captured_device(mock_modbus_unit):
-    mock_modbus_unit.load_raw({"holding": {0: 2301}, "coils": {0: True}})
+    mock_modbus_unit.load_raw({"holding": {0: 2301}, "coil": {0: True}})
     meter = Meter(mock_modbus_unit)
     await meter.async_update()
     assert meter.voltage == 230.1

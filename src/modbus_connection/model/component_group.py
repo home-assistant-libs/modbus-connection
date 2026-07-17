@@ -186,4 +186,4 @@ class ComponentGroup:
         values as ``{table: {address: value}}``.
         """
         raw = await self._refresh(collect_raw=True, notify=True)
-        return {table: dict(sorted(values.items())) for table, values in raw.items()}
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}
