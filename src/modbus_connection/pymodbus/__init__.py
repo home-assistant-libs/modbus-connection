@@ -152,27 +152,6 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
     return request
 
 
-# Framing name -> pymodbus FramerType. Serial links accept only the rtu/ascii
-# subset (see the serial branch of ``_create_client``); the socket transports
-# take any of the three.
-_FRAMER_TYPES: dict[str, FramerType] = {
-    "socket": FramerType.SOCKET,
-    "rtu": FramerType.RTU,
-    "ascii": FramerType.ASCII,
-}
-
-
-def _framer_type(framer: SocketFraming) -> FramerType:
-    """Map a TCP/UDP framing name onto pymodbus's ``FramerType``; raise
-    ``ValueError`` on an unknown name."""
-    try:
-        return _FRAMER_TYPES[framer]
-    except KeyError:
-        raise ValueError(
-            f"unknown framer {framer!r}; expected 'socket', 'rtu', or 'ascii'"
-        ) from None
-
-
 class PymodbusConnection(BaseModbusConnection):
     """A Modbus connection backed by pymodbus."""
 
@@ -220,7 +199,7 @@ class PymodbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
-                framer=_framer_type(params.framer),
+                framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusUdpParams):
@@ -230,7 +209,7 @@ class PymodbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
-                framer=_framer_type(params.framer),
+                framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusTlsParams):
@@ -256,13 +235,15 @@ class PymodbusConnection(BaseModbusConnection):
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
+        # The FramerType enum alone would accept "socket" here; serial links
+        # only speak the rtu/ascii subset.
         if params.framer not in ("rtu", "ascii"):
             raise ValueError(
                 f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
             )
         return AsyncModbusSerialClient(
             params.device,
-            framer=_FRAMER_TYPES[params.framer],
+            framer=FramerType(params.framer),
             baudrate=params.baudrate,
             bytesize=params.bytesize,
             parity=params.parity,
