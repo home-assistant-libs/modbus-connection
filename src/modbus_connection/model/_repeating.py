@@ -127,16 +127,7 @@ class _RepeatingGroups:
         needs this second pass — its count was fetched with the instance's other
         registers, so drive each fixed-count instance's second pass here too.
         """
-        for name in self._static_groups:
-            for instance in self._groups[name]:
-                await instance.async_update_repeating_groups()
-        if not self._repeating_fields:
-            return
-        instances = self._size_repeating_instances()
-        if instances:
-            if self._instance_group is None:
-                self._instance_group = ComponentGroup(self._unit, instances)
-            await self._instance_group.async_update(notify=False)
+        await self._refresh_repeating_groups(collect_raw=False)
 
     def _size_repeating_instances(self) -> list[Component]:
         """Size each register-count group to the count read into ``_counts``.
@@ -160,19 +151,35 @@ class _RepeatingGroups:
             instances.extend(existing)
         return instances
 
-    async def _read_raw_repeating_groups(self) -> dict[str, dict[int, int | bool]]:
-        """Raw second pass for ``async_read_raw``: size the register-count groups
-        from the counts just read, read the instances raw, and merge them (the raw
-        mirror of :meth:`async_update_repeating_groups`)."""
+    async def _refresh_repeating_groups(
+        self, *, collect_raw: bool
+    ) -> dict[str, dict[int, int | bool]]:
+        """The register-count second pass, shared by the update and raw reads.
+
+        Sizes each register-count group to the count read on the first pass and
+        reads the instances pooled among themselves, without notifying — the
+        top-level read notifies once, cascading to these instances. Also drives
+        each fixed-count instance's own nested second pass. With ``collect_raw``
+        the instances' raw values are merged and returned; otherwise the returned
+        dict is empty (the readers collect nothing).
+        """
         raw: dict[str, dict[int, int | bool]] = {}
         for name in self._static_groups:
             for instance in self._groups[name]:
-                _merge_raw(raw, await instance._read_raw_repeating_groups())
+                _merge_raw(
+                    raw,
+                    await instance._refresh_repeating_groups(collect_raw=collect_raw),
+                )
         if not self._repeating_fields:
             return raw
         instances = self._size_repeating_instances()
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
-            _merge_raw(raw, await self._instance_group.async_read_raw())
+            _merge_raw(
+                raw,
+                await self._instance_group._refresh(
+                    collect_raw=collect_raw, notify=False
+                ),
+            )
         return raw

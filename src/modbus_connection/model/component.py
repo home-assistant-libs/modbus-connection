@@ -270,39 +270,48 @@ class Component(_RepeatingGroups):
         device with genuinely optional blocks should read those on a separate
         component so their absence doesn't fail this update.
         """
-        await _bulk_read_registers(
-            self._unit, self.register_items, self._register_blocks
-        )
-        await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
-        await self.async_update_repeating_groups()
-        self.notify()
+        await self._refresh(collect_raw=False)
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read every register and bit raw, keyed by absolute address, for diagnostics.
+    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
+        """Read registers, bits and repeating groups once, then notify — the core
+        shared by :meth:`async_update` and :meth:`async_read_raw`.
 
-        Runs the same reads as :meth:`async_update` (pooled blocks plus the
-        :func:`repeating_group` second pass) but returns them raw, keyed by the
-        four Modbus data tables — ``{table: {address: value}}``, words for
-        ``"holding"`` / ``"input"`` and booleans for ``"coils"`` /
-        ``"discrete_inputs"`` — rather than decoding into fields. It refreshes the
-        decoded values as it reads but does not notify listeners, and raises
-        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
+        With ``collect_raw`` the raw words and bits are merged and returned;
+        without it the readers collect nothing and the returned dict is empty.
         """
         raw: dict[str, dict[int, int | bool]] = {}
         _merge_raw(
             raw,
             await _bulk_read_registers(
-                self._unit, self.register_items, self._register_blocks, collect_raw=True
+                self._unit,
+                self.register_items,
+                self._register_blocks,
+                collect_raw=collect_raw,
             ),
         )
         _merge_raw(
             raw,
             await _bulk_read_bits(
-                self._unit, self.bit_items, self._bit_blocks, collect_raw=True
+                self._unit, self.bit_items, self._bit_blocks, collect_raw=collect_raw
             ),
         )
-        _merge_raw(raw, await self._read_raw_repeating_groups())
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
+        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        self.notify()
+        return raw
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read every register and bit raw, keyed by absolute address, for diagnostics.
+
+        Runs the same reads as :meth:`async_update` (pooled blocks plus the
+        :func:`repeating_group` second pass) and, like an update, refreshes the
+        decoded fields and notifies listeners — it additionally returns the raw
+        values, keyed by the four Modbus data tables: ``{table: {address:
+        value}}``, words for ``"holding"`` / ``"input"`` and booleans for
+        ``"coils"`` / ``"discrete_inputs"``. Raises
+        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
+        """
+        raw = await self._refresh(collect_raw=True)
+        return {table: dict(sorted(values.items())) for table, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

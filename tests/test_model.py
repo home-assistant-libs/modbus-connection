@@ -1309,6 +1309,40 @@ async def test_diagnostics_raises_block_read_error() -> None:
         await _Diag(unit).async_read_raw()
 
 
+async def test_read_raw_refreshes_decoded_values_and_notifies() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 7, 3: 0x0001, 4: 0x86A0})
+    dev = _Diag(unit)
+    fired = 0
+
+    def on_update() -> None:
+        nonlocal fired
+        fired += 1
+
+    dev.add_update_listener(on_update)
+
+    # A raw read advances the component like an update: decoded fields are
+    # refreshed and listeners fire once.
+    await dev.async_read_raw()
+    assert dev.count == 7 and dev.energy == 100000
+    assert fired == 1
+
+
+async def test_group_read_raw_notifies_each_member_once() -> None:
+    class Dev(Component):
+        a = integer(0, signed=False)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 5
+    one, two = Dev(unit), Dev(unit)
+    fired: list[str] = []
+    one.add_update_listener(lambda: fired.append("one"))
+    two.add_update_listener(lambda: fired.append("two"))
+
+    await ComponentGroup(unit, [one, two]).async_read_raw()
+    assert sorted(fired) == ["one", "two"]
+
+
 async def test_read_raw_snapshot_replays_into_a_mock_via_load_raw() -> None:
     class Holding(Component):
         a = integer(0, signed=False)

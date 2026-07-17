@@ -219,21 +219,15 @@ class ManualComponent(_RepeatingGroups):
         The read plan is built on the first call and reused until a target is
         added or removed.
         """
-        if self._plan is None:
-            self._plan = self._build_plan()
-        register_items, register_blocks, bit_items, bit_blocks = self._plan
-        await _bulk_read_registers(self._unit, register_items, register_blocks)
-        await _bulk_read_bits(self._unit, bit_items, bit_blocks)
-        await self.async_update_repeating_groups()
-        self.notify()
+        await self._refresh(collect_raw=False)
         return dict(self._values)
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Read every target raw, keyed by absolute address, for diagnostics.
+    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
+        """Read every target once, then notify — the core shared by
+        :meth:`async_update` and :meth:`async_read_raw`.
 
-        The :class:`ManualComponent` counterpart of
-        :meth:`Component.async_read_raw` — the same reads as :meth:`async_update`,
-        returned raw as ``{space: {address: value}}`` without notifying listeners.
+        With ``collect_raw`` the raw words and bits are merged and returned;
+        without it the readers collect nothing and the returned dict is empty.
         """
         if self._plan is None:
             self._plan = self._build_plan()
@@ -242,15 +236,29 @@ class ManualComponent(_RepeatingGroups):
         _merge_raw(
             raw,
             await _bulk_read_registers(
-                self._unit, register_items, register_blocks, collect_raw=True
+                self._unit, register_items, register_blocks, collect_raw=collect_raw
             ),
         )
         _merge_raw(
             raw,
-            await _bulk_read_bits(self._unit, bit_items, bit_blocks, collect_raw=True),
+            await _bulk_read_bits(
+                self._unit, bit_items, bit_blocks, collect_raw=collect_raw
+            ),
         )
-        _merge_raw(raw, await self._read_raw_repeating_groups())
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
+        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        self.notify()
+        return raw
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read every target raw, keyed by absolute address, for diagnostics.
+
+        The :class:`ManualComponent` counterpart of
+        :meth:`Component.async_read_raw` — the same reads as :meth:`async_update`;
+        like an update it refreshes the decoded values and notifies listeners, and
+        additionally returns the raw values as ``{table: {address: value}}``.
+        """
+        raw = await self._refresh(collect_raw=True)
+        return {table: dict(sorted(values.items())) for table, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

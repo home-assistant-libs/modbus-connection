@@ -78,6 +78,25 @@ async def test_read_raw_includes_repeating_instance_registers() -> None:
     assert raw["holding"] == {8: 2, 10: 480, 11: 100, 30: 482, 31: 95}
 
 
+async def test_read_raw_notifies_each_repeating_instance_once() -> None:
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 2, 10: 480, 11: 100, 30: 482, 31: 95})
+    inv = Inverter(unit)
+    await inv.async_update()  # size the instances so we can attach listeners
+
+    counts = [0, 0]
+    for i, module in enumerate(inv.modules):
+        module.add_update_listener(lambda i=i: counts.__setitem__(i, counts[i] + 1))
+
+    # The nested repeating read uses the non-notifying core; the top-level
+    # notify() cascades to each instance exactly once (not twice).
+    await inv.async_read_raw()
+    assert counts == [1, 1]
+
+
 async def test_read_raw_repeats_size_from_a_fresh_count() -> None:
     class Inverter(Component):
         modules = repeating_group(uint16(8), Module, stride=20)

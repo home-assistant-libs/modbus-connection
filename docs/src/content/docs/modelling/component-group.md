@@ -110,10 +110,13 @@ raw = await group.async_read_raw()
 ```
 
 The result is keyed by the four Modbus data tables (`holding`, `input`, `coils`,
-`discrete_inputs`), each an address-keyed map, addresses ascending. It reads the device fresh (no prior update needed) and
-raises [`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror)
-on a Modbus exception, like an update. Because it mirrors the update read, it also
-sizes and includes members' runtime-counted
+`discrete_inputs`), each an address-keyed map, addresses ascending. It reads the
+device fresh (no prior update needed) and raises
+[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror) on a
+Modbus exception, like an update. Because it mirrors the update read, it is a
+superset of `async_update()`: it refreshes each member's decoded fields and fires
+their listeners as well as returning the raw map, and it sizes and includes
+members' runtime-counted
 [`repeating_group`](/modbus-connection/modelling/repeats/) instances. The same
 method is available on a single `Component` and on a `ManualComponent`.
 
