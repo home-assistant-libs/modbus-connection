@@ -7,7 +7,7 @@ the results back. Not part of the public API — use :class:`Component` /
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from .._types import BitSpace
@@ -44,6 +44,16 @@ class RegisterItem(NamedTuple):
 
 # A bit read target (the field carries its own ``space``): address, field, store.
 BitItem = tuple[int, "_BitField", dict[str, Any]]
+
+# A component's read targets: register items and their per-space read plan, plus
+# bit items and theirs. Supplied by each host (a Component from its cached layout,
+# a ManualComponent from its built plan) and consumed by the shared read passes.
+ReadTargets = tuple[
+    list[RegisterItem],
+    dict[RegisterSpace, list[tuple[int, int]]],
+    list[BitItem],
+    dict[BitSpace, list[tuple[int, int]]],
+]
 
 
 def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
@@ -212,7 +222,9 @@ async def _bulk_read_registers(
     unit: ModbusUnit,
     items: list[RegisterItem],
     blocks: dict[RegisterSpace, list[tuple[int, int]]],
-) -> None:
+    *,
+    collect_raw: bool = False,
+) -> dict[str, dict[int, int]]:
     """Read every register target over the precomputed per-space ``blocks``.
 
     ``blocks`` is the read plan (from :func:`_plan_register_blocks`); it is passed
@@ -224,9 +236,13 @@ async def _bulk_read_registers(
     its ``store`` under ``field.name``. A block answering with a Modbus exception
     raises :class:`BlockReadError` (other errors propagate so the caller can mark
     the device down).
+
+    With ``collect_raw`` the raw words read are also returned, grouped
+    ``{space: {address: word}}``, for ``async_read_raw`` to expose; the normal
+    decode-only poll leaves it off and gets an empty dict.
     """
     if not items:
-        return
+        return {}
     words = await _read_blocks_by_space(
         {"holding": unit.read_holding_registers, "input": unit.read_input_registers},
         blocks,
@@ -240,23 +256,75 @@ async def _bulk_read_registers(
             scale_exponent = decode_int16([words[scale_key]])
         field_words = [words[key] for key in keys]
         item.store[field.name] = field.decode(field_words, scale_exponent)
+    if not collect_raw:
+        return {}
+    raw: dict[str, dict[int, int]] = {}
+    for (space, address), word in words.items():
+        raw.setdefault(space, {})[address] = word
+    return raw
 
 
 async def _bulk_read_bits(
     unit: ModbusUnit,
     items: list[BitItem],
     blocks: dict[BitSpace, list[tuple[int, int]]],
-) -> None:
+    *,
+    collect_raw: bool = False,
+) -> dict[str, dict[int, bool]]:
     """Read coil (FC01) and discrete-input (FC02) targets over the given blocks.
 
     The bit counterpart of :func:`_bulk_read_registers`; a block answering with a
-    Modbus exception raises :class:`BlockReadError`.
+    Modbus exception raises :class:`BlockReadError`. With ``collect_raw`` the raw
+    bits are also returned, grouped ``{space: {address: value}}``.
     """
     if not items:
-        return
+        return {}
     bits = await _read_blocks_by_space(
         {"coil": unit.read_coils, "discrete": unit.read_discrete_inputs},
         blocks,
     )
     for address, field, store in items:
         store[field.name] = bool(bits[(field.space, address)])
+    if not collect_raw:
+        return {}
+    raw: dict[str, dict[int, bool]] = {}
+    for (space, address), value in bits.items():
+        raw.setdefault(space, {})[address] = bool(value)
+    return raw
+
+
+def _merge_raw(
+    into: dict[str, dict[int, int | bool]],
+    more: Mapping[str, Mapping[int, int | bool]],
+) -> None:
+    """Merge a raw ``{space: {address: value}}`` map into an accumulator in place."""
+    for space, values in more.items():
+        into.setdefault(space, {}).update(values)
+
+
+async def _bulk_read(
+    unit: ModbusUnit,
+    register_items: list[RegisterItem],
+    register_blocks: dict[RegisterSpace, list[tuple[int, int]]],
+    bit_items: list[BitItem],
+    bit_blocks: dict[BitSpace, list[tuple[int, int]]],
+    *,
+    collect_raw: bool = False,
+) -> dict[str, dict[int, int | bool]]:
+    """Read a component's registers and bits in one pass, decoding into their stores.
+
+    The first-pass read shared by ``async_update`` and ``async_read_raw``. With
+    ``collect_raw`` the raw words and bits are also returned, merged as
+    ``{space: {address: value}}``; otherwise the returned dict is empty.
+    """
+    raw: dict[str, dict[int, int | bool]] = {}
+    _merge_raw(
+        raw,
+        await _bulk_read_registers(
+            unit, register_items, register_blocks, collect_raw=collect_raw
+        ),
+    )
+    _merge_raw(
+        raw, await _bulk_read_bits(unit, bit_items, bit_blocks, collect_raw=collect_raw)
+    )
+    return raw

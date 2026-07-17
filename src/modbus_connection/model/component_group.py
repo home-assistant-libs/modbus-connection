@@ -12,10 +12,11 @@ from ._planning import (
     BitItem,
     BitSpace,
     Range,
+    ReadTargets,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_bits,
-    _bulk_read_registers,
+    _bulk_read,
+    _merge_raw,
     _plan_bit_blocks,
     _plan_register_blocks,
 )
@@ -136,12 +137,48 @@ class ComponentGroup:
         :class:`~modbus_connection.exceptions.BlockReadError` and fails the whole
         update — here that is any block across the pooled members.
         """
-        await _bulk_read_registers(
-            self._unit, self._register_items, self._register_blocks
+        await self._refresh(collect_raw=False, notify=notify)
+
+    def _read_targets(self) -> ReadTargets:
+        return (
+            self._register_items,
+            self._register_blocks,
+            self._bit_items,
+            self._bit_blocks,
         )
-        await _bulk_read_bits(self._unit, self._bit_items, self._bit_blocks)
+
+    async def _refresh(
+        self, *, collect_raw: bool, notify: bool
+    ) -> dict[str, dict[int, int | bool]]:
+        """Read every member once — registers, bits and repeating groups — the core
+        shared by :meth:`async_update` and :meth:`async_read_raw`.
+
+        With ``collect_raw`` the members' raw values are merged and returned;
+        without it the readers collect nothing and the returned dict is empty.
+        ``notify`` fires each member's listeners (skipped when this group is an
+        inner repeating pass, so the top-level read notifies once).
+        """
+        raw = await _bulk_read(
+            self._unit, *self._read_targets(), collect_raw=collect_raw
+        )
         for component in self._components:
-            await component.async_update_repeating_groups()
+            _merge_raw(
+                raw, await component._refresh_repeating_groups(collect_raw=collect_raw)
+            )
         if notify:
             for component in self._components:
                 component.notify()
+        return raw
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read the group's registers and bits raw, keyed by address, for diagnostics.
+
+        The :class:`ComponentGroup` counterpart of
+        :meth:`Component.async_read_raw`: the same consolidated reads as
+        :meth:`async_update`, merged across the members and including their
+        repeating groups. Like an update it refreshes the members' decoded values
+        and notifies each member's listeners; it additionally returns the raw
+        values as ``{space: {address: value}}``.
+        """
+        raw = await self._refresh(collect_raw=True, notify=True)
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}

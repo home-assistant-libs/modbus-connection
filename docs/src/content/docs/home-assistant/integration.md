@@ -145,6 +145,36 @@ whichever backend the integration ships:
   response.
 - `ModbusExceptionError` → the device rejected the request (`.exception_code`).
 
+## Diagnostics
+
+Home Assistant lets a user **download diagnostics** for a device. For a Modbus
+device the most useful payload is the raw register map — every register the
+integration reads, with its raw value — so an issue report shows exactly what the
+device returned. `Component`, `ComponentGroup` and `ManualComponent` all expose
+`async_read_raw()` for this: it runs the same reads as `async_update()` —
+including any [`repeating_group`](/modbus-connection/modelling/repeats/) second
+pass — but returns the raw words and bits keyed by absolute address,
+`{space: {address: value}}`, undecoded.
+
+```python
+async def async_get_config_entry_diagnostics(hass, entry):
+    coordinator = entry.runtime_data
+    return {
+        "registers": await coordinator.device.async_read_raw(),
+    }
+```
+
+`async_read_raw()` reads the device fresh, so it reflects the live register
+state at download time. It raises the same
+[`ModbusError`](/modbus-connection/reference/exceptions/) subclasses as an update;
+catch them if you'd rather serialize a diagnostics payload than fail the download.
+Its keys are the four Modbus spaces — `"holding"`, `"input"`, `"coil"`,
+`"discrete"` — each an address-keyed map of raw values.
+
+A downloaded snapshot also replays straight into the mock backend with
+[`load_raw()`](/modbus-connection/reference/testing/#replaying-a-raw-snapshot), so
+a raw dump attached to a bug report can back a regression test with no hardware.
+
 ## Testing without hardware
 
 The library layer is fully testable with the shipped
@@ -163,4 +193,5 @@ wiring.
 - [ ] Coordinator calls the library's `async_update()` and maps `ModbusError` to
       `UpdateFailed`.
 - [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
+- [ ] Diagnostics download returns the raw register map via `async_read_raw()`.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).

@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import RegisterItem
+from ._planning import ReadTargets, RegisterItem, _bulk_read, _merge_raw
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
@@ -35,6 +35,33 @@ class _RepeatingGroups:
     _instance_offset: int = 0
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
+
+    # -- host-supplied hooks (Component / ManualComponent implement these) ----
+
+    def _read_targets(self) -> ReadTargets:
+        """The first-pass read plan — ``(register_items, register_blocks, bit_items,
+        bit_blocks)`` — supplied by the host: a Component from its cached field
+        layout, a ManualComponent from its built plan.
+        """
+        raise NotImplementedError
+
+    def notify(self) -> None:
+        """Fire this component's update listeners; provided by the host class."""
+        raise NotImplementedError
+
+    async def _refresh(self, *, collect_raw: bool) -> dict[str, dict[int, int | bool]]:
+        """Read registers, bits and repeating groups once, then notify — the core
+        shared by ``async_update`` and ``async_read_raw``.
+
+        With ``collect_raw`` the raw words and bits are merged and returned;
+        without it the readers collect nothing and the returned dict is empty.
+        """
+        raw = await _bulk_read(
+            self._unit, *self._read_targets(), collect_raw=collect_raw
+        )
+        _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        self.notify()
+        return raw
 
     @property
     def _count_space(self) -> RegisterSpace:
@@ -127,11 +154,31 @@ class _RepeatingGroups:
         needs this second pass — its count was fetched with the instance's other
         registers, so drive each fixed-count instance's second pass here too.
         """
+        await self._refresh_repeating_groups(collect_raw=False)
+
+    async def _refresh_repeating_groups(
+        self, *, collect_raw: bool
+    ) -> dict[str, dict[int, int | bool]]:
+        """The register-count second pass, shared by the update and raw reads.
+
+        Sizes each register-count group to the count read on the first pass and
+        reads the instances pooled among themselves, without notifying — the
+        top-level read notifies once, cascading to these instances. Also drives
+        each fixed-count instance's own nested second pass. With ``collect_raw``
+        the instances' raw values are merged and returned; otherwise the returned
+        dict is empty (the readers collect nothing).
+        """
+        raw: dict[str, dict[int, int | bool]] = {}
         for name in self._static_groups:
             for instance in self._groups[name]:
-                await instance.async_update_repeating_groups()
+                _merge_raw(
+                    raw,
+                    await instance._refresh_repeating_groups(collect_raw=collect_raw),
+                )
         if not self._repeating_fields:
-            return
+            return raw
+        # Size each register-count group to the count just read, growing or
+        # trimming its instances and dropping the cached pooled group on a change.
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
             value = self._counts.get(name)
@@ -147,4 +194,10 @@ class _RepeatingGroups:
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
-            await self._instance_group.async_update(notify=False)
+            _merge_raw(
+                raw,
+                await self._instance_group._refresh(
+                    collect_raw=collect_raw, notify=False
+                ),
+            )
+        return raw

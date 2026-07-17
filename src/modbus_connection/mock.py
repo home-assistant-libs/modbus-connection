@@ -24,7 +24,7 @@ arm ``unit.fail_write(address, error)``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -243,6 +243,25 @@ class MockModbusUnit:
         ``"report_server_id"``). ``value`` may be a plain value or a zero-arg
         callable evaluated per call."""
         self._responses[method] = value
+
+    def load_raw(self, raw: Mapping[str, Mapping[int, int | bool]]) -> None:
+        """Load an ``async_read_raw`` snapshot into the stores, for replay in tests.
+
+        The snapshot is keyed by the four Modbus spaces — ``holding``, ``input``,
+        ``coil``, ``discrete`` — which are mapped onto the matching stores (the
+        bit spaces to ``coils`` / ``discrete_inputs``), so a raw dump captured
+        from a real device backs the mock and exercises a component's decode with
+        no hardware. Entries are merged in; existing ones are left untouched.
+        """
+        registers = {"holding": self.holding, "input": self.input}
+        bits = {"coil": self.coils, "discrete": self.discrete_inputs}
+        for space, values in raw.items():
+            if space in registers:
+                registers[space].update(values)
+            elif space in bits:
+                bits[space].update({addr: bool(v) for addr, v in values.items()})
+            else:
+                raise ValueError(f"unknown space {space!r} in raw snapshot")
 
     def _raise_if_write_fails(
         self, register_type: RegisterType, address: int, count: int = 1

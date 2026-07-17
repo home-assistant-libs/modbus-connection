@@ -13,8 +13,6 @@ from ._planning import (
     Range,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_bits,
-    _bulk_read_registers,
     _plan_bit_blocks,
     _plan_register_blocks,
 )
@@ -218,14 +216,24 @@ class ManualComponent(_RepeatingGroups):
         The read plan is built on the first call and reused until a target is
         added or removed.
         """
+        await self._refresh(collect_raw=False)
+        return dict(self._values)
+
+    def _read_targets(self) -> _Plan:
         if self._plan is None:
             self._plan = self._build_plan()
-        register_items, register_blocks, bit_items, bit_blocks = self._plan
-        await _bulk_read_registers(self._unit, register_items, register_blocks)
-        await _bulk_read_bits(self._unit, bit_items, bit_blocks)
-        await self.async_update_repeating_groups()
-        self.notify()
-        return dict(self._values)
+        return self._plan
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read every target raw, keyed by absolute address, for diagnostics.
+
+        The :class:`ManualComponent` counterpart of
+        :meth:`Component.async_read_raw` — the same reads as :meth:`async_update`;
+        like an update it refreshes the decoded values and notifies listeners, and
+        additionally returns the raw values as ``{space: {address: value}}``.
+        """
+        raw = await self._refresh(collect_raw=True)
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

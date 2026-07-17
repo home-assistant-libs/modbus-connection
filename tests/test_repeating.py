@@ -62,6 +62,59 @@ async def test_empty_before_first_update() -> None:
     assert Inverter(_unit()).modules == []
 
 
+async def test_read_raw_includes_repeating_instance_registers() -> None:
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    # count=2 at 8; module 0 at 10/11, module 1 shifted +20 -> 30/31
+    unit.holding.update({8: 2, 10: 480, 11: 100, 30: 482, 31: 95})
+
+    # No prior update: the raw read sizes the repeats and includes their data.
+    raw = await Inverter(unit).async_read_raw()
+
+    # The count register (8) plus both sized instances' registers are present,
+    # raw and keyed by absolute address.
+    assert raw["holding"] == {8: 2, 10: 480, 11: 100, 30: 482, 31: 95}
+
+
+async def test_read_raw_notifies_each_repeating_instance_once() -> None:
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 2, 10: 480, 11: 100, 30: 482, 31: 95})
+    inv = Inverter(unit)
+    await inv.async_update()  # size the instances so we can attach listeners
+
+    counts = [0, 0]
+    for i, module in enumerate(inv.modules):
+        module.add_update_listener(lambda i=i: counts.__setitem__(i, counts[i] + 1))
+
+    # The nested repeating read uses the non-notifying core; the top-level
+    # notify() cascades to each instance exactly once (not twice).
+    await inv.async_read_raw()
+    assert counts == [1, 1]
+
+
+async def test_read_raw_repeats_size_from_a_fresh_count() -> None:
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 1, 10: 480, 11: 100})
+    inv = Inverter(unit)
+
+    raw = await inv.async_read_raw()
+    assert raw["holding"] == {8: 1, 10: 480, 11: 100}  # one instance
+
+    # The device now advertises two; a later raw read re-sizes and picks up the
+    # second instance's registers.
+    unit.holding.update({8: 2, 30: 482, 31: 95})
+    raw = await inv.async_read_raw()
+    assert raw["holding"] == {8: 2, 10: 480, 11: 100, 30: 482, 31: 95}
+
+
 async def test_count_change_resizes() -> None:
     class Inverter(Component):
         modules = repeating_group(uint16(8), Module, stride=20)

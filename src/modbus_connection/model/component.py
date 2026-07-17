@@ -12,10 +12,9 @@ from ._planning import (
     BitItem,
     BitSpace,
     Range,
+    ReadTargets,
     RegisterItem,
     RegisterSpace,
-    _bulk_read_bits,
-    _bulk_read_registers,
     _plan_bit_blocks,
     _plan_register_blocks,
 )
@@ -269,12 +268,29 @@ class Component(_RepeatingGroups):
         device with genuinely optional blocks should read those on a separate
         component so their absence doesn't fail this update.
         """
-        await _bulk_read_registers(
-            self._unit, self.register_items, self._register_blocks
+        await self._refresh(collect_raw=False)
+
+    def _read_targets(self) -> ReadTargets:
+        return (
+            self.register_items,
+            self._register_blocks,
+            self.bit_items,
+            self._bit_blocks,
         )
-        await _bulk_read_bits(self._unit, self.bit_items, self._bit_blocks)
-        await self.async_update_repeating_groups()
-        self.notify()
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Read every register and bit raw, keyed by absolute address, for diagnostics.
+
+        Runs the same reads as :meth:`async_update` (pooled blocks plus the
+        :func:`repeating_group` second pass) and, like an update, refreshes the
+        decoded fields and notifies listeners — it additionally returns the raw
+        values, keyed by the four Modbus spaces: ``{space: {address: value}}``,
+        words for ``"holding"`` / ``"input"`` and booleans for ``"coil"`` /
+        ``"discrete"``. Raises
+        :class:`~modbus_connection.exceptions.BlockReadError` like an update.
+        """
+        raw = await self._refresh(collect_raw=True)
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
     # -- writes --------------------------------------------------------------
 

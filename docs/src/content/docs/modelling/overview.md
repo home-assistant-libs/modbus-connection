@@ -182,6 +182,25 @@ await meter.async_update()   # prints
 unsubscribe()
 ```
 
+## Raw diagnostics
+
+Alongside the decoded read, `async_read_raw()` returns the device's **raw**
+register map — for a diagnostics download, or to debug a register layout. It runs
+the same reads as `async_update()` (and, like it, refreshes the fields and fires
+listeners), but additionally hands back the raw words and bits keyed by absolute
+address:
+
+```python
+raw = await meter.async_read_raw()
+# {"holding": {0: 2301, 1: 47, ...}, "coil": {0: True}}
+```
+
+The result is keyed by the four Modbus spaces — `holding`, `input`, `coil`,
+`discrete` — each an address-keyed map, addresses ascending. `ComponentGroup` and
+`ManualComponent` expose the same method (a group's is merged across its members);
+see [Diagnostics](/modbus-connection/home-assistant/integration/#diagnostics) for
+the Home Assistant download handler.
+
 ## Beyond the built-ins
 
 Shaping that the field types don't cover — composing or transforming a value,
