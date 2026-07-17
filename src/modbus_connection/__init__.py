@@ -2,10 +2,9 @@
 
 The top-level package is the pure interface: the ``ModbusConnection`` /
 ``ModbusUnit`` Protocols, the exception hierarchy, and the shared
-connection-params dataclasses (``ModbusTcpParams`` / ``ModbusUdpParams`` /
-``ModbusTlsParams`` / ``ModbusSerialParams``). It also re-exports the shared
-``WordOrder`` datatype used by ``decode`` / ``encode`` / ``model`` for a
-convenient public import. It imports no Modbus backend.
+connection-params dataclasses. It also re-exports the shared ``WordOrder``
+datatype used by ``decode`` / ``encode`` / ``model`` for a convenient public
+import. It imports no Modbus backend.
 
 Pick a backend to actually talk to a device:
 
