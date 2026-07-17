@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
+from .exceptions import ClientClosedError
 
 if TYPE_CHECKING:
     from ._protocol import ModbusUnit
@@ -124,12 +126,14 @@ class BaseModbusConnection(ABC):
 
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
-    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
-    factories do exactly that before returning). Consumers NEVER receive this
-    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
-    connection's OWNER, and only the owner tears it down with ``close()``;
-    reconnecting after a drop is likewise the owner's job — by calling
-    ``connect()`` again.
+    **no I/O**; unsupported (params type, framer) combinations fail here.
+    Every unit request establishes the link on demand through ``connect()``
+    (the backends' ``connect_*`` factories call it before returning, and the
+    owner may call it explicitly), so after a drop the next request
+    reconnects. Consumers NEVER receive this object — only a ``ModbusUnit``
+    from ``for_unit``. It is held by the connection's OWNER, and only the
+    owner tears it down with ``close()`` — which is permanent: any later
+    request raises ``ClientClosedError``.
     """
 
     def __init__(
@@ -139,11 +143,15 @@ class BaseModbusConnection(ABC):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
+        self._validate_params(params)
         self._params = params
         self._timeout = timeout
         self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
+        self._closed = False
+        # The single in-flight connect attempt shared by concurrent callers.
+        self._connect_task: asyncio.Task[None] | None = None
         # The connected backend client; ``None`` whenever the link is down (not
         # yet connected, dropped, or closed).
         self._client: Any = None
@@ -157,11 +165,27 @@ class BaseModbusConnection(ABC):
 
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
-        reconnects. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``)
-        if the link cannot be established.
+        reconnects. Every unit request does this on demand under a
+        single-flight guard: concurrent callers share one in-flight attempt
+        and its failure, with no time-based backoff. Raises
+        ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if the link
+        cannot be established, and ``ClientClosedError`` once the connection
+        was ``close()``\\d.
         """
+        if self._closed:
+            raise ClientClosedError("connection is closed")
         if self._client is not None:
             return
+        task = self._connect_task
+        if task is None:
+            task = self._connect_task = asyncio.ensure_future(self._establish())
+        try:
+            await task
+        finally:
+            if self._connect_task is task:
+                self._connect_task = None
+
+    async def _establish(self) -> None:
         self._client = await self._connect_client()
 
     @abstractmethod
@@ -174,9 +198,13 @@ class BaseModbusConnection(ABC):
 
     @abstractmethod
     async def close(self) -> None:
-        """Tear the connection down — owner only."""
+        """Tear the connection down — owner only, idempotent, and permanent."""
 
     # -- backend hooks ----------------------------------------------------------
+
+    @abstractmethod
+    def _validate_params(self, params: ModbusParams) -> None:
+        """Reject unsupported (params type, framer) combinations at construction."""
 
     @abstractmethod
     async def _connect_client(self) -> Any:

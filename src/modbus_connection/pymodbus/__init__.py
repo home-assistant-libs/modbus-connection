@@ -1,9 +1,9 @@
 """pymodbus-backed implementation of the modbus_connection abstraction.
 
-Provides the connect functions (``connect_tcp`` / ``connect_udp`` /
-``connect_serial``) plus the concrete ``PymodbusConnection`` / ``PymodbusUnit``
-classes. These are the only backend-specific touchpoints — swapping to tmodbus
-changes only the import.
+Provides the concrete ``ModbusConnection`` / ``PymodbusUnit`` classes plus the
+``connect_tcp`` / ``connect_udp`` / ``connect_tls`` / ``connect_serial``
+factories. These are the only backend-specific touchpoints — swapping to
+tmodbus changes only the import.
 
 Requires the ``[pymodbus]`` extra.
 """
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
@@ -52,6 +51,7 @@ from ..exceptions import (
 )
 
 __all__ = [
+    "ModbusConnection",
     "PymodbusConnection",
     "PymodbusUnit",
     "connect_serial",
@@ -64,23 +64,35 @@ __all__ = [
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Map pymodbus transport exceptions onto the neutral hierarchy.
+    """Ensure-connect, pace, run, and map pymodbus exceptions onto the neutral
+    hierarchy.
 
-    Also paces the request so a configured inter-request gap is honored across
-    every unit on the link.
+    Decorates ``PymodbusUnit`` methods so each body just calls the client
+    directly. Every request first establishes the link on demand via the
+    owner's ``connect()``. A connection-level failure downs the link and the
+    request is retried exactly once on a fresh connection; Modbus exception
+    responses and timeouts are never retried.
     """
 
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            async with self._conn._pacer.paced(self._unit_id):
-                return await func(self, *args, **kwargs)
-        except ConnectionException as err:
-            raise ModbusConnectionError(str(err)) from err
-        except ModbusIOException as err:
-            raise ModbusTimeoutError(str(err)) from err
-        except ModbusException as err:
-            raise ModbusError(str(err)) from err
+        conn = self._conn
+        attempt = 0
+        while True:
+            await conn.connect()
+            try:
+                async with conn._pacer.paced(self._unit_id):
+                    return await func(self, *args, **kwargs)
+            except ConnectionException as err:
+                await conn._drop_connection()
+                if attempt == 0:
+                    attempt += 1
+                    continue
+                raise ModbusConnectionError(str(err)) from err
+            except ModbusIOException as err:
+                raise ModbusTimeoutError(str(err)) from err
+            except ModbusException as err:
+                raise ModbusError(str(err)) from err
 
     return wrapper
 
@@ -142,20 +154,14 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
     return request
 
 
-class PymodbusConnection(BaseModbusConnection):
-    """A Modbus connection backed by pymodbus."""
+class ModbusConnection(BaseModbusConnection):
+    """A Modbus connection backed by pymodbus.
 
-    def __init__(
-        self,
-        params: ModbusParams,
-        *,
-        timeout: float = 3,
-        message_spacing: float = 0.0,
-    ) -> None:
-        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
-        # A caller-supplied TLS context, set by connect_tls; overrides the
-        # context built from the params.
-        self._sslctx: ssl.SSLContext | None = None
+    Accepts every params dataclass: :class:`ModbusTcpParams`
+    (``socket``/``rtu``/``ascii`` framing), :class:`ModbusUdpParams`,
+    :class:`ModbusTlsParams`, and :class:`ModbusSerialParams`
+    (``rtu``/``ascii``).
+    """
 
     # -- spec surface ---------------------------------------------------------
 
@@ -163,6 +169,7 @@ class PymodbusConnection(BaseModbusConnection):
         return PymodbusUnit(self, unit_id)
 
     async def close(self) -> None:
+        self._closed = True
         client = self._client
         if client is None:
             return
@@ -173,6 +180,27 @@ class PymodbusConnection(BaseModbusConnection):
             raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
+
+    def _validate_params(self, params: ModbusParams) -> None:
+        # Client creation happens on connect, so framer names are validated
+        # eagerly here to fail at construction.
+        if isinstance(params, (ModbusTcpParams, ModbusUdpParams)):
+            FramerType(params.framer)
+        elif isinstance(params, ModbusSerialParams) and params.framer not in (
+            "rtu",
+            "ascii",
+        ):
+            raise ValueError(
+                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
+            )
+
+    async def _drop_connection(self) -> None:
+        """Down the link after a transport error so the next request reconnects."""
+        client = self._client
+        if client is None:
+            return
+        self._client = None
+        _safe_close(client)
 
     async def _connect_client(self) -> ModbusBaseClient:
         # Unlike tmodbus's create_* functions, pymodbus client constructors can
@@ -214,17 +242,13 @@ class PymodbusConnection(BaseModbusConnection):
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusTlsParams):
-            context = (
-                self._sslctx
-                if self._sslctx is not None
-                else await asyncio.to_thread(
-                    build_tls_context,
-                    params.verify,
-                    params.check_hostname,
-                    params.client_cert,
-                    params.client_key,
-                    params.client_key_password,
-                )
+            context = await asyncio.to_thread(
+                build_tls_context,
+                params.verify,
+                params.check_hostname,
+                params.client_cert,
+                params.client_key,
+                params.client_key_password,
             )
             return AsyncModbusTlsClient(
                 params.host,
@@ -266,11 +290,11 @@ class PymodbusUnit:
     """A stateless per-unit handle. Every method raises on failure.
 
     The backend client is resolved through the owning connection on use, so
-    handles can be handed out before the connection is established; a request
-    on an unestablished connection raises ``ModbusConnectionError``.
+    handles can be handed out in any connection state — every request
+    establishes the link on demand.
     """
 
-    def __init__(self, connection: PymodbusConnection, unit_id: int) -> None:
+    def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
         self._conn = connection
         self._unit_id = unit_id
 
@@ -480,7 +504,7 @@ async def connect_tcp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus TCP / RTU-over-TCP / ASCII-over-TCP connection.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
@@ -495,7 +519,7 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusTcpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -511,7 +535,7 @@ async def connect_udp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus UDP connection and return a live handle.
 
     UDP carries the same wire framing as TCP — ``framer`` selects ``"socket"``
@@ -526,7 +550,7 @@ async def connect_udp(
 
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -544,10 +568,9 @@ async def connect_tls(
     client_cert: str | None = None,
     client_key: str | None = None,
     client_key_password: str | None = None,
-    sslctx: ssl.SSLContext | None = None,
     timeout: float = 3,
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection and return a live handle.
 
     The wire framing is always TLS. Two groups of arguments split the *server*
@@ -569,16 +592,13 @@ async def connect_tls(
     ``client_key_password`` are this side's own certificate, presented to the
     device; independent of the server-verification arguments.
 
-    Pass a fully-configured ``sslctx`` to take full control; it overrides every
-    argument above.
-
     ``message_spacing`` is the minimum interval, in seconds, between consecutive
     requests on this connection (see ``connect_tcp``); ``0`` (the default)
     disables pacing.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusTlsParams(
             host=host,
             port=port,
@@ -591,7 +611,6 @@ async def connect_tls(
         timeout=timeout,
         message_spacing=message_spacing,
     )
-    connection._sslctx = sslctx
     await connection.connect()
     return connection
 
@@ -606,7 +625,7 @@ async def connect_serial(
     timeout: float = 3,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus serial connection and return a live handle.
 
     ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU
@@ -618,7 +637,7 @@ async def connect_serial(
 
     Raises ``ModbusConnectionError`` if the port cannot be opened.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusSerialParams(
             device=port,
             baudrate=baudrate,
@@ -632,3 +651,8 @@ async def connect_serial(
     )
     await connection.connect()
     return connection
+
+
+# Kept for callers that imported the connection class under its pre-existing
+# backend-specific name.
+PymodbusConnection = ModbusConnection
