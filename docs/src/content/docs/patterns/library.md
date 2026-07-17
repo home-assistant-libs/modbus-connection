@@ -91,21 +91,23 @@ The consumer then works entirely in Python objects:
 
 ```python
 import asyncio
-from modbus_connection.tmodbus import connect_tcp
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import ModbusConnection
 from trovis_modbus import Trovis557x
 
 
 async def main() -> None:
-    connection = await connect_tcp("192.168.1.50", port=502, framer="rtu")
+    conn = ModbusConnection(
+        ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
+    )
+    device = Trovis557x(conn.for_unit(246))
     try:
-        unit = connection.for_unit(246)
-        device = Trovis557x(unit)
-        await device.async_update()
-
-        print("Outside temperature:", device.sensors.outside_1)
-        print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        await device.async_update()  # first request connects
     finally:
-        await connection.close()
+        await conn.close()
+
+    print("Outside temperature:", device.sensors.outside_1)
+    print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
 
 
 asyncio.run(main())

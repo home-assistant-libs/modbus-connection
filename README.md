@@ -3,11 +3,14 @@
 A small, **backend-neutral** Modbus connection abstraction.
 
 The top-level `modbus_connection` package is a pure interface — the
-`ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html)
-and a tiny exception hierarchy — so consumers can type against it without
-committing to a backend. Two interchangeable backends implement it
-([pymodbus](https://github.com/pymodbus-dev/pymodbus) and
-[tmodbus](https://github.com/wlcrs/tmodbus)); the bare install pulls neither.
+`ModbusConnection` base class, the `ModbusUnit`
+[Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html),
+a tiny exception hierarchy, and shared connection-params dataclasses — so
+consumers can type against it without committing to a backend. Two backends
+each export a lazily-connecting `ModbusConnection` and eager `connect_*` factories:
+[tmodbus](https://github.com/wlcrs/tmodbus) and
+[pymodbus](https://github.com/pymodbus-dev/pymodbus); the bare install pulls
+neither.
 
 One physical Modbus link addresses many units (1–247). Sharing a single,
 internally-serialized connection across many consumers is strictly better than
@@ -17,8 +20,8 @@ makes that sharing possible while keeping the backend swappable.
 ## Install
 
 ```bash
-pip install "modbus-connection[pymodbus]"   # pymodbus backend
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
+pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
 ## Example
@@ -30,7 +33,8 @@ attributes and reads the whole device in as few Modbus calls as possible.
 ```python
 import asyncio
 
-from modbus_connection.tmodbus import connect_tcp
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import ModbusConnection  # or modbus_connection.pymodbus
 from modbus_connection.model import Component, gauge, uint32, coil
 
 
@@ -49,11 +53,12 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = await connect_tcp("192.168.1.50", port=502)
+    # No I/O yet — the client connects on its first request and reconnects
+    # on demand.
+    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    meter = Meter(conn.for_unit(1))
     try:
-        meter = Meter(conn.for_unit(1))
-
-        await meter.async_update()        # one pooled block read
+        await meter.async_update()        # first request: connects, one block read
         print(meter.voltage, meter.current, meter.energy, meter.relay)
 
         await meter.write("relay", True)  # write a writable field
@@ -66,7 +71,7 @@ asyncio.run(main())
 
 ## Documentation
 
-Everything else — the other transports (UDP, serial, TLS), the full field-type
+Everything else — the other transports (RTU-over-TCP, UDP, TLS, serial), the full field-type
 and read-planning reference, repeated sub-units, the SunSpec field types and
 model generator, the query helper, the in-memory mock backend for tests, and
 the exception hierarchy — lives on the website:
@@ -76,7 +81,7 @@ the exception hierarchy — lives on the website:
 ## Develop
 
 ```bash
-uv sync --extra pymodbus
+uv sync
 uv run pytest
 ```
 

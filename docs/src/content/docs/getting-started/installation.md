@@ -6,34 +6,20 @@ description: Install modbus-connection with the pymodbus or tmodbus backend.
 modbus-connection requires **Python 3.12 or newer**.
 
 The top-level package is a pure interface and imports no Modbus library, so a
-bare install pulls **neither** backend. Pick one with an extra:
+bare install pulls **no** backend. Pick one with an extra — each provides a
+[`ModbusConnection`](/modbus-connection/getting-started/connections-and-units/)
+and eager `connect_*` factories to connect with:
 
 ```bash
-pip install "modbus-connection[pymodbus]"   # pymodbus backend
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
+pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
-You can install both extras if you want to choose the backend at runtime — the
-`ModbusConnection` / `ModbusUnit` Protocols are identical across them.
-
-## Which backend?
-
-Both backends implement the same Protocols, so device code typed against
-`ModbusUnit` runs unchanged over either. They differ only in transport coverage
-and a few edge behaviours:
-
-| | pymodbus | tmodbus |
-| --- | --- | --- |
-| TCP (native / RTU-over-TCP / ASCII-over-TCP) | ✅ all three | native + RTU-over-TCP (no ASCII) |
-| UDP | ✅ | ❌ (raises `NotImplementedError`) |
-| Serial (RTU / ASCII) | ✅ | ✅ |
-| TLS (Modbus Security) | ✅ | ✅ |
-| Distinguishes a garbled reply from a missing one | ❌ (both become a timeout) | ✅ (`ModbusProtocolError`) |
-
-Both backends do native Modbus TCP and RTU-over-TCP. tmodbus has no
-ASCII-over-TCP (ASCII exists only on the serial side) and no UDP — use pymodbus if
-you need either. Otherwise the choice is yours; tmodbus reports protocol errors
-more precisely.
+You can install both extras and choose per connection — the params dataclasses
+and the `ModbusConnection` / `ModbusUnit` Protocols are identical across them.
+See [Which backend?](/modbus-connection/getting-started/connections-and-units/#which-backend)
+for the transport matrix: tmodbus reports protocol errors more precisely, while
+pymodbus additionally covers Modbus UDP and ASCII-over-TCP.
 
 ## Verifying the install
 
@@ -44,15 +30,15 @@ print(modbus_connection.__all__)
 # ['ModbusConnection', 'ModbusConnectionError', 'ModbusError', ...]
 ```
 
-Importing `modbus_connection` never imports a backend. The backend is only
-loaded when you import `modbus_connection.pymodbus` or `modbus_connection.tmodbus`.
+Importing `modbus_connection` never imports a backend. A backend is only loaded
+when you import `modbus_connection.tmodbus` or `modbus_connection.pymodbus`.
 
 ## For contributors
 
 The project uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync --extra pymodbus
+uv sync
 uv run pytest
 ```
 

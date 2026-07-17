@@ -18,12 +18,12 @@ export default defineConfig({
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
-            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable pymodbus and tmodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
+            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection base class, the ModbusUnit Protocol, and shared params dataclasses — with interchangeable tmodbus and pymodbus backends, each exporting a concrete ModbusConnection plus eager connect_tcp/connect_udp/connect_tls/connect_serial factories. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
           details: [
             "Important notes for working with modbus-connection:",
             "",
-            "- Install with `pip install \"modbus-connection[pymodbus]\"` or `[tmodbus]`; the bare install pulls neither backend.",
-            "- A connection is transient and owner-held: a backend connect function (e.g. `modbus_connection.pymodbus.connect_tcp`) returns a live, already-connected instance. There is no `connect()` on the object.",
+            "- Install with `pip install \"modbus-connection[tmodbus]\"` or `[pymodbus]`; the bare install pulls no backend.",
+            "- A connection is owner-held with no `connect()` on the object. Each backend exports a `ModbusConnection` (`modbus_connection.tmodbus.ModbusConnection` / `modbus_connection.pymodbus.ModbusConnection`) built from the shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclasses. Direct construction does no I/O (connects on the first request); the `connect_*` factories connect immediately and raise on an unreachable device. Either way it reconnects on demand, requests interrupted by a drop are retried once, and after `close()` requests raise `ClientClosedError`. tmodbus covers TCP (socket/rtu), TLS, and serial; pymodbus additionally covers UDP and ASCII-over-TCP.",
             "- Consumers receive a `ModbusUnit` via `connection.for_unit(unit_id)` — a stateless per-unit handle. Every method raises on failure; it never returns `None`.",
             "- The `modbus_connection.model` framework maps registers/coils to typed attributes on a `Component`; `modbus_connection.model.sunspec` adds SunSpec point types with their unimplemented sentinels.",
             "- The library is not Home Assistant specific, but ships helpers and patterns that make it a good fit for Home Assistant integrations.",
