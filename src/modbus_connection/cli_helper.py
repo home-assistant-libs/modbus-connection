@@ -6,16 +6,18 @@ normal application. A query script imports the pieces it needs instead of
 re-implementing them every time:
 
 - :func:`add_connection_args` / :func:`connect_from_args` — turn command-line
-  arguments into a live connection (over whichever backend is installed:
-  tmodbus if present, otherwise pymodbus).
+  arguments into a lazily-connecting ``ModbusConnection``, picking the backend per
+  connection (tmodbus when it carries the transport/framing, otherwise
+  pymodbus).
 - :class:`CountingUnit` — wrap a ``ModbusUnit`` to count the reads it performs,
   so you can see how well the pooled read plan collapses your fields.
 - :func:`print_component` / :func:`field_rows` — dump a modelled component's
   fields to the terminal by reflection, no hand-listing.
 
 Only :func:`connect_from_args` needs a backend installed (the ``[tmodbus]``
-extra); the counter and the printer are backend-neutral, so ``--help`` and the
-argument parsing work without one.
+extra, plus ``[pymodbus]`` for UDP and ASCII-over-TCP); the counter and the
+printer are backend-neutral, so ``--help`` and the argument parsing work without
+one.
 
 A minimal query script::
 
@@ -37,15 +39,16 @@ A minimal query script::
         parser.add_argument("--unit", type=int, default=1, help="Modbus unit id")
         args = parser.parse_args()
 
-        try:
-            conn = await connect_from_args(args)
-        except ModbusError as err:
-            print(f"Could not connect: {err}")
-            return 1
+        # TCP/serial connections are lazy: connect_from_args does no I/O, so a
+        # connection failure surfaces on the first read, not here.
+        conn = await connect_from_args(args)
         counting = CountingUnit(conn.for_unit(args.unit))
         try:
             device = MyDevice(counting)  # your modelled component
-            await device.async_update()
+            await device.async_update()  # first I/O: connects, then reads
+        except ModbusError as err:
+            print(f"Could not read device: {err}")
+            return 1
         finally:
             await conn.close()
 
@@ -71,7 +74,14 @@ from collections.abc import Callable, Iterable
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
-from ._client import BaseModbusConnection
+from ._client import (
+    BaseModbusConnection,
+    ModbusParams,
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusTlsParams,
+    ModbusUdpParams,
+)
 from ._protocol import ModbusUnit
 from .exceptions import ModbusError
 from .model import CoilField, Component, DiscreteInputField, RegisterField
@@ -109,28 +119,14 @@ _DEFAULT_CONNECTIONS: tuple[tuple[str, str | None], ...] = (
 
 # -- connection from arguments -----------------------------------------------
 
-# Backends in preference order. tmodbus is tried first; each submodule imports
-# its library at module load, so a missing dependency surfaces as ImportError.
-_BACKENDS = ("tmodbus", "pymodbus")
 
-
-def _load_backend() -> ModuleType:
-    """Return the connect surface of whichever backend is installed.
-
-    Tries the backends in ``_BACKENDS`` order (tmodbus, then pymodbus) and
-    returns the first whose dependency is importable. Both expose the same
-    ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` / ``connect_serial``
-    functions, so ``connect_from_args`` calls them the same way regardless.
-    Raises ``ModbusError`` if neither backend is installed.
-    """
-    for name in _BACKENDS:
-        try:
-            return importlib.import_module(f".{name}", __package__)
-        except ImportError:
-            continue
-    raise ModbusError(
-        "no Modbus backend installed; install the 'tmodbus' or 'pymodbus' extra"
-    )
+def _import_backend(name: str) -> ModuleType | None:
+    """Return a backend module (``"tmodbus"`` / ``"pymodbus"``), or ``None`` if
+    its extra is absent."""
+    try:
+        return importlib.import_module(f".{name}", __package__)
+    except ImportError:
+        return None
 
 
 def add_connection_args(
@@ -249,41 +245,24 @@ def add_connection_args(
     return group
 
 
-async def connect_from_args(
-    args: argparse.Namespace, *, message_spacing: float = 0.0
-) -> BaseModbusConnection:
-    """Open the connection described by *args* (as parsed by ``add_connection_args``).
-
-    Dispatches to ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` /
-    ``connect_serial`` on whichever backend is installed — tmodbus if present,
-    otherwise pymodbus — resolved lazily here so importing this module (and
-    ``--help``) needs no backend. *message_spacing* is the minimum gap in seconds
-    left after each request — a fixed device property, so it is passed here by the
-    tool rather than exposed as a CLI argument. Raises ``ModbusError`` if no
-    backend is installed, ``ModbusConnectionError`` if the connection cannot be
-    established, ``ValueError`` for a bad framer/transport combination, or
-    ``NotImplementedError`` for ``--transport udp`` on tmodbus (it has no UDP).
-    """
-    # Resolved lazily so the module (and --help) loads without any backend.
-    backend = _load_backend()
-
-    common = {"timeout": args.timeout, "message_spacing": message_spacing}
+def _params_from_args(args: argparse.Namespace) -> ModbusParams:
+    """Build the connection-params dataclass *args* describes."""
     # port/framer may be omitted for a narrowed argument set (see
-    # add_connection_args); fall back to the backend default.
+    # add_connection_args); fall back to the transport default.
     port = getattr(args, "port", None)
     framer = getattr(args, "framer", None)
-
-    if args.transport == "serial":
-        return await backend.connect_serial(
-            args.target,
-            baudrate=args.baudrate,
-            bytesize=args.bytesize,
-            parity=args.parity,
-            stopbits=args.stopbits,
-            **({"framer": framer} if framer else {}),
-            **common,
+    if args.transport == "tcp":
+        return ModbusTcpParams(
+            host=args.target,
+            port=port if port is not None else 502,
+            framer=framer or "socket",
         )
-
+    if args.transport == "udp":
+        return ModbusUdpParams(
+            host=args.target,
+            port=port if port is not None else 502,
+            framer=framer or "socket",
+        )
     if args.transport == "tls":
         verify: bool | str
         if args.tls_no_verify:
@@ -292,26 +271,64 @@ async def connect_from_args(
             verify = args.tls_ca
         else:
             verify = True
-        return await backend.connect_tls(
-            args.target,
+        return ModbusTlsParams(
+            host=args.target,
+            port=port if port is not None else 802,
             verify=verify,
             check_hostname=not args.tls_no_check_hostname,
             client_cert=args.tls_client_cert,
             client_key=args.tls_client_key,
             client_key_password=args.tls_client_key_password,
-            **({"port": port} if port is not None else {}),
-            **common,
         )
-
-    # udp shares tcp's arguments; tmodbus has no UDP transport, so its
-    # connect_udp raises NotImplementedError — surfaced to the caller unchanged.
-    connect = backend.connect_udp if args.transport == "udp" else backend.connect_tcp
-    return await connect(
-        args.target,
-        **({"port": port} if port is not None else {}),
-        **({"framer": framer} if framer else {}),
-        **common,
+    return ModbusSerialParams(
+        device=args.target,
+        baudrate=args.baudrate,
+        bytesize=args.bytesize,
+        parity=args.parity,
+        stopbits=args.stopbits,
+        framer=framer or "rtu",
     )
+
+
+def _tmodbus_supports(params: ModbusParams) -> bool:
+    """Whether tmodbus's ``ModbusConnection`` carries this params/framer combo."""
+    if isinstance(params, ModbusUdpParams):
+        return False
+    return not (isinstance(params, ModbusTcpParams) and params.framer == "ascii")
+
+
+async def connect_from_args(
+    args: argparse.Namespace, *, message_spacing: float = 0.0
+) -> BaseModbusConnection:
+    """Open the connection described by *args* (as parsed by ``add_connection_args``).
+
+    Returns a lazily-connecting ``ModbusConnection``: the handle does no I/O
+    until its first request, then connects and reconnects on demand. The backend
+    is picked per connection — ``modbus_connection.tmodbus.ModbusConnection``
+    when it carries the requested transport/framing, otherwise
+    ``modbus_connection.pymodbus.ModbusConnection`` (UDP, ASCII-over-TCP, or any
+    connection when tmodbus is absent). Backends are resolved lazily here so
+    importing this module (and ``--help``) needs no backend.
+
+    *message_spacing* is the minimum gap in seconds left after each request — a
+    fixed device property, so it is passed here by the tool rather than exposed as
+    a CLI argument. Raises ``ModbusError`` if no installed backend covers the
+    requested connection; a connect failure surfaces as ``ModbusConnectionError``
+    on the client's first request.
+    """
+    params = _params_from_args(args)
+    kwargs = {"timeout": args.timeout, "message_spacing": message_spacing}
+    if _tmodbus_supports(params):
+        tmodbus = _import_backend("tmodbus")
+        if tmodbus is not None:
+            return tmodbus.ModbusConnection(params, **kwargs)
+    pymodbus = _import_backend("pymodbus")
+    if pymodbus is None:
+        raise ModbusError(
+            "no Modbus backend installed for this connection; install the "
+            "'tmodbus' or 'pymodbus' extra"
+        )
+    return pymodbus.ModbusConnection(params, **kwargs)
 
 
 # -- read counting -----------------------------------------------------------
