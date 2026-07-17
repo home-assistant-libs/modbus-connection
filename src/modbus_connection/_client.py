@@ -28,8 +28,7 @@ class ModbusTcpParams:
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
     gateways speak — or ``"ascii"`` for ASCII frames tunnelled over the TCP
-    stream (pymodbus client only). Frozen and hashable, so an instance doubles
-    as a connection identity key.
+    stream (pymodbus client only).
     """
 
     host: str
@@ -42,8 +41,7 @@ class ModbusUdpParams:
     """Connection parameters for a Modbus UDP link (pymodbus client only).
 
     UDP carries the same wire framings as TCP; ``framer`` selects ``"socket"``
-    for native Modbus (MBAP), ``"rtu"``, or ``"ascii"``. Frozen and hashable,
-    so an instance doubles as a connection identity key.
+    for native Modbus (MBAP), ``"rtu"``, or ``"ascii"``.
     """
 
     host: str
@@ -66,8 +64,6 @@ class ModbusTlsParams:
     Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
     ``client_key_password`` are this side's own certificate, presented to the
     device.
-
-    Frozen and hashable, so an instance doubles as a connection identity key.
     """
 
     host: str
@@ -84,8 +80,7 @@ class ModbusSerialParams:
     """Connection parameters for a Modbus serial link.
 
     ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU (the
-    default) or ``"ascii"`` for the ASCII transmission mode. Frozen and hashable,
-    so an instance doubles as a connection identity key.
+    default) or ``"ascii"`` for the ASCII transmission mode.
     """
 
     device: str
