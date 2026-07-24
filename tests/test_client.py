@@ -316,7 +316,6 @@ async def test_write_retries_connect_error_before_dispatch(
 
     assert fake.connect_calls == 2
     assert fake.write_calls == 1
-    assert fake.disconnect_calls == 1
 
 
 async def test_connect_timeout_is_not_retried(

@@ -145,24 +145,11 @@ class ModbusConnection(BaseModbusConnection):
         try:
             await client.connect()
         except TimeoutError as err:
-            await self._discard_failed_client(client)
             raise ModbusTimeoutError(str(err)) from err
         except (TModbusError, OSError) as err:
-            await self._discard_failed_client(client)
             raise ModbusConnectionError(error_message) from err
         self._closing = False
         return client
-
-    @staticmethod
-    async def _discard_failed_client(client: AsyncModbusClient) -> None:
-        """Best-effort cleanup after establishment fails before publication."""
-        disconnect = getattr(client, "disconnect", None)
-        if disconnect is None:
-            return
-        try:
-            await disconnect()
-        except (TModbusError, OSError):
-            pass
 
     async def _drop_connection(self) -> None:
         """Down the link after a transport error so the next request reconnects."""
