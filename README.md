@@ -35,13 +35,13 @@ from modbus_connection.model import Component, gauge, uint32, coil
 
 
 class Meter(Component):
-    voltage = gauge(0, 0.1, unit="V")     # scaled 16-bit register
+    voltage = gauge(0, 0.1, unit="V")  # scaled 16-bit register
     """Grid voltage."""
 
     current = gauge(1, 0.1, unit="A")
     """Grid current."""
 
-    energy = uint32(2, unit="Wh")         # 32-bit over two registers
+    energy = uint32(2, unit="Wh")  # 32-bit over two registers
     """Lifetime energy."""
 
     relay = coil(0, writable=True)
@@ -53,7 +53,7 @@ async def main() -> None:
     try:
         meter = Meter(conn.for_unit(1))
 
-        await meter.async_update()        # one pooled block read
+        await meter.async_update()  # one pooled block read
         print(meter.voltage, meter.current, meter.energy, meter.relay)
 
         await meter.write("relay", True)  # write a writable field

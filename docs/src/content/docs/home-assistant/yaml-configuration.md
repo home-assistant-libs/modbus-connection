@@ -77,12 +77,14 @@ you have many, group them with a [`ComponentGroup`](/modbus-connection/modelling
 ```python
 from modbus_connection.model import Component, gauge, uint32
 
+
 class Hub1(Component):
     # input_type: holding (the default space)
-    outside_temperature = gauge(9, 0.1, unit="°C")   # int16, scale 0.1
+    outside_temperature = gauge(9, 0.1, unit="°C")  # int16, scale 0.1
+
 
 class Hub1Inputs(Component):
-    register_space = "input"                          # input_type: input
+    register_space = "input"  # input_type: input
     energy = uint32(2, word_order="little", unit="Wh")  # swap: word -> CDAB
 ```
 
@@ -92,7 +94,7 @@ by your editor — the payoff of translating to a class rather than reading dict
 ```python
 hub = Hub1(unit)
 await hub.async_update()
-hub.outside_temperature      # float | None
+hub.outside_temperature  # float | None
 ```
 
 The register map now lives in code as the datasheet: addresses, scales, units and
@@ -131,14 +133,17 @@ to enforce `min_value` / `max_value`), then write by attribute name:
 ```python
 from modbus_connection.model import Component, coil, gauge
 
+
 def _clamp(value: float) -> float:
     if not 10 <= value <= 30:
         raise ValueError(f"{value} out of range")
     return value
 
+
 class Climate(Component):
-    relay = coil(5, writable=True)                    # a switch entity
-    target_temp = gauge(40, 0.1, writable=_clamp)     # a number entity
+    relay = coil(5, writable=True)  # a switch entity
+    target_temp = gauge(40, 0.1, writable=_clamp)  # a number entity
+
 
 await climate.write("relay", True)
 await climate.write("target_temp", 21.5)

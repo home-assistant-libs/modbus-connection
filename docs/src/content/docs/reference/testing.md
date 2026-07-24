@@ -25,9 +25,9 @@ registers; a callable is evaluated on every read:
 
 ```python
 async def test_reads_setpoint(mock_modbus_unit):
-    mock_modbus_unit.holding[40] = 1234             # single value
+    mock_modbus_unit.holding[40] = 1234  # single value
     mock_modbus_unit.holding[2] = [0x0001, 0x86A0]  # list -> consecutive registers
-    mock_modbus_unit.holding[9] = lambda: 7         # callable -> evaluated per read
+    mock_modbus_unit.holding[9] = lambda: 7  # callable -> evaluated per read
 
     assert await mock_modbus_unit.read_holding_registers(40, 1) == [1234]
     assert await mock_modbus_unit.read_holding_registers(2, 2) == [0x0001, 0x86A0]
@@ -61,14 +61,16 @@ production code uses it:
 ```python
 from modbus_connection.model import Component, gauge
 
+
 class Meter(Component):
     voltage = gauge(0, 0.1, unit="V")
 
+
 async def test_meter(mock_modbus_unit):
-    mock_modbus_unit.holding[0] = 2301      # raw
+    mock_modbus_unit.holding[0] = 2301  # raw
     meter = Meter(mock_modbus_unit)
     await meter.async_update()
-    assert meter.voltage == 230.1           # raw * 0.1
+    assert meter.voltage == 230.1  # raw * 0.1
 ```
 
 ## Reacting to writes
@@ -80,8 +82,9 @@ written:
 ```python
 def test_command_sets_ready(mock_modbus_unit):
     def respond(event):
-        if event.address == 0:                     # a command was written
-            mock_modbus_unit.holding[100] = 1      # device flips its "ready" flag
+        if event.address == 0:  # a command was written
+            mock_modbus_unit.holding[100] = 1  # device flips its "ready" flag
+
     mock_modbus_unit.on_write(respond)
 ```
 
@@ -100,8 +103,8 @@ async def test_write_rejected(mock_modbus_unit):
         await mock_modbus_unit.write_register(40, 99)
     assert await mock_modbus_unit.read_holding_registers(40, 1) == [7]  # unchanged
 
-    mock_modbus_unit.fail_write(40, None)                     # clear it
-    await mock_modbus_unit.write_register(40, 99)             # now succeeds
+    mock_modbus_unit.fail_write(40, None)  # clear it
+    await mock_modbus_unit.write_register(40, 99)  # now succeeds
 ```
 
 ## Simulating a read failure
@@ -117,9 +120,9 @@ async def test_read_refused(mock_modbus_unit):
     mock_modbus_unit.fail_read(1100, ModbusExceptionError(2))  # illegal data address
     with pytest.raises(ModbusExceptionError):
         await mock_modbus_unit.read_holding_registers(1100, 4)
-    await mock_modbus_unit.read_holding_registers(0, 4)        # other blocks unaffected
+    await mock_modbus_unit.read_holding_registers(0, 4)  # other blocks unaffected
 
-    mock_modbus_unit.fail_read(1100, None)                     # clear it
+    mock_modbus_unit.fail_read(1100, None)  # clear it
 ```
 
 ## Why it matters
