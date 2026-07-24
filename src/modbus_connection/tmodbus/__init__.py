@@ -491,9 +491,8 @@ async def connect_tls(
     ``client_key_password`` are this side's own certificate, presented to the
     device; independent of the server-verification arguments.
 
-    Pass a ready-made ``sslctx`` to take full control. It is used as-is,
-    overrides the verification and client-identity arguments above, and may be
-    shared by multiple connections.
+    Pass a fully-configured ``sslctx`` to take full control; it overrides every
+    argument above.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
