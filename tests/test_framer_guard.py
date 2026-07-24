@@ -12,14 +12,12 @@ from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 
 async def test_pymodbus_tcp_rejects_unknown_framer() -> None:
-    # pymodbus's FramerType enum does the conversion, so its native error names
-    # the unknown framing.
-    with pytest.raises(ValueError, match="is not a valid FramerType"):
+    with pytest.raises(ValueError, match="unknown framer"):
         await pymodbus_connect_tcp("127.0.0.1", framer="bogus")  # type: ignore[arg-type]
 
 
 async def test_pymodbus_udp_rejects_unknown_framer() -> None:
-    with pytest.raises(ValueError, match="is not a valid FramerType"):
+    with pytest.raises(ValueError, match="unknown framer"):
         await pymodbus_connect_udp("127.0.0.1", framer="bogus")  # type: ignore[arg-type]
 
 

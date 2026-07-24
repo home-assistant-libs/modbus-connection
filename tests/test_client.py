@@ -45,6 +45,36 @@ def test_udp_params_defaults_and_frozen() -> None:
         params.host = "other"  # type: ignore[misc]
 
 
+@pytest.mark.parametrize(
+    ("params_cls", "kwargs", "message"),
+    [
+        pytest.param(
+            ModbusTcpParams,
+            {"host": "dev.local", "framer": "bogus"},
+            "unknown framer 'bogus'; expected 'socket', 'rtu', or 'ascii'",
+            id="tcp",
+        ),
+        pytest.param(
+            ModbusUdpParams,
+            {"host": "dev.local", "framer": "bogus"},
+            "unknown framer 'bogus'; expected 'socket', 'rtu', or 'ascii'",
+            id="udp",
+        ),
+        pytest.param(
+            ModbusSerialParams,
+            {"device": "/dev/ttyUSB0", "framer": "socket"},
+            "unknown serial framer 'socket'; expected 'rtu' or 'ascii'",
+            id="serial",
+        ),
+    ],
+)
+def test_params_reject_unknown_framer(
+    params_cls: type, kwargs: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        params_cls(**kwargs)
+
+
 def test_tls_params_defaults_and_frozen() -> None:
     params = ModbusTlsParams(host="dev.local")
     assert (params.port, params.verify, params.check_hostname) == (802, True, True)
