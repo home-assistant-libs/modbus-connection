@@ -39,8 +39,9 @@ attributes and reads the whole device in as few Modbus calls as possible.
 ```python
 import asyncio
 
-from modbus_connection.tmodbus import connect_tcp
+from modbus_connection import ModbusTcpParams
 from modbus_connection.model import Component, gauge, uint32, coil
+from modbus_connection.tmodbus import TmodbusConnection
 
 
 class Meter(Component):
@@ -58,8 +59,9 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = await connect_tcp("192.168.1.50", port=502)
+    conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
+        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()        # one pooled block read
@@ -77,10 +79,10 @@ asyncio.run(main())
 
 <CardGrid>
   <Card title="ModbusConnection" icon="random">
-    The shared, already-connected link to a Modbus network. One physical link
-    addresses many units (1–247). It is **transient and owner-held**: a backend
-    connect function returns a live instance — there is no `connect()`. Only the
-    owner ever holds it, and only the owner tears it down with `close()`.
+    The shared link to a Modbus network. One physical link addresses many units
+    (1–247). It is **transient and owner-held**: construct a backend connection
+    from shared parameters, then connect it before I/O. Only the owner ever
+    holds it, and only the owner tears it down with `close()`.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
@@ -101,7 +103,7 @@ this abstraction makes possible while keeping the backend swappable.
 <CardGrid>
   <LinkCard
     title="Connections and units"
-    description="Connect functions, transports, TLS, message spacing, and the raw ModbusUnit surface."
+    description="Connection parameters, transports, TLS, message spacing, and the raw ModbusUnit surface."
     href="/modbus-connection/getting-started/connections-and-units/"
   />
   <LinkCard

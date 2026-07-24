@@ -91,13 +91,17 @@ The consumer then works entirely in Python objects:
 
 ```python
 import asyncio
-from modbus_connection.tmodbus import connect_tcp
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import TmodbusConnection
 from trovis_modbus import Trovis557x
 
 
 async def main() -> None:
-    connection = await connect_tcp("192.168.1.50", port=502, framer="rtu")
+    connection = TmodbusConnection(
+        ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
+    )
     try:
+        await connection.connect()
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
         await device.async_update()
