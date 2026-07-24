@@ -1,16 +1,15 @@
 ---
 title: Connections and units
-description: The ModbusConnection class and ModbusUnit protocol, connection parameters, transports, and message spacing.
+description: The ModbusConnection and ModbusUnit protocols, the connect functions, transports, TLS, and message spacing.
 ---
 
-The top-level `modbus_connection` package is a **pure interface**. It defines
-the `ModbusConnection` base class and the `ModbusUnit`
-[Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html) to type
-against, a small exception hierarchy, and the shared connection-params
-dataclasses. It also re-exports the shared `WordOrder` datatype (used by
-`decode` / `encode` and the `model` framework) for convenient importing — it is
-not part of the connection surface. The package imports no Modbus library, so
-you can type against it without committing to a backend.
+The top-level `modbus_connection` package is a **pure interface**. It defines two
+[Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) —
+`ModbusConnection` and `ModbusUnit` — and a small exception hierarchy. It also
+re-exports the shared `WordOrder` datatype (used by `decode` / `encode` and the
+`model` framework) for convenient importing — it is not part of the connection
+surface. The package imports no Modbus library, so you can type against it without
+committing to a backend.
 
 ## The connection / unit split
 
@@ -18,28 +17,25 @@ The two classes have deliberately different roles.
 
 ### `ModbusConnection` — the owner's link
 
-A `ModbusConnection` is a shared, internally-serialized link to a Modbus network.
-One physical link addresses many units (1–247), and sharing a single connection
-across many consumers is strictly better than each opening a competing socket.
+A `ModbusConnection` is a shared, internally-serialized, **already-connected**
+link to a Modbus network. One physical link addresses many units (1–247), and
+sharing a single connection across many consumers is strictly better than each
+opening a competing socket.
 
-- It is **owner-held**. Requests [connect on demand](#connecting), and the owner
-  may call `await connection.connect()` to establish the link eagerly. It
-  reconnects on demand after a drop, retrying an interrupted read-only request
-  once; writes are never replayed.
+- It is **transient and owner-held**. A backend *connect function* returns a
+  live, already-connected instance — there is **no `connect()`** on the object.
 - Requests are serialized per connection **by the backend**, not by this wrapper:
-  the backend's transport holds a lock for the full request/response cycle, so
-  concurrent unit calls on one connection can't interleave.
+  pymodbus's transaction manager and tmodbus's smart transport each hold a lock
+  for the full request/response cycle, so concurrent unit calls on one connection
+  can't interleave.
+- It does **not** self-reconnect. On a drop it fires `on_connection_lost`
+  and stops; recreating it is the owner's job.
 - **Only the owner holds it, and only the owner tears it down** with `close()`.
-  After `close()` any request raises `ClientClosedError`.
-
-The surface owners and consumers see (type against
-`modbus_connection.ModbusConnection`, the abstract base both backends subclass):
 
 ```python
-class ModbusConnection:
+class ModbusConnection(Protocol):
     @property
     def connected(self) -> bool: ...
-    async def connect(self) -> None: ...  # optional: requests do it on demand
     def for_unit(self, unit_id: int) -> ModbusUnit: ...
     def on_connection_lost(self, callback): ...
     async def close(self) -> None: ...  # owner only
@@ -58,9 +54,9 @@ consumer (a device library, a `Component`, …).
   It never returns `None` or swallows errors.
 
 ```python
-conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+conn = await connect_tcp("192.168.1.50", port=502)
 unit = conn.for_unit(1)  # a ModbusUnit for station 1
-temp = await unit.read_holding_registers(9, 1)  # first request connects
+temp = await unit.read_holding_registers(9, 1)
 ```
 
 :::tip[Who holds what]
@@ -71,40 +67,19 @@ downstream can accidentally close a link that other consumers are still using.
 
 ## Connecting
 
-Each backend exports a concrete **`ModbusConnection`** — picking a backend is
-picking an import:
-
-```python
-from modbus_connection.tmodbus import ModbusConnection  # tmodbus-backed
-from modbus_connection.pymodbus import ModbusConnection  # pymodbus-backed
-```
-
-Create a frozen parameters dataclass — `ModbusTcpParams`, `ModbusUdpParams`,
-`ModbusTlsParams`, or `ModbusSerialParams` — and pass it to the chosen backend's
-`ModbusConnection`.
-
-This params-first construction is the recommended approach. It does **no I/O**:
-the first request connects, and the connection reconnects on demand. Connection
-establishment is retried once before any request is dispatched. A read-only
-request interrupted by a transport drop is retried once on a fresh connection.
-Writes, read/write operations, and diagnostics are never replayed because a
-lost response leaves their outcome unknown. This suits long-lived owners that
-should stay up while a device sleeps — a failed poll is just a failed poll. To
-establish eagerly, call `await conn.connect()` yourself. It is a no-op when
-already connected, and it is exactly what every request runs on demand.
+Each backend ships one connect function per wire transport. They are `async` and
+return a live `ModbusConnection`:
 
 ```python
 import asyncio
-from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
+from modbus_connection.pymodbus import connect_tcp
 from modbus_connection.decode import decode_int16, decode_float32
 
 
 async def main() -> None:
-    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    conn = await connect_tcp("192.168.1.50", port=502)
     try:
         unit = conn.for_unit(1)
-        # The first read is what connects; a sleeping device just fails its polls.
         outside_temp = decode_int16(await unit.read_holding_registers(9, 1))
         flow_setpoint = decode_float32(await unit.read_holding_registers(40, 2))
         pump_on = (await unit.read_coils(56, 1))[0]
@@ -116,41 +91,41 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-:::note[Compatibility factories]
-The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
-`connect_serial` for compatibility. They build the params and eagerly call
-`connect()` before returning. New code should prefer the params-first
-construction above.
-:::
+Swapping to tmodbus is a one-line import change — the rest is identical:
 
-See [Which backend?](/modbus-connection/getting-started/installation/#which-backend)
-for the transport matrix.
+```python
+from modbus_connection.tmodbus import connect_tcp
+```
 
-### Parameters
+## Transports
 
-The params dataclasses are shared and backend-neutral. One dataclass per
-transport, all
-frozen and keyword-only, so an instance doubles as a connection identity key:
+| Function | Transport | `framer` options |
+| --- | --- | --- |
+| `connect_tcp(host, *, port=502, framer="socket")` | Modbus TCP, or RTU-/ASCII-over-TCP (serial-to-Ethernet gateways) | `socket` / `rtu` / `ascii` |
+| `connect_udp(host, *, port=502, framer="socket")` | Modbus UDP | `socket` / `rtu` / `ascii` |
+| `connect_serial(port, *, framer="rtu", baudrate=…, bytesize=…, parity=…, stopbits=…)` | Modbus serial — RTU or ASCII | `rtu` / `ascii` |
+| `connect_tls(host, *, port=802, verify=True, …)` | Modbus/TLS (Modbus Security) | — (always TLS framing) |
 
-| Dataclass | Fields (with defaults) |
-| --- | --- |
-| `ModbusTcpParams` | `host`, `port=502`, `framer="socket"` (`"socket"` / `"rtu"` / `"ascii"`) |
-| `ModbusUdpParams` | `host`, `port=502`, `framer="socket"` (`"socket"` / `"rtu"` / `"ascii"`) |
-| `ModbusTlsParams` | `host`, `port=802`, `verify=True`, `check_hostname=True`, `client_cert=None`, `client_key=None`, `client_key_password=None`, `sslctx=None` |
-| `ModbusSerialParams` | `device`, `baudrate=9600`, `bytesize=8`, `parity="N"`, `stopbits=1`, `framer="rtu"` (`"rtu"` or `"ascii"`) |
+`framer` names the wire framing across every transport; its value set differs by
+transport (`socket`/`rtu`/`ascii` for TCP/UDP, `rtu`/`ascii` for serial; TLS is
+fixed).
 
-`ModbusConnection` also takes keyword-only `timeout` (default `3`) and
-`message_spacing` (see [below](#message-spacing)).
+```python
+from modbus_connection.pymodbus import connect_udp, connect_serial, connect_tls
 
-TCP's `framer` selects native Modbus TCP (MBAP), RTU-over-TCP — the framing a
-transparent serial-to-Ethernet gateway speaks — or ASCII frames tunnelled over
-the TCP stream. UDP is connectionless: "connecting" only binds the local
-endpoint, so a dead peer surfaces as a timeout on the first read.
+udp = await connect_udp("192.168.1.50", port=502)
+ascii_serial = await connect_serial("/dev/ttyUSB0", framer="ascii", baudrate=9600)
+tls = await connect_tls("device.local")  # verifies the server certificate
+```
+
+tmodbus exposes the same functions **except** `connect_udp` and
+`connect_tcp(framer="ascii")` — it has no UDP or ASCII-over-TCP transport, so
+those raise `NotImplementedError`. Use the pymodbus backend for them.
 
 ### TLS options
 
-`ModbusTlsParams` verifies the server certificate against the system trust store
-by default (`verify=True`) and checks the hostname (`check_hostname=True`):
+`connect_tls` verifies the server certificate against the system trust store by
+default (`verify=True`) and checks the hostname (`check_hostname=True`):
 
 - `verify=False` — a device with a self-signed certificate.
 - `verify="/path/to/ca"` — a private CA (file or directory).
@@ -162,13 +137,12 @@ by default (`verify=True`) and checks the hostname (`check_hostname=True`):
 
 ## Message spacing
 
-Some devices need a pause between frames. Pass `message_spacing` (seconds) to
-`ModbusConnection` and every request — from any unit
-sharing the link — waits until that gap has elapsed since the previous one
-**finished**:
+Some devices need a pause between frames. Pass `message_spacing` (seconds) to a
+connect function and every request — from any unit sharing the link — waits until
+that gap has elapsed since the previous one **finished**:
 
 ```python
-conn = ModbusConnection(ModbusSerialParams(device="/dev/ttyUSB0"), message_spacing=0.1)
+conn = await connect_serial("/dev/ttyUSB0", message_spacing=0.1)
 ```
 
 The package applies the gap itself, so it works the same across backends. It is

@@ -18,11 +18,11 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 **modbus-connection** is two things in one package:
 
-1. A **connection abstraction** — `ModbusConnection` and `ModbusUnit` — that
+1. A **connection abstraction** — the `ModbusConnection` and `ModbusUnit`
+   [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
    lets you type against Modbus without committing to a backend. Two
-   interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
-   [pymodbus](https://github.com/pymodbus-dev/pymodbus), each implement it with
-   their own `ModbusConnection`.
+   interchangeable backends, [pymodbus](https://github.com/pymodbus-dev/pymodbus)
+   and [tmodbus](https://github.com/wlcrs/tmodbus), implement it.
 2. An optional **device-modelling framework** (`modbus_connection.model`) that
    maps a device's registers and coils to typed Python attributes and reads the
    whole device — or one sub-system — in as few Modbus calls as possible.
@@ -39,8 +39,7 @@ attributes and reads the whole device in as few Modbus calls as possible.
 ```python
 import asyncio
 
-from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
+from modbus_connection.tmodbus import connect_tcp
 from modbus_connection.model import Component, gauge, uint32, coil
 
 
@@ -59,12 +58,11 @@ class Meter(Component):
 
 
 async def main() -> None:
-    # No I/O until the first request; the client connects and reconnects on demand.
-    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    conn = await connect_tcp("192.168.1.50", port=502)
     try:
         meter = Meter(conn.for_unit(1))
 
-        await meter.async_update()        # first request: connects, one block read
+        await meter.async_update()        # one pooled block read
         print(meter.voltage, meter.current, meter.energy, meter.relay)
 
         await meter.write("relay", True)  # write a writable field
@@ -79,10 +77,10 @@ asyncio.run(main())
 
 <CardGrid>
   <Card title="ModbusConnection" icon="random">
-    The shared link to a Modbus network. One physical link addresses many units
-    (1–247). It is **owner-held**: each backend's `ModbusConnection` connects on its
-    first request and reconnects on demand. Only the owner ever holds it, and
-    only the owner tears it down with `close()`.
+    The shared, already-connected link to a Modbus network. One physical link
+    addresses many units (1–247). It is **transient and owner-held**: a backend
+    connect function returns a live instance — there is no `connect()`. Only the
+    owner ever holds it, and only the owner tears it down with `close()`.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
@@ -103,7 +101,7 @@ this abstraction makes possible while keeping the backend swappable.
 <CardGrid>
   <LinkCard
     title="Connections and units"
-    description="Constructing connections, transports, message spacing, and the raw ModbusUnit surface."
+    description="Connect functions, transports, TLS, message spacing, and the raw ModbusUnit surface."
     href="/modbus-connection/getting-started/connections-and-units/"
   />
   <LinkCard
