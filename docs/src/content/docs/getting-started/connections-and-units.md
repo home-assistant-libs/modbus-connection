@@ -25,7 +25,7 @@ across many consumers is strictly better than each opening a competing socket.
 - It is **owner-held**, and there is **no `connect()`** on the object. The
   connection [connects on demand](#connecting): on its first request, or up
   front through a `connect_*` factory — and reconnects on demand after a drop
-  (retrying the interrupted request once).
+  (retrying an interrupted read-only request once; writes are never replayed).
 - Requests are serialized per connection **by the backend**, not by this wrapper:
   the backend's transport holds a lock for the full request/response cycle, so
   concurrent unit calls on one connection can't interleave.
@@ -84,11 +84,13 @@ connection, built from a frozen parameters dataclass — `ModbusTcpParams`,
 `ModbusUdpParams`, `ModbusTlsParams`, or `ModbusSerialParams`.
 
 **Direct construction** does **no I/O**: the first request connects, and the
-connection reconnects on demand (retrying the interrupted request once on a
-transport drop). This suits long-lived owners that should stay up while a
-device sleeps — a failed poll is just a failed poll. To establish eagerly,
-call `await conn.connect()` yourself — it is a no-op when already connected,
-and it is exactly what every request runs on demand.
+connection reconnects on demand. A read-only request interrupted by a transport
+drop is retried once on a fresh connection. Writes, read/write operations, and
+diagnostics are never replayed because a lost response leaves their outcome
+unknown. This suits long-lived owners that should stay up while a device sleeps
+— a failed poll is just a failed poll. To establish eagerly, call
+`await conn.connect()` yourself — it is a no-op when already connected, and it
+is exactly what every request runs on demand.
 
 ```python
 import asyncio

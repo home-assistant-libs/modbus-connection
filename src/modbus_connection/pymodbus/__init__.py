@@ -62,15 +62,18 @@ __all__ = [
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
+    *,
+    retry_on_connection_error: bool = True,
 ) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
     """Ensure-connect, pace, run, and map pymodbus exceptions onto the neutral
     hierarchy.
 
     Decorates ``PymodbusUnit`` methods so each body just calls the client
     directly. Every request first establishes the link on demand via the
-    owner's ``connect()``. A connection-level failure downs the link and the
-    request is retried exactly once on a fresh connection; Modbus exception
-    responses and timeouts are never retried.
+    owner's ``connect()``. Read-only operations retry a connection-level failure
+    exactly once on a fresh connection. Mutating operations use
+    ``_map_errors_without_retry`` because a lost response leaves their result
+    unknown. Modbus exception responses and timeouts are never retried.
     """
 
     @functools.wraps(func)
@@ -84,7 +87,7 @@ def _map_errors[**P, R](
                     return await func(self, *args, **kwargs)
             except ConnectionException as err:
                 await conn._drop_connection()
-                if attempt == 0:
+                if retry_on_connection_error and attempt == 0:
                     attempt += 1
                     continue
                 raise ModbusConnectionError(str(err)) from err
@@ -94,6 +97,13 @@ def _map_errors[**P, R](
                 raise ModbusError(str(err)) from err
 
     return wrapper
+
+
+def _map_errors_without_retry[**P, R](
+    func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
+) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
+    """Map errors for a mutating request without replaying it."""
+    return _map_errors(func, retry_on_connection_error=False)
 
 
 def _check(response: ModbusPDU) -> ModbusPDU:
@@ -227,6 +237,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -237,6 +248,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -248,6 +260,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
@@ -267,6 +280,7 @@ class ModbusConnection(BaseModbusConnection):
             timeout=self._timeout,
             name="modbus_connection",
             reconnect_delay=0,
+            retries=0,
             trace_connect=self._on_trace_connect,
         )
 
@@ -323,13 +337,13 @@ class PymodbusUnit:
         )
         return response.registers
 
-    @_map_errors
+    @_map_errors_without_retry
     async def write_register(self, address: int, value: int) -> None:
         _check(
             await self._client.write_register(address, value, device_id=self._unit_id)
         )
 
-    @_map_errors
+    @_map_errors_without_retry
     async def write_registers(self, address: int, values: list[int]) -> None:
         _check(
             await self._client.write_registers(address, values, device_id=self._unit_id)
@@ -353,11 +367,11 @@ class PymodbusUnit:
         )
         return response.bits[:count]
 
-    @_map_errors
+    @_map_errors_without_retry
     async def write_coil(self, address: int, value: bool) -> None:
         _check(await self._client.write_coil(address, value, device_id=self._unit_id))
 
-    @_map_errors
+    @_map_errors_without_retry
     async def write_coils(self, address: int, values: list[bool]) -> None:
         _check(await self._client.write_coils(address, values, device_id=self._unit_id))
 
@@ -377,7 +391,7 @@ class PymodbusUnit:
         # response subclass carries the function-code-specific attribute.
         return bytes(response.identifier)  # type: ignore[attr-defined]
 
-    @_map_errors
+    @_map_errors_without_retry
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
@@ -390,7 +404,7 @@ class PymodbusUnit:
             )
         )
 
-    @_map_errors
+    @_map_errors_without_retry
     async def read_write_registers(
         self,
         read_address: int,
@@ -438,7 +452,7 @@ class PymodbusUnit:
         data = response.records[0].record_data  # type: ignore[attr-defined]  # concrete response attr
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
-    @_map_errors
+    @_map_errors_without_retry
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
@@ -455,7 +469,7 @@ class PymodbusUnit:
             )
         )
 
-    @_map_errors
+    @_map_errors_without_retry
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
         request = _build_diagnostic(sub_function, data)
         request.dev_id = self._unit_id

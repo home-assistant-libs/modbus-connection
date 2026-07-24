@@ -59,11 +59,13 @@ class _FakeBaseClient:
         self.connect_calls = 0
         self.disconnect_calls = 0
         self.read_calls = 0
+        self.write_calls = 0
         self._connect_error = connect_error
         self._connect_delay = connect_delay
         # Each read pops the next behavior: an Exception is raised, anything else
         # is returned. Exhausted -> a default reading.
         self.read_behaviors: list[object] = []
+        self.write_behaviors: list[object] = []
         self.on_read: Callable[[], None] | None = None
 
     @property
@@ -95,6 +97,13 @@ class _FakeBaseClient:
                 raise behavior
             return list(behavior)  # type: ignore[arg-type]
         return [1234]
+
+    async def write_single_register(self, address: int, value: int) -> None:
+        self.write_calls += 1
+        if self.write_behaviors:
+            behavior = self.write_behaviors.pop(0)
+            if isinstance(behavior, Exception):
+                raise behavior
 
 
 def _install(monkeypatch: pytest.MonkeyPatch, fake: _FakeBaseClient) -> None:
@@ -271,6 +280,23 @@ async def test_retries_once_on_connection_error(
     assert fake.disconnect_calls == 1  # the dead link was dropped before retrying
 
 
+async def test_does_not_retry_write_on_connection_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    client = _client(fake)
+    fake.write_behaviors = [TModbusConnectionError("response lost")]
+
+    with pytest.raises(ModbusConnectionError):
+        await client.for_unit(1).write_register(0, 7)
+
+    assert fake.write_calls == 1
+    assert fake.connect_calls == 1
+    assert fake.disconnect_calls == 1
+    assert client.connected is False
+
+
 async def test_modbus_exception_response_is_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,9 +454,11 @@ class _FakePymodbusBase:
         self.connect_calls = 0
         self.close_calls = 0
         self.read_calls = 0
+        self.write_calls = 0
         # Each read pops the next behavior: an Exception is raised, anything else
         # is returned as the PDU.
         self.read_behaviors: list[object] = []
+        self.write_behaviors: list[object] = []
 
     async def connect(self) -> bool:
         self.connect_calls += 1
@@ -447,6 +475,16 @@ class _FakePymodbusBase:
         self.read_calls += 1
         if self.read_behaviors:
             behavior = self.read_behaviors.pop(0)
+            if isinstance(behavior, Exception):
+                raise behavior
+        return _FakePdu()
+
+    async def write_register(
+        self, address: int, value: int, device_id: int
+    ) -> _FakePdu:
+        self.write_calls += 1
+        if self.write_behaviors:
+            behavior = self.write_behaviors.pop(0)
             if isinstance(behavior, Exception):
                 raise behavior
         return _FakePdu()
@@ -487,6 +525,24 @@ async def test_udp_retries_once_on_connection_error(
     assert fake.read_calls == 2
     assert fake.connect_calls == 2  # initial connect + reconnect for the retry
     assert fake.close_calls == 1  # the dead link was dropped before retrying
+
+
+async def test_udp_does_not_retry_write_on_connection_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pymodbus.exceptions import ConnectionException
+
+    fake = _FakePymodbusBase()
+    client = _udp_client(monkeypatch, fake)
+    fake.write_behaviors = [ConnectionException("response lost")]
+
+    with pytest.raises(ModbusConnectionError):
+        await client.for_unit(1).write_register(0, 7)
+
+    assert fake.write_calls == 1
+    assert fake.connect_calls == 1
+    assert fake.close_calls == 1
+    assert client.connected is False
 
 
 async def test_udp_close_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
