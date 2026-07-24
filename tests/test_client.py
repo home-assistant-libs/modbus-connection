@@ -24,6 +24,7 @@ from modbus_connection import (
     ModbusConnectionError,
     ModbusExceptionError,
 )
+from modbus_connection._client import BaseModbusConnection
 from modbus_connection.tmodbus import (
     ModbusConnection,
     ModbusSerialParams,
@@ -495,6 +496,108 @@ def _udp_client(
 ) -> pymodbus_backend.ModbusConnection:
     monkeypatch.setattr(pymodbus_backend, "AsyncModbusUdpClient", lambda *a, **k: fake)
     return pymodbus_backend.ModbusConnection(ModbusUdpParams(host="127.0.0.1"))
+
+
+class _ControlledConnect:
+    """A connect attempt held at a deterministic point until a test releases it."""
+
+    def __init__(self) -> None:
+        self.connected = False
+        self.connect_calls = 0
+        self.close_calls = 0
+        self.connect_started = asyncio.Event()
+        self.connect_release = asyncio.Event()
+
+    async def connect(self) -> bool:
+        self.connect_calls += 1
+        self.connect_started.set()
+        await self.connect_release.wait()
+        self.connected = True
+        return True
+
+
+class _ControlledTmodbusConnect(_ControlledConnect):
+    async def disconnect(self) -> None:
+        self.close_calls += 1
+        self.connected = False
+
+    def for_unit_id(self, unit_id: int) -> _ControlledTmodbusConnect:
+        return self
+
+
+class _ControlledPymodbusConnect(_ControlledConnect):
+    def close(self) -> None:
+        self.close_calls += 1
+        self.connected = False
+
+
+def _controlled_connection(
+    monkeypatch: pytest.MonkeyPatch, backend: str
+) -> tuple[BaseModbusConnection, _ControlledConnect]:
+    if backend == "tmodbus":
+        fake = _ControlledTmodbusConnect()
+        monkeypatch.setattr(
+            tmodbus_backend, "create_async_tcp_client", lambda *a, **k: fake
+        )
+        return (
+            tmodbus_backend.ModbusConnection(ModbusTcpParams(host="127.0.0.1")),
+            fake,
+        )
+    fake = _ControlledPymodbusConnect()
+    monkeypatch.setattr(
+        pymodbus_backend, "AsyncModbusTcpClient", lambda *a, **k: fake
+    )
+    return (
+        pymodbus_backend.ModbusConnection(ModbusTcpParams(host="127.0.0.1")),
+        fake,
+    )
+
+
+@pytest.mark.parametrize("backend", ["tmodbus", "pymodbus"])
+async def test_close_during_connect_closes_new_client_without_resurrection(
+    monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    client, fake = _controlled_connection(monkeypatch, backend)
+    connecting = asyncio.create_task(client.connect())
+    await fake.connect_started.wait()
+
+    closing = asyncio.create_task(client.close())
+    await asyncio.sleep(0)
+    assert closing.done() is False
+    fake.connect_release.set()
+
+    with pytest.raises(ClientClosedError):
+        await connecting
+    await closing
+
+    assert client.connected is False
+    assert fake.connect_calls == 1
+    assert fake.close_calls == 1
+    with pytest.raises(ClientClosedError):
+        await client.connect()
+
+
+@pytest.mark.parametrize("backend", ["tmodbus", "pymodbus"])
+async def test_cancelled_connect_waiter_does_not_cancel_shared_connect(
+    monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    client, fake = _controlled_connection(monkeypatch, backend)
+    cancelled_waiter = asyncio.create_task(client.connect())
+    surviving_waiter = asyncio.create_task(client.connect())
+    await fake.connect_started.wait()
+
+    cancelled_waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_waiter
+    assert surviving_waiter.done() is False
+
+    fake.connect_release.set()
+    await surviving_waiter
+
+    assert client.connected is True
+    assert fake.connect_calls == 1
+    await client.close()
+    assert fake.close_calls == 1
 
 
 async def test_udp_lazy_first_request_connects(

@@ -7,6 +7,7 @@ import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
@@ -177,7 +178,8 @@ class BaseModbusConnection(ABC):
         after a drop the dead client was cleared, so calling this again
         reconnects. Every unit request does this on demand under a
         single-flight guard: concurrent callers share one in-flight attempt
-        and its failure, with no time-based backoff. Raises
+        and its failure, while cancellation of one caller leaves the shared
+        attempt running for the others. There is no time-based backoff. Raises
         ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if the link
         cannot be established, and ``ClientClosedError`` once the connection
         was ``close()``\\d.
@@ -188,15 +190,40 @@ class BaseModbusConnection(ABC):
             return
         task = self._connect_task
         if task is None:
-            task = self._connect_task = asyncio.ensure_future(self._establish())
-        try:
-            await task
-        finally:
-            if self._connect_task is task:
-                self._connect_task = None
+            task = self._connect_task = asyncio.create_task(self._establish())
+            task.add_done_callback(self._connect_done)
+        await asyncio.shield(task)
+
+    def _connect_done(self, task: asyncio.Task[None]) -> None:
+        """Clear a completed connect flight and consume an unobserved failure."""
+        if self._connect_task is task:
+            self._connect_task = None
+        if not task.cancelled():
+            task.exception()
 
     async def _establish(self) -> None:
-        self._client = await self._connect_client()
+        client = await self._connect_client()
+        if self._closed:
+            try:
+                await self._close_client(client)
+            except Exception:
+                pass
+            raise ClientClosedError("connection is closed")
+        self._client = client
+
+    async def _begin_close(self) -> None:
+        """Mark closed and wait for any shared connect attempt to clean itself up."""
+        self._closed = True
+        task = self._connect_task
+        if task is None:
+            return
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise
+        except Exception:
+            pass
 
     async def _tls_context(self) -> ssl.SSLContext:
         """Resolve and cache this connection's TLS context without blocking."""
@@ -227,7 +254,11 @@ class BaseModbusConnection(ABC):
 
     @abstractmethod
     async def close(self) -> None:
-        """Tear the connection down — owner only, idempotent, and permanent."""
+        """Tear the connection down — owner only, idempotent, and permanent.
+
+        If connection establishment is in flight, wait for it and close any
+        client it creates before returning.
+        """
 
     # -- backend hooks ----------------------------------------------------------
 
@@ -239,3 +270,12 @@ class BaseModbusConnection(ABC):
     async def _connect_client(self) -> Any:
         """Build, connect, and return a backend client from ``self._params``,
         mapping failures onto the neutral hierarchy."""
+
+    async def _close_client(self, client: Any) -> None:
+        """Close one backend client; concrete backends override to map errors."""
+        close = getattr(client, "close", None) or getattr(client, "disconnect", None)
+        if close is None:
+            return
+        result = close()
+        if isawaitable(result):
+            await result
