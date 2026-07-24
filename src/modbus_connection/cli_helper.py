@@ -6,16 +6,15 @@ normal application. A query script imports the pieces it needs instead of
 re-implementing them every time:
 
 - :func:`add_connection_args` / :func:`connect_from_args` — turn command-line
-  arguments into a live connection (over whichever backend is installed:
-  tmodbus if present, otherwise pymodbus).
+  arguments into a live connection, picking a backend that supports the requested
+  transport and framing.
 - :class:`CountingUnit` — wrap a ``ModbusUnit`` to count the reads it performs,
   so you can see how well the pooled read plan collapses your fields.
 - :func:`print_component` / :func:`field_rows` — dump a modelled component's
   fields to the terminal by reflection, no hand-listing.
 
-Only :func:`connect_from_args` needs a backend installed (the ``[tmodbus]``
-extra); the counter and the printer are backend-neutral, so ``--help`` and the
-argument parsing work without one.
+Only :func:`connect_from_args` needs a backend installed; the counter and the
+printer are backend-neutral, so ``--help`` and argument parsing work without one.
 
 A minimal query script::
 
@@ -109,28 +108,38 @@ _DEFAULT_CONNECTIONS: tuple[tuple[str, str | None], ...] = (
 
 # -- connection from arguments -----------------------------------------------
 
-# Backends in preference order. tmodbus is tried first; each submodule imports
-# its library at module load, so a missing dependency surfaces as ImportError.
-_BACKENDS = ("tmodbus", "pymodbus")
+
+def _import_backend(name: str) -> ModuleType | None:
+    """Return an optional backend's connect surface."""
+    try:
+        return importlib.import_module(f".{name}", __package__)
+    except ImportError:
+        return None
 
 
-def _load_backend() -> ModuleType:
-    """Return the connect surface of whichever backend is installed.
+def _load_backend(transport: str, framer: str | None) -> ModuleType:
+    """Return an installed backend supporting *transport* and *framer*.
 
-    Tries the backends in ``_BACKENDS`` order (tmodbus, then pymodbus) and
-    returns the first whose dependency is importable. Both expose the same
-    ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` / ``connect_serial``
-    functions, so ``connect_from_args`` calls them the same way regardless.
-    Raises ``ModbusError`` if neither backend is installed.
+    tmodbus is preferred where supported. UDP and ASCII-over-TCP require
+    pymodbus. Imports stay lazy so importing this module and displaying CLI help
+    need no backend installed.
     """
-    for name in _BACKENDS:
-        try:
-            return importlib.import_module(f".{name}", __package__)
-        except ImportError:
-            continue
-    raise ModbusError(
-        "no Modbus backend installed; install the 'tmodbus' or 'pymodbus' extra"
+    tmodbus_supported = transport != "udp" and not (
+        transport == "tcp" and framer == "ascii"
     )
+    if tmodbus_supported and (backend := _import_backend("tmodbus")) is not None:
+        return backend
+    if (backend := _import_backend("pymodbus")) is not None:
+        return backend
+
+    if tmodbus_supported:
+        detail = "install the 'tmodbus' or 'pymodbus' extra"
+    else:
+        detail = (
+            f"{transport} with {framer or 'default'} framing requires pymodbus; "
+            "install the 'pymodbus' extra"
+        )
+    raise ModbusError(f"no installed Modbus backend supports this connection; {detail}")
 
 
 def add_connection_args(
@@ -254,24 +263,25 @@ async def connect_from_args(
 ) -> BaseModbusConnection:
     """Open the connection described by *args* (as parsed by ``add_connection_args``).
 
-    Dispatches to ``connect_tcp`` / ``connect_udp`` / ``connect_tls`` /
-    ``connect_serial`` on whichever backend is installed — tmodbus if present,
-    otherwise pymodbus — resolved lazily here so importing this module (and
-    ``--help``) needs no backend. *message_spacing* is the minimum gap in seconds
-    left after each request — a fixed device property, so it is passed here by the
-    tool rather than exposed as a CLI argument. Raises ``ModbusError`` if no
-    backend is installed, ``ModbusConnectionError`` if the connection cannot be
-    established, ``ValueError`` for a bad framer/transport combination, or
-    ``NotImplementedError`` for ``--transport udp`` on tmodbus (it has no UDP).
+    Dispatches to an existing async backend factory and waits for it to establish
+    the connection. tmodbus is preferred where it supports the requested
+    transport and framing; UDP and ASCII-over-TCP use pymodbus, as does any
+    request when tmodbus is absent. Backends are resolved lazily here so importing
+    this module (and ``--help``) needs no backend.
+
+    *message_spacing* is the minimum gap in seconds left after each request — a
+    fixed device property, so it is passed here by the tool rather than exposed
+    as a CLI argument. Raises ``ModbusError`` if no installed backend supports
+    the request and ``ModbusConnectionError`` if the connection cannot be
+    established.
     """
     # Resolved lazily so the module (and --help) loads without any backend.
-    backend = _load_backend()
-
     common = {"timeout": args.timeout, "message_spacing": message_spacing}
     # port/framer may be omitted for a narrowed argument set (see
     # add_connection_args); fall back to the backend default.
     port = getattr(args, "port", None)
     framer = getattr(args, "framer", None)
+    backend = _load_backend(args.transport, framer)
 
     if args.transport == "serial":
         return await backend.connect_serial(
@@ -303,8 +313,6 @@ async def connect_from_args(
             **common,
         )
 
-    # udp shares tcp's arguments; tmodbus has no UDP transport, so its
-    # connect_udp raises NotImplementedError — surfaced to the caller unchanged.
     connect = backend.connect_udp if args.transport == "udp" else backend.connect_tcp
     return await connect(
         args.target,
