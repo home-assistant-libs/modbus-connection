@@ -1,7 +1,7 @@
 """pymodbus-backed implementation of the modbus_connection abstraction.
 
 Provides the connect functions (``connect_tcp`` / ``connect_udp`` /
-``connect_serial``) plus the concrete ``PymodbusConnection`` / ``PymodbusUnit``
+``connect_serial``) plus the concrete ``ModbusConnection`` / ``PymodbusUnit``
 classes. These are the only backend-specific touchpoints — swapping to tmodbus
 changes only the import.
 
@@ -50,6 +50,7 @@ from ..exceptions import (
 )
 
 __all__ = [
+    "ModbusConnection",
     "PymodbusConnection",
     "PymodbusUnit",
     "connect_serial",
@@ -140,7 +141,7 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
     return request
 
 
-class PymodbusConnection(BaseModbusConnection):
+class ModbusConnection(BaseModbusConnection):
     """A Modbus connection backed by pymodbus."""
 
     # -- spec surface ---------------------------------------------------------
@@ -236,6 +237,9 @@ class PymodbusConnection(BaseModbusConnection):
             self._lost_callbacks.fire()
 
 
+PymodbusConnection = ModbusConnection
+
+
 class PymodbusUnit:
     """A stateless per-unit handle. Every method raises on failure.
 
@@ -244,7 +248,7 @@ class PymodbusUnit:
     on an unestablished connection raises ``ModbusConnectionError``.
     """
 
-    def __init__(self, connection: PymodbusConnection, unit_id: int) -> None:
+    def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
         self._conn = connection
         self._unit_id = unit_id
 
@@ -454,7 +458,7 @@ async def connect_tcp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus TCP / RTU-over-TCP / ASCII-over-TCP connection.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
@@ -469,7 +473,7 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusTcpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -485,7 +489,7 @@ async def connect_udp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus UDP connection and return a live handle.
 
     UDP carries the same wire framing as TCP — ``framer`` selects ``"socket"``
@@ -500,7 +504,7 @@ async def connect_udp(
 
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -521,7 +525,7 @@ async def connect_tls(
     sslctx: ssl.SSLContext | None = None,
     timeout: float = 3,
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection and return a live handle.
 
     The wire framing is always TLS. Two groups of arguments split the *server*
@@ -552,7 +556,7 @@ async def connect_tls(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusTlsParams(
             host=host,
             port=port,
@@ -580,7 +584,7 @@ async def connect_serial(
     timeout: float = 3,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
-) -> PymodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus serial connection and return a live handle.
 
     ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU
@@ -592,7 +596,7 @@ async def connect_serial(
 
     Raises ``ModbusConnectionError`` if the port cannot be opened.
     """
-    connection = PymodbusConnection(
+    connection = ModbusConnection(
         ModbusSerialParams(
             device=port,
             baudrate=baudrate,
