@@ -41,6 +41,14 @@ class ModbusTcpParams:
     RTU-over-TCP — what transparent serial-to-Ethernet gateways speak — or
     ``"ascii"`` for ASCII frames tunnelled over the TCP stream."""
 
+    def __post_init__(self) -> None:
+        """Validate the wire framing."""
+        if self.framer not in ("socket", "rtu", "ascii"):
+            raise ValueError(
+                f"unknown framer {self.framer!r}; "
+                "expected 'socket', 'rtu', or 'ascii'"
+            )
+
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusUdpParams:
@@ -55,6 +63,14 @@ class ModbusUdpParams:
     framer: Literal["socket", "rtu", "ascii"] = "socket"
     """Wire framing, same choices as TCP: ``"socket"`` for native Modbus
     (MBAP), ``"rtu"``, or ``"ascii"``."""
+
+    def __post_init__(self) -> None:
+        """Validate the wire framing."""
+        if self.framer not in ("socket", "rtu", "ascii"):
+            raise ValueError(
+                f"unknown framer {self.framer!r}; "
+                "expected 'socket', 'rtu', or 'ascii'"
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -128,6 +144,13 @@ class ModbusSerialParams:
     framer: Literal["rtu", "ascii"] = "rtu"
     """Serial framing: ``"rtu"`` for binary Modbus RTU (the default) or
     ``"ascii"`` for the ASCII transmission mode."""
+
+    def __post_init__(self) -> None:
+        """Validate the serial framing."""
+        if self.framer not in ("rtu", "ascii"):
+            raise ValueError(
+                f"unknown serial framer {self.framer!r}; expected 'rtu' or 'ascii'"
+            )
 
 
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams

@@ -210,12 +210,6 @@ class PymodbusConnection(BaseModbusConnection):
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
-        # The FramerType enum alone would accept "socket" here; serial links
-        # only speak the rtu/ascii subset.
-        if params.framer not in ("rtu", "ascii"):
-            raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
-            )
         return AsyncModbusSerialClient(
             params.device,
             framer=FramerType(params.framer),

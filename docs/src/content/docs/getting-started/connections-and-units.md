@@ -117,7 +117,8 @@ The params dataclasses are frozen and keyword-only. Import them from
 
 `framer` names the wire framing across every transport; its value set differs by
 transport (`socket`/`rtu`/`ascii` for TCP/UDP, `rtu`/`ascii` for serial; TLS is
-fixed).
+fixed). The params dataclasses reject other values with `ValueError` when they
+are constructed, before a backend is selected.
 
 ```python
 from modbus_connection import ModbusSerialParams

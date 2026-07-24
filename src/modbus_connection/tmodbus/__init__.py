@@ -118,13 +118,8 @@ class TmodbusConnection(BaseModbusConnection):
                 create = create_async_tcp_client
             elif params.framer == "rtu":
                 create = create_async_rtu_over_tcp_client
-            elif params.framer == "ascii":
-                raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
             else:
-                raise ValueError(
-                    f"unknown framer {params.framer!r}; "
-                    "expected 'socket', 'rtu', or 'ascii'"
-                )
+                raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
             return create(
                 params.host,
                 params.port,
@@ -147,12 +142,8 @@ class TmodbusConnection(BaseModbusConnection):
             )
         if params.framer == "rtu":
             create_serial = create_async_rtu_client
-        elif params.framer == "ascii":
-            create_serial = create_async_ascii_client
         else:
-            raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
-            )
+            create_serial = create_async_ascii_client
         # tmodbus' SerialXOptions under-declares the serial options serialx accepts
         # at runtime: it omits ``bytesize`` and types ``parity``/``stopbits`` as
         # enums though serialx also takes the str/int forms we pass here.
