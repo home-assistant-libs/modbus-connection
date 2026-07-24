@@ -73,10 +73,6 @@ and read-planning reference, repeated sub-units, the SunSpec field types and
 model generator, the query helper, the in-memory mock backend for tests, and
 the exception hierarchy — lives on the website:
 
-Shared connection parameters validate their wire framing when constructed:
-TCP/UDP accept `socket`, `rtu`, or `ascii`, while serial accepts `rtu` or
-`ascii`.
-
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 
 ## Develop
