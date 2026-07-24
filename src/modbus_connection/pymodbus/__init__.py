@@ -164,13 +164,7 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
 
 
 class ModbusConnection(BaseModbusConnection):
-    """A Modbus connection backed by pymodbus.
-
-    Accepts every params dataclass: :class:`ModbusTcpParams`
-    (``socket``/``rtu``/``ascii`` framing), :class:`ModbusUdpParams`,
-    :class:`ModbusTlsParams`, and :class:`ModbusSerialParams`
-    (``rtu``/``ascii``).
-    """
+    """A Modbus connection backed by pymodbus."""
 
     # -- spec surface ---------------------------------------------------------
 
