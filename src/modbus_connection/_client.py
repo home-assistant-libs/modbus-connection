@@ -45,8 +45,7 @@ class ModbusTcpParams:
         """Validate the wire framing."""
         if self.framer not in ("socket", "rtu", "ascii"):
             raise ValueError(
-                f"unknown framer {self.framer!r}; "
-                "expected 'socket', 'rtu', or 'ascii'"
+                f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
 
 
@@ -68,8 +67,7 @@ class ModbusUdpParams:
         """Validate the wire framing."""
         if self.framer not in ("socket", "rtu", "ascii"):
             raise ValueError(
-                f"unknown framer {self.framer!r}; "
-                "expected 'socket', 'rtu', or 'ascii'"
+                f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
 
 
