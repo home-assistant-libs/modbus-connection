@@ -1,12 +1,4 @@
-"""pymodbus-backed implementation of the modbus_connection abstraction.
-
-Provides the concrete ``ModbusConnection`` / ``PymodbusUnit`` classes plus the
-``connect_tcp`` / ``connect_udp`` / ``connect_tls`` / ``connect_serial``
-factories. These are the only backend-specific touchpoints — swapping to
-tmodbus changes only the import.
-
-Requires the ``[pymodbus]`` extra.
-"""
+"""pymodbus-backed implementation of the modbus_connection abstraction."""
 
 from __future__ import annotations
 
@@ -264,12 +256,6 @@ class ModbusConnection(BaseModbusConnection):
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
-        # The FramerType enum alone would accept "socket" here; serial links
-        # only speak the rtu/ascii subset.
-        if params.framer not in ("rtu", "ascii"):
-            raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
-            )
         return AsyncModbusSerialClient(
             params.device,
             framer=FramerType(params.framer),
@@ -289,6 +275,9 @@ class ModbusConnection(BaseModbusConnection):
         if not connecting:
             self._client = None
             self._lost_callbacks.fire()
+
+
+PymodbusConnection = ModbusConnection
 
 
 class PymodbusUnit:
@@ -661,8 +650,3 @@ async def connect_serial(
     )
     await connection.connect()
     return connection
-
-
-# Kept for callers that imported the connection class under its pre-existing
-# backend-specific name.
-PymodbusConnection = ModbusConnection

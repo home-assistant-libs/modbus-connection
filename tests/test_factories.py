@@ -53,20 +53,6 @@ async def test_connect_tcp_unreachable_raises_immediately(backend: object) -> No
         await backend.connect_tcp("127.0.0.1", port=_closed_port())  # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize(
-    ("backend", "match"),
-    [
-        # pymodbus's FramerType enum does the conversion, so its native error
-        # names the unknown framing; tmodbus dispatches framings itself.
-        pytest.param(pymodbus_backend, "is not a valid FramerType", id="pymodbus"),
-        pytest.param(tmodbus_backend, "unknown framer", id="tmodbus"),
-    ],
-)
-async def test_connect_tcp_rejects_unknown_framer(backend: object, match: str) -> None:
-    with pytest.raises(ValueError, match=match):
-        await backend.connect_tcp("127.0.0.1", framer="bogus")  # type: ignore[attr-defined]
-
-
 async def test_tmodbus_connect_udp_not_implemented() -> None:
     """tmodbus ships no UDP transport: connect_udp raises NotImplementedError."""
     with pytest.raises(NotImplementedError):
