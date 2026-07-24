@@ -84,11 +84,12 @@ connection, built from a frozen parameters dataclass — `ModbusTcpParams`,
 `ModbusUdpParams`, `ModbusTlsParams`, or `ModbusSerialParams`.
 
 **Direct construction** does **no I/O**: the first request connects, and the
-connection reconnects on demand. A read-only request interrupted by a transport
-drop is retried once on a fresh connection. Writes, read/write operations, and
-diagnostics are never replayed because a lost response leaves their outcome
-unknown. This suits long-lived owners that should stay up while a device sleeps
-— a failed poll is just a failed poll. To establish eagerly, call
+connection reconnects on demand. Connection establishment is retried once
+before any request is dispatched. A read-only request interrupted by a
+transport drop is retried once on a fresh connection. Writes, read/write
+operations, and diagnostics are never replayed because a lost response leaves
+their outcome unknown. This suits long-lived owners that should stay up while a
+device sleeps — a failed poll is just a failed poll. To establish eagerly, call
 `await conn.connect()` yourself — it is a no-op when already connected, and it
 is exactly what every request runs on demand.
 

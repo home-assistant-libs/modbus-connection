@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
 from ._tls import build_tls_context
-from .exceptions import ClientClosedError
+from .exceptions import ClientClosedError, ModbusConnectionError
 
 if TYPE_CHECKING:
     from ._protocol import ModbusUnit
@@ -177,12 +177,13 @@ class BaseModbusConnection(ABC):
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
         reconnects. Every unit request does this on demand under a
-        single-flight guard: concurrent callers share one in-flight attempt
-        and its failure, while cancellation of one caller leaves the shared
-        attempt running for the others. There is no time-based backoff. Raises
-        ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if the link
-        cannot be established, and ``ClientClosedError`` once the connection
-        was ``close()``\\d.
+        single-flight guard: concurrent callers share one in-flight operation
+        and its result. That operation retries a connection error once before
+        any request can be dispatched; timeouts are not retried. Cancellation
+        of one caller leaves the shared operation running for the others.
+        There is no time-based backoff. Raises ``ModbusConnectionError`` (or
+        ``ModbusTimeoutError``) if the link cannot be established, and
+        ``ClientClosedError`` once the connection was ``close()``\\d.
         """
         if self._closed:
             raise ClientClosedError("connection is closed")
@@ -190,7 +191,9 @@ class BaseModbusConnection(ABC):
             return
         task = self._connect_task
         if task is None:
-            task = self._connect_task = asyncio.create_task(self._establish())
+            task = self._connect_task = asyncio.create_task(
+                self._establish_with_retry()
+            )
             task.add_done_callback(self._connect_done)
         await asyncio.shield(task)
 
@@ -210,6 +213,15 @@ class BaseModbusConnection(ABC):
                 pass
             raise ClientClosedError("connection is closed")
         self._client = client
+
+    async def _establish_with_retry(self) -> None:
+        """Establish before dispatch, retrying one connection failure."""
+        try:
+            await self._establish()
+        except ClientClosedError:
+            raise
+        except ModbusConnectionError:
+            await self._establish()
 
     async def _begin_close(self) -> None:
         """Mark closed and wait for any shared connect attempt to clean itself up."""

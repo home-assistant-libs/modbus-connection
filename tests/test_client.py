@@ -23,6 +23,7 @@ from modbus_connection import (
     ClientClosedError,
     ModbusConnectionError,
     ModbusExceptionError,
+    ModbusTimeoutError,
 )
 from modbus_connection._client import BaseModbusConnection
 from modbus_connection.tmodbus import (
@@ -65,6 +66,7 @@ class _FakeBaseClient:
         self._connect_delay = connect_delay
         # Each read pops the next behavior: an Exception is raised, anything else
         # is returned. Exhausted -> a default reading.
+        self.connect_behaviors: list[Exception | None] = []
         self.read_behaviors: list[object] = []
         self.write_behaviors: list[object] = []
         self.on_read: Callable[[], None] | None = None
@@ -77,6 +79,10 @@ class _FakeBaseClient:
         self.connect_calls += 1
         if self._connect_delay:
             await asyncio.sleep(self._connect_delay)
+        if self.connect_behaviors:
+            behavior = self.connect_behaviors.pop(0)
+            if behavior is not None:
+                raise behavior
         if self._connect_error is not None:
             raise self._connect_error
         self._connected = True
@@ -242,7 +248,7 @@ async def test_concurrent_waiters_share_connect_failure(
 
     errors = await asyncio.gather(read(unit_a), read(unit_b))
 
-    assert fake.connect_calls == 1  # a single shared attempt, one shared failure
+    assert fake.connect_calls == 2  # both attempts are shared by all waiters
     assert all(isinstance(err, ModbusConnectionError) for err in errors)
 
 
@@ -260,7 +266,7 @@ async def test_next_request_reconnects_after_connect_failure(
     # failed one.
     fake._connect_error = None
     assert await client.for_unit(1).read_holding_registers(0, 1) == [1234]
-    assert fake.connect_calls == 2
+    assert fake.connect_calls == 3
 
 
 # -- retry-once on a mid-request connection drop ------------------------------
@@ -296,6 +302,35 @@ async def test_does_not_retry_write_on_connection_error(
     assert fake.connect_calls == 1
     assert fake.disconnect_calls == 1
     assert client.connected is False
+
+
+async def test_write_retries_connect_error_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeBaseClient()
+    fake.connect_behaviors = [TModbusError("refused"), None]
+    _install(monkeypatch, fake)
+    client = _client(fake)
+
+    await client.for_unit(1).write_register(0, 7)
+
+    assert fake.connect_calls == 2
+    assert fake.write_calls == 1
+    assert fake.disconnect_calls == 1
+
+
+async def test_connect_timeout_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeBaseClient(connect_error=TimeoutError("timed out"))
+    _install(monkeypatch, fake)
+    client = _client(fake)
+
+    with pytest.raises(ModbusTimeoutError):
+        await client.for_unit(1).write_register(0, 7)
+
+    assert fake.connect_calls == 1
+    assert fake.write_calls == 0
 
 
 async def test_modbus_exception_response_is_not_retried(
@@ -458,11 +493,16 @@ class _FakePymodbusBase:
         self.write_calls = 0
         # Each read pops the next behavior: an Exception is raised, anything else
         # is returned as the PDU.
+        self.connect_behaviors: list[Exception | None] = []
         self.read_behaviors: list[object] = []
         self.write_behaviors: list[object] = []
 
     async def connect(self) -> bool:
         self.connect_calls += 1
+        if self.connect_behaviors:
+            behavior = self.connect_behaviors.pop(0)
+            if behavior is not None:
+                raise behavior
         self.connected = True
         return True
 
@@ -644,6 +684,22 @@ async def test_udp_does_not_retry_write_on_connection_error(
     assert fake.connect_calls == 1
     assert fake.close_calls == 1
     assert client.connected is False
+
+
+async def test_udp_write_retries_connect_error_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pymodbus.exceptions import ConnectionException
+
+    fake = _FakePymodbusBase()
+    fake.connect_behaviors = [ConnectionException("refused"), None]
+    client = _udp_client(monkeypatch, fake)
+
+    await client.for_unit(1).write_register(0, 7)
+
+    assert fake.connect_calls == 2
+    assert fake.write_calls == 1
+    assert fake.close_calls == 1
 
 
 async def test_udp_close_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
