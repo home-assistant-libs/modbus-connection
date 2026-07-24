@@ -42,6 +42,7 @@ from ..exceptions import (
 )
 
 __all__ = [
+    "ModbusConnection",
     "TmodbusConnection",
     "TmodbusUnit",
     "connect_serial",
@@ -57,7 +58,7 @@ __all__ = [
 _PLACEHOLDER_UNIT_ID = 1
 
 
-class TmodbusConnection(BaseModbusConnection):
+class ModbusConnection(BaseModbusConnection):
     """A Modbus connection backed by tmodbus."""
 
     def __init__(
@@ -176,6 +177,9 @@ class TmodbusConnection(BaseModbusConnection):
         self._lost_callbacks.fire()
 
 
+TmodbusConnection = ModbusConnection
+
+
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
@@ -211,7 +215,7 @@ class TmodbusUnit:
     on an unestablished connection raises ``ModbusConnectionError``.
     """
 
-    def __init__(self, connection: TmodbusConnection, unit_id: int) -> None:
+    def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
         self._conn = connection
         self._unit_id = unit_id
 
@@ -337,7 +341,7 @@ async def connect_tcp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> TmodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
@@ -352,7 +356,7 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusTcpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -368,13 +372,13 @@ async def connect_udp(
     timeout: float = 3,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
-) -> TmodbusConnection:
+) -> ModbusConnection:
     """Modbus UDP is not available over tmodbus.
 
     tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
     Kept here so the backend's connect surface stays complete.
     """
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
@@ -395,7 +399,7 @@ async def connect_tls(
     sslctx: ssl.SSLContext | None = None,
     timeout: float = 3,
     message_spacing: float = 0.0,
-) -> TmodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus/TLS (Modbus Security) connection over tmodbus.
 
     The SSL context is handed to ``asyncio.create_connection`` (which uses ``host``
@@ -426,7 +430,7 @@ async def connect_tls(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusTlsParams(
             host=host,
             port=port,
@@ -453,7 +457,7 @@ async def connect_serial(
     stopbits: int = 1,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
-) -> TmodbusConnection:
+) -> ModbusConnection:
     """Open a Modbus serial connection over tmodbus and return a live handle.
 
     ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU (the
@@ -465,7 +469,7 @@ async def connect_serial(
 
     Raises ``ModbusConnectionError`` on failure.
     """
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusSerialParams(
             device=port,
             baudrate=baudrate,
