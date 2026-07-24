@@ -1,6 +1,6 @@
 ---
 title: Connections and units
-description: The ModbusConnection class and ModbusUnit protocol, direct construction and connect factories, transports, and message spacing.
+description: The ModbusConnection class and ModbusUnit protocol, connection parameters, transports, and message spacing.
 ---
 
 The top-level `modbus_connection` package is a **pure interface**. It defines
@@ -22,10 +22,10 @@ A `ModbusConnection` is a shared, internally-serialized link to a Modbus network
 One physical link addresses many units (1–247), and sharing a single connection
 across many consumers is strictly better than each opening a competing socket.
 
-- It is **owner-held**, and there is **no `connect()`** on the object. The
-  connection [connects on demand](#connecting): on its first request, or up
-  front through a `connect_*` factory — and reconnects on demand after a drop
-  (retrying an interrupted read-only request once; writes are never replayed).
+- It is **owner-held**. Requests [connect on demand](#connecting), and the owner
+  may call `await connection.connect()` to establish the link eagerly. It
+  reconnects on demand after a drop, retrying an interrupted read-only request
+  once; writes are never replayed.
 - Requests are serialized per connection **by the backend**, not by this wrapper:
   the backend's transport holds a lock for the full request/response cycle, so
   concurrent unit calls on one connection can't interleave.
@@ -79,19 +79,19 @@ from modbus_connection.tmodbus import ModbusConnection  # tmodbus-backed
 from modbus_connection.pymodbus import ModbusConnection  # pymodbus-backed
 ```
 
-There are two equivalent entry points; both yield the same self-healing
-connection, built from a frozen parameters dataclass — `ModbusTcpParams`,
-`ModbusUdpParams`, `ModbusTlsParams`, or `ModbusSerialParams`.
+Create a frozen parameters dataclass — `ModbusTcpParams`, `ModbusUdpParams`,
+`ModbusTlsParams`, or `ModbusSerialParams` — and pass it to the chosen backend's
+`ModbusConnection`.
 
-**Direct construction** does **no I/O**: the first request connects, and the
-connection reconnects on demand. Connection establishment is retried once
-before any request is dispatched. A read-only request interrupted by a
-transport drop is retried once on a fresh connection. Writes, read/write
-operations, and diagnostics are never replayed because a lost response leaves
-their outcome unknown. This suits long-lived owners that should stay up while a
-device sleeps — a failed poll is just a failed poll. To establish eagerly, call
-`await conn.connect()` yourself — it is a no-op when already connected, and it
-is exactly what every request runs on demand.
+This params-first construction is the recommended approach. It does **no I/O**:
+the first request connects, and the connection reconnects on demand. Connection
+establishment is retried once before any request is dispatched. A read-only
+request interrupted by a transport drop is retried once on a fresh connection.
+Writes, read/write operations, and diagnostics are never replayed because a
+lost response leaves their outcome unknown. This suits long-lived owners that
+should stay up while a device sleeps — a failed poll is just a failed poll. To
+establish eagerly, call `await conn.connect()` yourself. It is a no-op when
+already connected, and it is exactly what every request runs on demand.
 
 ```python
 import asyncio
@@ -116,18 +116,12 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-**The connect factories** — `connect_tcp` / `connect_udp` / `connect_tls` /
-`connect_serial` on each backend module — build the params and call
-`connect()` before returning, so an unreachable device raises
-`ModbusConnectionError` right at the call. Afterwards the returned connection
-self-heals exactly like a directly-constructed one.
-
-```python
-from modbus_connection.tmodbus import connect_tcp
-
-conn = await connect_tcp("192.168.1.50", port=502)  # raises if unreachable
-print(conn.connected)  # True — already live
-```
+:::note[Compatibility factories]
+The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
+`connect_serial` for compatibility. They build the params and eagerly call
+`connect()` before returning. New code should prefer the params-first
+construction above.
+:::
 
 See [Which backend?](/modbus-connection/getting-started/installation/#which-backend)
 for the transport matrix.
