@@ -61,15 +61,7 @@ _NO_RESPONSE_RETRIES = AsyncRetrying(retry=retry_never)
 
 
 class ModbusConnection(BaseModbusConnection):
-    """A Modbus connection backed by tmodbus.
-
-    Accepts :class:`ModbusTcpParams` (``socket``/``rtu`` framing),
-    :class:`ModbusTlsParams`, and :class:`ModbusSerialParams`
-    (``rtu``/``ascii``). tmodbus has no UDP or ASCII-over-TCP transport, so
-    :class:`ModbusUdpParams` raises ``TypeError`` and
-    ``ModbusTcpParams(framer="ascii")`` raises ``ValueError`` at construction —
-    ``modbus_connection.pymodbus.ModbusConnection`` covers both.
-    """
+    """A Modbus connection backed by tmodbus."""
 
     def __init__(
         self,
