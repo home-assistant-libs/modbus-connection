@@ -544,9 +544,7 @@ def _controlled_connection(
             fake,
         )
     fake = _ControlledPymodbusConnect()
-    monkeypatch.setattr(
-        pymodbus_backend, "AsyncModbusTcpClient", lambda *a, **k: fake
-    )
+    monkeypatch.setattr(pymodbus_backend, "AsyncModbusTcpClient", lambda *a, **k: fake)
     return (
         pymodbus_backend.ModbusConnection(ModbusTcpParams(host="127.0.0.1")),
         fake,

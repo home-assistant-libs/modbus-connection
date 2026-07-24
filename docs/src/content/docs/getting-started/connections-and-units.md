@@ -59,7 +59,7 @@ consumer (a device library, a `Component`, …).
 
 ```python
 conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
-unit = conn.for_unit(1)          # a ModbusUnit for station 1
+unit = conn.for_unit(1)  # a ModbusUnit for station 1
 temp = await unit.read_holding_registers(9, 1)  # first request connects
 ```
 
@@ -75,8 +75,8 @@ Each backend exports a concrete **`ModbusConnection`** — picking a backend is
 picking an import:
 
 ```python
-from modbus_connection.tmodbus import ModbusConnection    # tmodbus-backed
-from modbus_connection.pymodbus import ModbusConnection   # pymodbus-backed
+from modbus_connection.tmodbus import ModbusConnection  # tmodbus-backed
+from modbus_connection.pymodbus import ModbusConnection  # pymodbus-backed
 ```
 
 There are two equivalent entry points; both yield the same self-healing
@@ -176,9 +176,7 @@ sharing the link — waits until that gap has elapsed since the previous one
 **finished**:
 
 ```python
-conn = ModbusConnection(
-    ModbusSerialParams(device="/dev/ttyUSB0"), message_spacing=0.1
-)
+conn = ModbusConnection(ModbusSerialParams(device="/dev/ttyUSB0"), message_spacing=0.1)
 ```
 
 The package applies the gap itself, so it works the same across backends. It is
@@ -193,7 +191,7 @@ the rest — set the gap on that unit instead:
 
 ```python
 slow = conn.for_unit(7)
-slow.set_message_spacing(0.05)   # ≥50 ms between requests to unit 7
+slow.set_message_spacing(0.05)  # ≥50 ms between requests to unit 7
 ```
 
 It layers on top of any connection-wide `message_spacing`: a request to the unit
@@ -210,16 +208,16 @@ reads and writes:
 
 ```python
 # Register I/O
-await unit.read_holding_registers(address, count)   # FC03 -> list[int]
-await unit.read_input_registers(address, count)     # FC04 -> list[int]
-await unit.write_register(address, value)           # FC06
-await unit.write_registers(address, values)         # FC16
+await unit.read_holding_registers(address, count)  # FC03 -> list[int]
+await unit.read_input_registers(address, count)  # FC04 -> list[int]
+await unit.write_register(address, value)  # FC06
+await unit.write_registers(address, values)  # FC16
 
 # Coils / discrete inputs
-await unit.read_coils(address, count)               # FC01 -> list[bool]
-await unit.read_discrete_inputs(address, count)     # FC02 -> list[bool]
-await unit.write_coil(address, value)               # FC05
-await unit.write_coils(address, values)             # FC15
+await unit.read_coils(address, count)  # FC01 -> list[bool]
+await unit.read_discrete_inputs(address, count)  # FC02 -> list[bool]
+await unit.write_coil(address, value)  # FC05
+await unit.write_coils(address, values)  # FC15
 ```
 
 Beyond these it also exposes the diagnostic and identification codes — exception
@@ -240,9 +238,9 @@ and back. They are what the raw reads above feed into:
 ```python
 from modbus_connection.decode import decode_int16, decode_float32, decode_string
 
-decode_int16(await unit.read_holding_registers(9, 1))     # signed 16-bit
+decode_int16(await unit.read_holding_registers(9, 1))  # signed 16-bit
 decode_float32(await unit.read_holding_registers(40, 2))  # IEEE-754 over 2 regs
-decode_string(await unit.read_holding_registers(10, 4))   # ASCII over 4 regs
+decode_string(await unit.read_holding_registers(10, 4))  # ASCII over 4 regs
 ```
 
 For anything more than a handful of values, prefer the

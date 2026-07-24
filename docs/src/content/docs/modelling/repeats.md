@@ -29,9 +29,10 @@ the map at different steps:
 
 ```python
 class Circuit(Component):
-    flow_temp = gauge(12, 0.1, stride=1)          # circuits 1–3 at 12, 13, 14
-    control_signal = integer(106, stride=2)       # ...        at 106, 108, 110
-    flow_setpoint = gauge(999, 0.1, stride=200)   # ...        at 999, 1199, 1399
+    flow_temp = gauge(12, 0.1, stride=1)  # circuits 1–3 at 12, 13, 14
+    control_signal = integer(106, stride=2)  # ...        at 106, 108, 110
+    flow_setpoint = gauge(999, 0.1, stride=200)  # ...        at 999, 1199, 1399
+
 
 circuits = [Circuit(unit, index=n) for n in (1, 2, 3)]
 ```
@@ -47,8 +48,9 @@ once and instantiate it where the block actually sits:
 
 ```python
 class Cell(Component):
-    voltage = integer(0, signed=False)     # one cell; addresses are instance 0's
+    voltage = integer(0, signed=False)  # one cell; addresses are instance 0's
     temperature = gauge(1, 0.1)
+
 
 cells = [Cell(unit, base_offset=i * 10) for i in range(16)]
 ```
@@ -82,18 +84,21 @@ many instances, each fully typed:
 from modbus_connection.model import Component, integer, repeating_group
 from modbus_connection.model.sunspec import uint16
 
-class MPPTModule(Component):                 # one module, at instance 0's addresses
+
+class MPPTModule(Component):  # one module, at instance 0's addresses
     dc_w = integer(11, scale_register=2)
     dc_v = integer(10, scale_register=1)
+
 
 class Inverter(Component):
     modules = repeating_group(uint16(8), MPPTModule, stride=20)  # N at register 8
 
+
 inv = Inverter(unit)
 await inv.async_update()
-inv.modules                # list[MPPTModule]
-inv.modules[0].dc_w        # typed per-instance access
-await inv.modules[2].write("dc_w", ...)   # writes go through the instance
+inv.modules  # list[MPPTModule]
+inv.modules[0].dc_w  # typed per-instance access
+await inv.modules[2].write("dc_w", ...)  # writes go through the instance
 ```
 
 ### How the count is read
@@ -125,8 +130,10 @@ additively down the levels.
 class Cell(Component):
     voltage = uint16(0)
 
+
 class String(Component):
     cells = repeating_group(uint16(1), Cell, stride=1)  # per-string cell count
+
 
 class Battery(Component):
     strings = repeating_group(uint16(0), String, stride=100)  # string count
@@ -160,9 +167,11 @@ it:
 ```python
 from modbus_connection.model import Component, integer, repeating_group
 
+
 class Channel(Component):
-    scale_in_block = True                    # each channel carries its own scale factor
+    scale_in_block = True  # each channel carries its own scale factor
     a = integer(0, scale_register=1)
+
 
 class Meter(Component):
     channels = repeating_group(integer(4, signed=False), Channel, stride=2)

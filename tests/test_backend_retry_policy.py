@@ -49,9 +49,7 @@ class _IllegalAddress(ModbusResponseError):
 
 async def test_tmodbus_transport_propagates_response_without_retry() -> None:
     """tmodbus's SmartTransport invokes its base transport only once."""
-    connection = tmodbus_backend.ModbusConnection(
-        ModbusTcpParams(host="127.0.0.1")
-    )
+    connection = tmodbus_backend.ModbusConnection(ModbusTcpParams(host="127.0.0.1"))
     client = await connection._create_client()
     transport = client.transport
     calls = 0

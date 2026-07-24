@@ -46,7 +46,7 @@ from modbus_connection.cli_helper import (
     print_component,
 )
 
-from my_device import MyDevice   # your modelled Component / device entrypoint
+from my_device import MyDevice  # your modelled Component / device entrypoint
 
 
 async def main() -> int:
@@ -173,7 +173,7 @@ expected with **no cast**:
 counting = CountingUnit(conn.for_unit(args.unit))
 device = MyDevice(counting)
 await device.async_update()
-print(counting.reads)      # e.g. 6
+print(counting.reads)  # e.g. 6
 ```
 
 ### `print_component` and `field_rows`

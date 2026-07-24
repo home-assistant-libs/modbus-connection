@@ -17,7 +17,7 @@ the update.
 from modbus_connection.model import ComponentGroup
 
 group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
-await group.async_update()   # one pooled set of reads; each component notified
+await group.async_update()  # one pooled set of reads; each component notified
 ```
 
 ## How it plans
@@ -59,8 +59,12 @@ class Base(Component):
     register_ranges = ((0, 6), (9, 40))
     coil_ranges = ((0, 15),)
 
+
 class WaterHeater(Base): ...
+
+
 class Circuit(Base): ...
+
 
 # All share the same ranges, so the group accepts them.
 group = ComponentGroup(unit, [WaterHeater(unit), Circuit(unit, index=1)])
