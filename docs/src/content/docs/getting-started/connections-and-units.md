@@ -157,11 +157,8 @@ by default (`verify=True`) and checks the hostname (`check_hostname=True`):
 - `check_hostname=False` — verify the certificate but not the hostname.
 - `client_cert` / `client_key` / `client_key_password` — present a client
   certificate for **mutual TLS**.
-- `sslctx` — use a ready-made `ssl.SSLContext` as-is. It overrides the other TLS
-  options and can be shared by multiple connections.
-
-Without `sslctx`, the certificate context is built on the first connect (in a
-thread), so direct construction stays free of I/O.
+- `sslctx` — pass a ready-made `ssl.SSLContext` for full control. It is used
+  as-is and overrides the other TLS options.
 
 ## Message spacing
 

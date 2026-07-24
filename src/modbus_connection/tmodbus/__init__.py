@@ -200,7 +200,7 @@ class ModbusConnection(BaseModbusConnection):
                 response_retry_strategy=_NO_RESPONSE_RETRIES,
                 retry_on_device_busy=False,
                 retry_on_device_failure=False,
-                ssl=await self._tls_context(),
+                ssl=await params.create_ssl_context(),
                 on_connection_lost=self._on_connection_lost,
             )
         if params.framer == "rtu":

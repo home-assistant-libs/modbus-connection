@@ -167,19 +167,6 @@ async def test_tls_explicit_sslctx_is_reusable_across_connections(
         await asyncio.gather(*(client.close() for client in clients))
 
 
-@backends
-async def test_generated_tls_context_is_cached_per_connection(
-    client_cls: type[BaseModbusConnection],
-) -> None:
-    """Declarative TLS parameters build one context for all reconnects."""
-    client = client_cls(ModbusTlsParams(host="127.0.0.1", verify=False))
-
-    first = await client._tls_context()
-    second = await client._tls_context()
-
-    assert second is first
-
-
 @openssl
 @backend_modules
 async def test_connect_tls_accepts_sslctx(
@@ -213,18 +200,20 @@ async def test_tls_verifies_by_default(
         await client.close()
 
 
-def test_build_tls_context_hostname_and_verify_flags() -> None:
+async def test_create_ssl_context_hostname_and_verify_flags() -> None:
     """check_hostname toggles name matching without dropping cert verification."""
-    from modbus_connection._tls import build_tls_context
-
-    verifying = build_tls_context(True, True, None, None, None)
+    verifying = await ModbusTlsParams(host="device.local").create_ssl_context()
     assert verifying.check_hostname is True
     assert verifying.verify_mode is ssl.CERT_REQUIRED
 
-    no_hostname = build_tls_context(True, False, None, None, None)
+    no_hostname = await ModbusTlsParams(
+        host="device.local", check_hostname=False
+    ).create_ssl_context()
     assert no_hostname.check_hostname is False
     assert no_hostname.verify_mode is ssl.CERT_REQUIRED  # still verifies the cert
 
-    unverified = build_tls_context(False, True, None, None, None)
+    unverified = await ModbusTlsParams(
+        host="device.local", verify=False
+    ).create_ssl_context()
     assert unverified.check_hostname is False  # check_hostname ignored
     assert unverified.verify_mode is ssl.CERT_NONE

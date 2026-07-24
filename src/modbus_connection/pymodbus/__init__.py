@@ -261,7 +261,7 @@ class ModbusConnection(BaseModbusConnection):
         if isinstance(params, ModbusTlsParams):
             return AsyncModbusTlsClient(
                 params.host,
-                sslctx=await self._tls_context(),
+                sslctx=await params.create_ssl_context(),
                 port=params.port,
                 timeout=self._timeout,
                 name="modbus_connection",
