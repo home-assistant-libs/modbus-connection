@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
+from ._tls import build_tls_context
 from .exceptions import ClientClosedError
 
 if TYPE_CHECKING:
@@ -87,6 +89,11 @@ class ModbusTlsParams:
     client_key_password: str | None = None
     """Password for ``client_key``, if it is encrypted."""
 
+    sslctx: ssl.SSLContext | None = None
+    """A ready-made TLS context. When supplied, it is used as-is and overrides
+    ``verify``, ``check_hostname``, and the client-certificate fields. Contexts
+    can be shared by multiple connections."""
+
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusSerialParams:
@@ -150,6 +157,9 @@ class BaseModbusConnection(ABC):
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
+        self._resolved_tls_context = (
+            params.sslctx if isinstance(params, ModbusTlsParams) else None
+        )
         # The single in-flight connect attempt shared by concurrent callers.
         self._connect_task: asyncio.Task[None] | None = None
         # The connected backend client; ``None`` whenever the link is down (not
@@ -187,6 +197,25 @@ class BaseModbusConnection(ABC):
 
     async def _establish(self) -> None:
         self._client = await self._connect_client()
+
+    async def _tls_context(self) -> ssl.SSLContext:
+        """Resolve and cache this connection's TLS context without blocking."""
+        params = self._params
+        if not isinstance(params, ModbusTlsParams):
+            raise TypeError("TLS context requested for non-TLS connection")
+        context = self._resolved_tls_context
+        if context is not None:
+            return context
+        context = await asyncio.to_thread(
+            build_tls_context,
+            params.verify,
+            params.check_hostname,
+            params.client_cert,
+            params.client_key,
+            params.client_key_password,
+        )
+        self._resolved_tls_context = context
+        return context
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:

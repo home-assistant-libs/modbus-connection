@@ -33,6 +33,12 @@ backends = pytest.mark.parametrize(
     ids=["pymodbus", "tmodbus"],
 )
 
+backend_modules = pytest.mark.parametrize(
+    "backend",
+    [pymodbus_backend, tmodbus_backend],
+    ids=["pymodbus", "tmodbus"],
+)
+
 openssl = pytest.mark.skipif(
     shutil.which("openssl") is None, reason="openssl CLI not available"
 )
@@ -130,6 +136,61 @@ async def test_tls_verify_false_connects(
     """verify=False accepts a self-signed server."""
     host, port, _ = tls_server
     client = client_cls(ModbusTlsParams(host=host, port=port, verify=False))
+    try:
+        assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await client.close()
+
+
+@openssl
+@backends
+async def test_tls_explicit_sslctx_is_reusable_across_connections(
+    client_cls: type[BaseModbusConnection], tls_server: tuple[str, int, str]
+) -> None:
+    """One caller-owned SSLContext can serve multiple lazy connections."""
+    host, port, certfile = tls_server
+    sslctx = ssl.create_default_context(cafile=certfile)
+    params = ModbusTlsParams(host=host, port=port, sslctx=sslctx)
+    clients = [client_cls(params), client_cls(params)]
+    try:
+        assert all(client.connected is False for client in clients)
+        assert await asyncio.gather(
+            *(
+                client.for_unit(UNIT_ID).read_holding_registers(0, 1)
+                for client in clients
+            )
+        ) == [[5579], [5579]]
+        assert all(client.connected is True for client in clients)
+        assert params.sslctx is sslctx
+        hash(params)
+    finally:
+        await asyncio.gather(*(client.close() for client in clients))
+
+
+@backends
+async def test_generated_tls_context_is_cached_per_connection(
+    client_cls: type[BaseModbusConnection],
+) -> None:
+    """Declarative TLS parameters build one context for all reconnects."""
+    client = client_cls(ModbusTlsParams(host="127.0.0.1", verify=False))
+
+    first = await client._tls_context()
+    second = await client._tls_context()
+
+    assert second is first
+
+
+@openssl
+@backend_modules
+async def test_connect_tls_accepts_sslctx(
+    backend: object, tls_server: tuple[str, int, str]
+) -> None:
+    """The eager factory keeps its pre-existing sslctx keyword."""
+    host, port, certfile = tls_server
+    sslctx = ssl.create_default_context(cafile=certfile)
+    client = await backend.connect_tls(  # type: ignore[attr-defined]
+        host, port=port, sslctx=sslctx
+    )
     try:
         assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

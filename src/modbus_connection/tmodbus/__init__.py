@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import functools
+import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
@@ -32,7 +32,6 @@ from .._client import (
     ModbusTlsParams,
     ModbusUdpParams,
 )
-from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
@@ -184,21 +183,13 @@ class ModbusConnection(BaseModbusConnection):
         if isinstance(params, ModbusUdpParams):
             raise NotImplementedError("tmodbus has no UDP transport")
         if isinstance(params, ModbusTlsParams):
-            context = await asyncio.to_thread(
-                build_tls_context,
-                params.verify,
-                params.check_hostname,
-                params.client_cert,
-                params.client_key,
-                params.client_key_password,
-            )
             return create_async_tcp_client(
                 params.host,
                 params.port,
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
-                ssl=context,
+                ssl=await self._tls_context(),
                 on_connection_lost=self._on_connection_lost,
             )
         if params.framer == "rtu":
@@ -458,6 +449,7 @@ async def connect_tls(
     client_cert: str | None = None,
     client_key: str | None = None,
     client_key_password: str | None = None,
+    sslctx: ssl.SSLContext | None = None,
     timeout: float = 3,
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
@@ -483,6 +475,10 @@ async def connect_tls(
     ``client_key_password`` are this side's own certificate, presented to the
     device; independent of the server-verification arguments.
 
+    Pass a ready-made ``sslctx`` to take full control. It is used as-is,
+    overrides the verification and client-identity arguments above, and may be
+    shared by multiple connections.
+
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start (see ``connect_tcp``); ``0`` (the default) disables
     it.
@@ -498,6 +494,7 @@ async def connect_tls(
             client_cert=client_cert,
             client_key=client_key,
             client_key_password=client_key_password,
+            sslctx=sslctx,
         ),
         timeout=timeout,
         message_spacing=message_spacing,

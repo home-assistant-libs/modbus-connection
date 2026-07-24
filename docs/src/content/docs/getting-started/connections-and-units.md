@@ -139,7 +139,7 @@ frozen and keyword-only, so an instance doubles as a connection identity key:
 | --- | --- |
 | `ModbusTcpParams` | `host`, `port=502`, `framer="socket"` (`"socket"` / `"rtu"` / `"ascii"`) |
 | `ModbusUdpParams` | `host`, `port=502`, `framer="socket"` (`"socket"` / `"rtu"` / `"ascii"`) |
-| `ModbusTlsParams` | `host`, `port=802`, `verify=True`, `check_hostname=True`, `client_cert=None`, `client_key=None`, `client_key_password=None` |
+| `ModbusTlsParams` | `host`, `port=802`, `verify=True`, `check_hostname=True`, `client_cert=None`, `client_key=None`, `client_key_password=None`, `sslctx=None` |
 | `ModbusSerialParams` | `device`, `baudrate=9600`, `bytesize=8`, `parity="N"`, `stopbits=1`, `framer="rtu"` (`"rtu"` or `"ascii"`) |
 
 `ModbusConnection` also takes keyword-only `timeout` (default `3`) and
@@ -160,9 +160,11 @@ by default (`verify=True`) and checks the hostname (`check_hostname=True`):
 - `check_hostname=False` — verify the certificate but not the hostname.
 - `client_cert` / `client_key` / `client_key_password` — present a client
   certificate for **mutual TLS**.
+- `sslctx` — use a ready-made `ssl.SSLContext` as-is. It overrides the other TLS
+  options and can be shared by multiple connections.
 
-The certificate context is built on the first connect (in a thread), so direct
-construction stays free of I/O.
+Without `sslctx`, the certificate context is built on the first connect (in a
+thread), so direct construction stays free of I/O.
 
 ## Message spacing
 
