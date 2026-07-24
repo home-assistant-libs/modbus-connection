@@ -30,8 +30,9 @@ attributes and reads the whole device in as few Modbus calls as possible.
 ```python
 import asyncio
 
-from modbus_connection.tmodbus import connect_tcp
+from modbus_connection import ModbusTcpParams
 from modbus_connection.model import Component, gauge, uint32, coil
+from modbus_connection.tmodbus import TmodbusConnection
 
 
 class Meter(Component):
@@ -49,8 +50,9 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = await connect_tcp("192.168.1.50", port=502)
+    conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
+        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()  # one pooled block read

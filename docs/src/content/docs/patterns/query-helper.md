@@ -22,10 +22,11 @@ value printing every time:
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
 
 :::note[Backend]
-Only `connect_from_args` needs a backend. It picks whichever is installed —
-**tmodbus** if present, otherwise **pymodbus** — so install the `[tmodbus]` or
-`[pymodbus]` extra; with neither it raises `ModbusError`. The counter and the
-printer are backend-neutral, so `--help` and argument parsing work without one.
+Only `connect_from_args` needs a backend. It prefers **tmodbus** where supported,
+uses **pymodbus** for UDP and ASCII-over-TCP, and falls back to pymodbus when
+tmodbus is absent. With no installed backend covering the request it raises
+`ModbusError`. The counter and printer are backend-neutral, so `--help` and
+argument parsing work without either backend.
 :::
 
 ## A complete query script
@@ -141,20 +142,20 @@ produces is read back by `connect_from_args`, so the two always stay in step.
 
 ### `connect_from_args`
 
-Opens the connection the parsed arguments describe, dispatching to
-`connect_tcp` / `connect_udp` / `connect_tls` / `connect_serial` on whichever
-backend is installed — tmodbus first, then pymodbus (resolved lazily, so
-importing the module needs no backend). Pass `message_spacing=` for a device
-that needs a gap between frames — it's a fixed device property, so the tool sets
-it rather than exposing it as a CLI argument:
+Opens the connection the parsed arguments describe. It prefers tmodbus where
+supported, routes UDP and ASCII-over-TCP to pymodbus, and falls back to pymodbus
+when tmodbus is absent. Backends are resolved lazily, so importing the module
+needs no backend. Pass `message_spacing=` for a device that needs a gap between
+frames — it's a fixed device property, so the tool sets it rather than exposing
+it as a CLI argument:
 
 ```python
 conn = await connect_from_args(args, message_spacing=0.1)
 ```
 
-It raises `ModbusError` if no backend is installed, `ModbusConnectionError` if
-the link can't be opened, and `NotImplementedError` for `--transport udp` on
-tmodbus (it has no UDP transport — install pymodbus, which does, if you need it).
+The returned connection is already connected. It raises `ModbusError` if no
+installed backend supports the request and `ModbusConnectionError` immediately
+if the link can't be opened.
 
 ### `CountingUnit`
 

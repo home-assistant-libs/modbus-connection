@@ -68,22 +68,25 @@ async def test_connect_from_args_dispatches_by_transport(
         calls["name"], calls["target"], calls["kwargs"] = name, target, kwargs
         return "conn"
 
-    for func in ("connect_tcp", "connect_udp", "connect_tls", "connect_serial"):
-        monkeypatch.setattr(
-            tmodbus_backend,
-            func,
-            lambda target, _f=func, **kw: record(_f, target, **kw),
-        )
+    for backend in (tmodbus_backend, pymodbus_backend):
+        for func in ("connect_tcp", "connect_udp", "connect_tls", "connect_serial"):
+            monkeypatch.setattr(
+                backend,
+                func,
+                lambda target, _f=func, _b=backend.__name__, **kw: record(
+                    f"{_b}.{_f}", target, **kw
+                ),
+            )
 
     await connect_from_args(_parse(["/dev/ttyUSB0", "--transport", "serial"]))
-    assert calls["name"] == "connect_serial"
+    assert calls["name"].endswith("tmodbus.connect_serial")
     assert calls["target"] == "/dev/ttyUSB0"
     assert calls["kwargs"]["baudrate"] == 9600
 
     await connect_from_args(
         _parse(["dev.local", "--transport", "tls", "--tls-ca", "ca"])
     )
-    assert calls["name"] == "connect_tls"
+    assert calls["name"].endswith("tmodbus.connect_tls")
     assert calls["kwargs"]["verify"] == "ca"
 
     await connect_from_args(
@@ -92,19 +95,15 @@ async def test_connect_from_args_dispatches_by_transport(
     assert calls["kwargs"]["verify"] is False
 
     await connect_from_args(_parse(["1.2.3.4", "--framer", "rtu", "--port", "1502"]))
-    assert calls["name"] == "connect_tcp"
+    assert calls["name"].endswith("tmodbus.connect_tcp")
     assert calls["kwargs"]["framer"] == "rtu"
     assert calls["kwargs"]["port"] == 1502
 
     await connect_from_args(_parse(["1.2.3.4", "--transport", "udp"]))
-    assert calls["name"] == "connect_udp"
+    assert calls["name"].endswith("pymodbus.connect_udp")
 
-
-async def test_connect_udp_raises_not_implemented() -> None:
-    # tmodbus has no UDP transport; the transport is offered but connect_udp
-    # surfaces the NotImplementedError unchanged.
-    with pytest.raises(NotImplementedError):
-        await connect_from_args(_parse(["1.2.3.4", "--transport", "udp"]))
+    await connect_from_args(_parse(["1.2.3.4", "--framer", "ascii"]))
+    assert calls["name"].endswith("pymodbus.connect_tcp")
 
 
 def test_unset_port_and_framer_left_to_backend() -> None:
@@ -119,14 +118,19 @@ def test_unset_port_and_framer_left_to_backend() -> None:
 
 def test_load_backend_prefers_tmodbus() -> None:
     # Both backends are installed in dev; tmodbus wins.
-    assert _load_backend() is tmodbus_backend
+    assert _load_backend("tcp", None) is tmodbus_backend
 
 
 def test_load_backend_falls_back_to_pymodbus(monkeypatch: pytest.MonkeyPatch) -> None:
     # A None entry makes ``import modbus_connection.tmodbus`` raise ImportError,
     # standing in for the tmodbus dependency not being installed.
     monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
-    assert _load_backend() is pymodbus_backend
+    assert _load_backend("tcp", None) is pymodbus_backend
+
+
+def test_load_backend_routes_unsupported_tmodbus_requests() -> None:
+    assert _load_backend("udp", None) is pymodbus_backend
+    assert _load_backend("tcp", "ascii") is pymodbus_backend
 
 
 def test_load_backend_errors_when_none_installed(
@@ -134,8 +138,18 @@ def test_load_backend_errors_when_none_installed(
 ) -> None:
     monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
     monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
-    with pytest.raises(ModbusError, match="no Modbus backend installed"):
-        _load_backend()
+    with pytest.raises(ModbusError, match="no installed Modbus backend supports"):
+        _load_backend("tcp", None)
+
+
+def test_load_backend_reports_pymodbus_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
+    with pytest.raises(ModbusError, match="udp.*requires pymodbus"):
+        _load_backend("udp", None)
+    with pytest.raises(ModbusError, match="tcp with ascii framing requires pymodbus"):
+        _load_backend("tcp", "ascii")
 
 
 async def test_connect_from_args_uses_pymodbus_when_tmodbus_absent(
@@ -158,7 +172,7 @@ async def test_connect_from_args_errors_without_backend(
 ) -> None:
     monkeypatch.setitem(sys.modules, "modbus_connection.tmodbus", None)
     monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
-    with pytest.raises(ModbusError, match="no Modbus backend installed"):
+    with pytest.raises(ModbusError, match="no installed Modbus backend supports"):
         await connect_from_args(_parse(["host"]))
 
 
