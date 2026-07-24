@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
@@ -33,7 +32,6 @@ from .._client import (
     ModbusTlsParams,
     ModbusUdpParams,
 )
-from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
@@ -72,9 +70,6 @@ class TmodbusConnection(BaseModbusConnection):
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
         self._closing = False
         self._unit_clients: dict[int, AsyncModbusClient] = {}
-        # A caller-supplied TLS context, set by connect_tls; overrides the
-        # context built from the params.
-        self._sslctx: ssl.SSLContext | None = None
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
         return TmodbusUnit(self, unit_id)
@@ -141,21 +136,13 @@ class TmodbusConnection(BaseModbusConnection):
         if isinstance(params, ModbusUdpParams):
             raise NotImplementedError("tmodbus has no UDP transport")
         if isinstance(params, ModbusTlsParams):
-            context = self._sslctx or await asyncio.to_thread(
-                build_tls_context,
-                params.verify,
-                params.check_hostname,
-                params.client_cert,
-                params.client_key,
-                params.client_key_password,
-            )
             return create_async_tcp_client(
                 params.host,
                 params.port,
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
-                ssl=context,
+                ssl=await params.create_ssl_context(),
                 on_connection_lost=self._on_connection_lost,
             )
         if params.framer == "rtu":
@@ -448,11 +435,11 @@ async def connect_tls(
             client_cert=client_cert,
             client_key=client_key,
             client_key_password=client_key_password,
+            sslctx=sslctx,
         ),
         timeout=timeout,
         message_spacing=message_spacing,
     )
-    connection._sslctx = sslctx
     await connection.connect()
     return connection
 

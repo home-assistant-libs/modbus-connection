@@ -53,6 +53,7 @@ def test_tls_params_defaults_and_frozen() -> None:
         None,
         None,
     )
+    assert params.sslctx is None
     with pytest.raises(dataclasses.FrozenInstanceError):
         params.verify = False  # type: ignore[misc]
 
