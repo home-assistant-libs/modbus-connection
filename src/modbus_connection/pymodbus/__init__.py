@@ -10,7 +10,6 @@ Requires the ``[pymodbus]`` extra.
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
@@ -42,7 +41,6 @@ from .._client import (
     ModbusTlsParams,
     ModbusUdpParams,
 )
-from .._tls import build_tls_context
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
@@ -145,18 +143,6 @@ def _build_diagnostic(sub_function: int, data: int) -> DiagnosticBase:
 class PymodbusConnection(BaseModbusConnection):
     """A Modbus connection backed by pymodbus."""
 
-    def __init__(
-        self,
-        params: ModbusParams,
-        *,
-        timeout: float = 3,
-        message_spacing: float = 0.0,
-    ) -> None:
-        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
-        # A caller-supplied TLS context, set by connect_tls; overrides the
-        # context built from the params.
-        self._sslctx: ssl.SSLContext | None = None
-
     # -- spec surface ---------------------------------------------------------
 
     def for_unit(self, unit_id: int) -> PymodbusUnit:
@@ -214,21 +200,9 @@ class PymodbusConnection(BaseModbusConnection):
                 trace_connect=self._on_trace_connect,
             )
         if isinstance(params, ModbusTlsParams):
-            context = (
-                self._sslctx
-                if self._sslctx is not None
-                else await asyncio.to_thread(
-                    build_tls_context,
-                    params.verify,
-                    params.check_hostname,
-                    params.client_cert,
-                    params.client_key,
-                    params.client_key_password,
-                )
-            )
             return AsyncModbusTlsClient(
                 params.host,
-                sslctx=context,
+                sslctx=await params.create_ssl_context(),
                 port=params.port,
                 timeout=self._timeout,
                 name="modbus_connection",
@@ -587,11 +561,11 @@ async def connect_tls(
             client_cert=client_cert,
             client_key=client_key,
             client_key_password=client_key_password,
+            sslctx=sslctx,
         ),
         timeout=timeout,
         message_spacing=message_spacing,
     )
-    connection._sslctx = sslctx
     await connection.connect()
     return connection
 

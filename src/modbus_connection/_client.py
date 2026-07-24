@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
+from ._tls import build_tls_context
 
 if TYPE_CHECKING:
     from ._protocol import ModbusUnit
@@ -84,6 +87,23 @@ class ModbusTlsParams:
 
     client_key_password: str | None = None
     """Password for ``client_key``, if it is encrypted."""
+
+    sslctx: ssl.SSLContext | None = None
+    """A ready-made TLS context. When supplied, it is used as-is and overrides
+    ``verify``, ``check_hostname``, and the client-certificate fields."""
+
+    async def create_ssl_context(self) -> ssl.SSLContext:
+        """Return the supplied TLS context or build one from these parameters."""
+        if self.sslctx is not None:
+            return self.sslctx
+        return await asyncio.to_thread(
+            build_tls_context,
+            self.verify,
+            self.check_hostname,
+            self.client_cert,
+            self.client_key,
+            self.client_key_password,
+        )
 
 
 @dataclass(frozen=True, kw_only=True)

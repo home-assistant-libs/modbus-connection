@@ -18,8 +18,10 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusTlsServer
 
-from modbus_connection import ModbusError
+from modbus_connection import ModbusError, ModbusTlsParams
+from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tls as pymodbus_connect_tls
+from modbus_connection.tmodbus import TmodbusConnection
 from modbus_connection.tmodbus import connect_tls as tmodbus_connect_tls
 
 from .conftest import sim_holding_device
@@ -29,6 +31,12 @@ UNIT_ID = 1
 backends = pytest.mark.parametrize(
     "connect_tls",
     [pymodbus_connect_tls, tmodbus_connect_tls],
+    ids=["pymodbus", "tmodbus"],
+)
+
+connection_backends = pytest.mark.parametrize(
+    "connection_cls",
+    [PymodbusConnection, TmodbusConnection],
     ids=["pymodbus", "tmodbus"],
 )
 
@@ -120,6 +128,28 @@ async def test_tls_explicit_sslctx_overrides_verify(
 
 
 @openssl
+@connection_backends
+async def test_tls_params_accept_explicit_sslctx(
+    connection_cls: type[PymodbusConnection] | type[TmodbusConnection],
+    tls_server: tuple[str, int, str],
+) -> None:
+    """A ready-made context can be supplied through the shared TLS params."""
+    host, port, _ = tls_server
+    sslctx = ssl.create_default_context()
+    sslctx.check_hostname = False
+    sslctx.verify_mode = ssl.CERT_NONE
+    params = ModbusTlsParams(host=host, port=port, sslctx=sslctx)
+    assert await params.create_ssl_context() is sslctx
+    conn = connection_cls(params)
+    try:
+        await conn.connect()
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert params.sslctx is sslctx
+    finally:
+        await conn.close()
+
+
+@openssl
 @backends
 async def test_tls_verifies_by_default(
     connect_tls: object, tls_server: tuple[str, int, str]
@@ -158,18 +188,20 @@ async def test_tls_verify_with_pinned_cafile(
         await conn.close()
 
 
-def test_build_tls_context_hostname_and_verify_flags() -> None:
+async def test_create_ssl_context_hostname_and_verify_flags() -> None:
     """check_hostname toggles name matching without dropping cert verification."""
-    from modbus_connection._tls import build_tls_context
-
-    verifying = build_tls_context(True, True, None, None, None)
+    verifying = await ModbusTlsParams(host="device.local").create_ssl_context()
     assert verifying.check_hostname is True
     assert verifying.verify_mode is ssl.CERT_REQUIRED
 
-    no_hostname = build_tls_context(True, False, None, None, None)
+    no_hostname = await ModbusTlsParams(
+        host="device.local", check_hostname=False
+    ).create_ssl_context()
     assert no_hostname.check_hostname is False
     assert no_hostname.verify_mode is ssl.CERT_REQUIRED  # still verifies the cert
 
-    unverified = build_tls_context(False, True, None, None, None)
+    unverified = await ModbusTlsParams(
+        host="device.local", verify=False
+    ).create_ssl_context()
     assert unverified.check_hostname is False  # check_hostname ignored
     assert unverified.verify_mode is ssl.CERT_NONE
