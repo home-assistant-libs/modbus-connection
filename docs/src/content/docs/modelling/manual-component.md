@@ -14,14 +14,14 @@ update.
 from modbus_connection.model import ManualComponent, gauge, uint32, coil, discrete_input
 
 mc = ManualComponent(unit, max_gap=16)
-mc.add("flow_temp", gauge(40, 0.1))                 # holding (default)
-mc.add("energy",    uint32(2),  space="input")      # input registers
-mc.add("relay",     coil(5, writable=True))         # coils (FC01)
-mc.add("alarm",     discrete_input(9))              # discrete inputs (FC02)
+mc.add("flow_temp", gauge(40, 0.1))  # holding (default)
+mc.add("energy", uint32(2), space="input")  # input registers
+mc.add("relay", coil(5, writable=True))  # coils (FC01)
+mc.add("alarm", discrete_input(9))  # discrete inputs (FC02)
 
-data = await mc.async_update()    # {"flow_temp": 21.5, "energy": 100000, ...}
-mc.get("flow_temp")               # 21.5
-await mc.write("relay", True)     # per-key write (holding / coils only)
+data = await mc.async_update()  # {"flow_temp": 21.5, "energy": 100000, ...}
+mc.get("flow_temp")  # 21.5
+await mc.write("relay", True)  # per-key write (holding / coils only)
 ```
 
 ## How it differs from `Component`
@@ -60,8 +60,8 @@ update. Adding a key that already exists replaces the previous target.
 ## Reading values
 
 ```python
-mc.get("flow_temp")     # the decoded value for one key (None if not yet read)
-mc.values               # a copy of every decoded value as a dict
+mc.get("flow_temp")  # the decoded value for one key (None if not yet read)
+mc.values  # a copy of every decoded value as a dict
 ```
 
 `async_update()` returns the same dict it stores, so you can use either the return

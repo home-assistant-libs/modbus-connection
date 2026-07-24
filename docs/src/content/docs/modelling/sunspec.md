@@ -16,10 +16,11 @@ with the right width, sign and sentinel — so an unimplemented point decodes to
 from modbus_connection.model import Component
 from modbus_connection.model.sunspec import acc32, int16, sunssf, uint16
 
+
 class Inverter(Component):
-    a = uint16(2, scale_register=5)   # AC current, scaled by A_SF
+    a = uint16(2, scale_register=5)  # AC current, scaled by A_SF
     a_sf = sunssf(5)
-    wh = acc32(8)                     # lifetime energy, Wh
+    wh = acc32(8)  # lifetime energy, Wh
 ```
 
 Word order is big-endian throughout, per the SunSpec spec.
@@ -32,8 +33,8 @@ returned as `raw * 10**sf`, with `sf` read alongside the point on each update:
 
 ```python
 class Meter(Component):
-    w = int16(10, scale_register=11)   # active power, scaled by W_SF
-    w_sf = sunssf(11)                  # the exponent register itself
+    w = int16(10, scale_register=11)  # active power, scaled by W_SF
+    w_sf = sunssf(11)  # the exponent register itself
 ```
 
 The scale register is read for you by the planner; you also declare it as a
@@ -111,14 +112,16 @@ bitfield64(address, flags=None, *, stride=0, writable=False)
 from enum import IntEnum
 from modbus_connection.model.sunspec import enum16
 
+
 class OperatingState(IntEnum):
     OFF = 1
     SLEEPING = 2
     MPPT = 4
     THROTTLED = 5
 
+
 class Inverter(Component):
-    st = enum16(38, OperatingState)   # decodes to a member, or None if 0xFFFF
+    st = enum16(38, OperatingState)  # decodes to a member, or None if 0xFFFF
 ```
 
 ## Floats and strings
@@ -145,9 +148,10 @@ eui48(address, *, stride=0) -> Eui48Field     # EUI-48 / MAC over 3 registers
 ```python
 from modbus_connection.model.sunspec import ipaddr, eui48
 
+
 class Comms(Component):
-    ip = ipaddr(10)          # -> ipaddress.IPv4Address | None
-    mac = eui48(20)          # -> str | None ("00:1a:2b:3c:4d:5e")
+    ip = ipaddr(10)  # -> ipaddress.IPv4Address | None
+    mac = eui48(20)  # -> str | None ("00:1a:2b:3c:4d:5e")
 ```
 
 ## Multiple-MPPT and other repeats
@@ -167,10 +171,12 @@ instance's scale registers shift with it.
 from modbus_connection.model import Component, repeating_group
 from modbus_connection.model.sunspec import sunssf, uint16
 
+
 class Channel(Component):
-    scale_in_block = True                    # each channel carries its own scale factor
+    scale_in_block = True  # each channel carries its own scale factor
     a = uint16(0, scale_register=1)
     a_sf = sunssf(1)
+
 
 class Meter(Component):
     channels = repeating_group(uint16(4), Channel, stride=2)
@@ -189,7 +195,7 @@ model ID `0xFFFF`. `scan` walks the chain:
 ```python
 from modbus_connection.model.sunspec import scan
 
-models = await scan(unit, 40000)   # -> dict[int, list[SunSpecModel]]
+models = await scan(unit, 40000)  # -> dict[int, list[SunSpecModel]]
 ```
 
 `base_address` is the 0-based address of the marker — the spec sanctions 0,
@@ -208,9 +214,11 @@ data block starts at 2 — and construct it with the discovered model:
 ```python
 from modbus_connection.model.sunspec import SunSpecComponent, sunssf, uint16
 
-class Inverter(SunSpecComponent):       # SunSpec model 103, relative layout
-    a = uint16(2, scale_register=6)     # AC current, scaled by A_SF at data+4
+
+class Inverter(SunSpecComponent):  # SunSpec model 103, relative layout
+    a = uint16(2, scale_register=6)  # AC current, scaled by A_SF at data+4
     a_sf = sunssf(6)
+
 
 if (found := models.get(103)) is not None:
     inv = Inverter(unit, found[0])
@@ -251,10 +259,11 @@ class OperatingState(IntEnum):
     SLEEPING = 2
     ...
 
+
 class InverterThreePhase(SunSpecComponent):
     """SunSpec model 103: Inverter (Three Phase)."""
 
-    a = uint16(2, scale_register=6, unit='A')
+    a = uint16(2, scale_register=6, unit="A")
     """Amps. AC Current."""
 
     st = enum16(38, OperatingState)

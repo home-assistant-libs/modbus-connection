@@ -14,11 +14,20 @@ factory lives in `modbus_connection.model`:
 
 ```python
 from modbus_connection.model import (
-    integer, gauge, raw_register,
-    uint32, int32, uint64, int64,
-    float32, float64,
-    string, enum, flags,
-    coil, discrete_input,
+    integer,
+    gauge,
+    raw_register,
+    uint32,
+    int32,
+    uint64,
+    int64,
+    float32,
+    float64,
+    string,
+    enum,
+    flags,
+    coil,
+    discrete_input,
 )
 ```
 
@@ -56,7 +65,7 @@ Many devices send a reserved value to mean "this point is not implemented". Pass
 `nan=` that raw value and the field decodes it to `None`:
 
 ```python
-temperature = gauge(5, 0.1, nan=0x8000)   # 0x8000 -> None
+temperature = gauge(5, 0.1, nan=0x8000)  # 0x8000 -> None
 ```
 
 ### Word order
@@ -80,9 +89,9 @@ integer(address, *, offset=0.0, signed=True, nan=None, stride=0,
 ```
 
 ```python
-count = integer(4)                       # signed 16-bit int
-percent = integer(7, signed=False)       # 0..65535
-shifted = integer(2, offset=-100)        # raw - 100
+count = integer(4)  # signed 16-bit int
+percent = integer(7, signed=False)  # 0..65535
+shifted = integer(2, offset=-100)  # raw - 100
 ```
 
 ### `gauge`
@@ -97,8 +106,8 @@ gauge(address, scale, *, offset=0.0, signed=True, nan=None, stride=0,
 ```
 
 ```python
-voltage = gauge(0, 0.1, unit="V")               # raw * 0.1
-temp = gauge(9, 0.1, offset=-40, unit="°C")     # raw * 0.1 - 40
+voltage = gauge(0, 0.1, unit="V")  # raw * 0.1
+temp = gauge(9, 0.1, offset=-40, unit="°C")  # raw * 0.1 - 40
 ```
 
 ### `raw_register`
@@ -122,9 +131,9 @@ uint32(address, *, scale=1.0, offset=0.0, word_order="big", stride=0,
 ```
 
 ```python
-energy = uint32(2, unit="Wh")                   # 32-bit over registers 2–3
-signed_power = int32(10, word_order="little")   # CDAB word order
-lifetime = uint64(20, unit="Wh")                # 64-bit over registers 20–23
+energy = uint32(2, unit="Wh")  # 32-bit over registers 2–3
+signed_power = int32(10, word_order="little")  # CDAB word order
+lifetime = uint64(20, unit="Wh")  # 64-bit over registers 20–23
 ```
 
 ## Floating-point fields
@@ -153,7 +162,7 @@ string(address, length, *, stride=0, writable=False, force_fc16=False) -> String
 ```
 
 ```python
-serial = string(100, 8)      # 8 registers -> up to 16 ASCII characters
+serial = string(100, 8)  # 8 registers -> up to 16 ASCII characters
 ```
 
 ## Enum and flag fields
@@ -174,14 +183,17 @@ flags(address, flag_type, *, count=1, signed=False, word_order="big",
 ```python
 from enum import IntEnum, IntFlag
 
+
 class Mode(IntEnum):
     OFF = 0
     HEAT = 1
     COOL = 2
 
+
 class Alarms(IntFlag):
     OVERTEMP = 1
     UNDERVOLT = 2
+
 
 class Device(Component):
     mode = enum(3, Mode)
@@ -201,9 +213,11 @@ per distinct value. For a mapping an enum class can't express (e.g. onto a
 ```python
 from enum import StrEnum
 
+
 class State(StrEnum):
     OFF = "off"
     RUNNING = "running"
+
 
 class Device(Component):
     state: NumberField[State] = NumberField(
@@ -232,7 +246,7 @@ discrete_input(address, *, stride=0) -> DiscreteInputField
 ```python
 class IO(Component):
     relay = coil(0, writable=True)
-    fault = discrete_input(0)        # distinct address space from coil 0
+    fault = discrete_input(0)  # distinct address space from coil 0
 ```
 
 ## Writable fields and validators
@@ -247,6 +261,7 @@ def in_range(value: int) -> int:
     if not 0 <= value <= 100:
         raise ValueError(f"{value} out of range")
     return value
+
 
 class Boiler(Component):
     setpoint = integer(0, writable=in_range)

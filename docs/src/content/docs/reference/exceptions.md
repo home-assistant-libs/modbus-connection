@@ -56,7 +56,7 @@ so `except TimeoutError` catches it too:
 ```python
 try:
     await unit.read_holding_registers(0, 1)
-except TimeoutError:      # catches ModbusTimeoutError
+except TimeoutError:  # catches ModbusTimeoutError
     ...
 ```
 
@@ -70,7 +70,7 @@ but refused it (illegal address, illegal value, and so on). The raw code is on
 try:
     await unit.write_register(40, 99)
 except ModbusExceptionError as err:
-    if err.exception_code == 3:      # illegal data value
+    if err.exception_code == 3:  # illegal data value
         ...
 ```
 

@@ -62,6 +62,7 @@ device library:
 ```python
 from homeassistant.components.modbus_connection import async_get_unit
 
+
 async def async_setup_entry(hass, entry) -> bool:
     # CONF_CONNECTION is the modbus_connection config entry id; CONF_UNIT_ID the
     # station address. async_get_unit raises ConnectionNotReady (a
@@ -70,7 +71,7 @@ async def async_setup_entry(hass, entry) -> bool:
     unit = async_get_unit(
         hass, entry.data[CONF_CONNECTION], int(entry.data[CONF_UNIT_ID])
     )
-    device = MyDevice(unit)          # your device library's entrypoint
+    device = MyDevice(unit)  # your device library's entrypoint
 
     # The connection does not self-reconnect: when the shared link drops, reload
     # this entry so setup re-runs and picks up a fresh unit once it is back.
@@ -107,7 +108,7 @@ not — and forcing it on the shared link would slow every other device on it. W
 only *your* device needs the gap, pace your own unit instead:
 
 ```python
-unit.set_message_spacing(0.05)   # ≥50 ms between requests to this unit
+unit.set_message_spacing(0.05)  # ≥50 ms between requests to this unit
 ```
 
 The gap is keyed by unit id, so it holds across the shared connection no matter

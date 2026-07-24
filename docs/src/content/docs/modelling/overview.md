@@ -16,22 +16,24 @@ attributes using the [field factories](/modbus-connection/modelling/fields/):
 ```python
 from modbus_connection.model import Component, gauge, uint32, coil
 
+
 class Meter(Component):
-    voltage = gauge(0, 0.1, unit="V")        # scaled 16-bit
+    voltage = gauge(0, 0.1, unit="V")  # scaled 16-bit
     """Grid voltage."""
 
     current = gauge(1, 0.1, unit="A")
     """Grid current."""
 
-    energy = uint32(2, unit="Wh")            # 32-bit over two registers
+    energy = uint32(2, unit="Wh")  # 32-bit over two registers
     """Lifetime energy."""
 
     relay = coil(0, writable=True)
     """Load relay."""
 
+
 meter = Meter(unit)
-await meter.async_update()                   # one block read
-meter.voltage                                # float | None
+await meter.async_update()  # one block read
+meter.voltage  # float | None
 await meter.write("relay", True)
 ```
 
@@ -76,7 +78,12 @@ from modbus_connection import BlockReadError
 try:
     await meter.async_update()
 except BlockReadError as err:
-    log.warning("block read failed at %s %d: code %s", err.space, err.address, err.exception_code)
+    log.warning(
+        "block read failed at %s %d: code %s",
+        err.space,
+        err.address,
+        err.exception_code,
+    )
 ```
 
 If some blocks are legitimately optional on a device, read them on a separate
@@ -113,7 +120,7 @@ read-only sub-system whose data lives in **input** registers (FC04), set
 ```python
 class Sensors(Component):
     register_space = "input"
-    flow_temp = gauge(5, 0.1, unit="°C")   # read with FC04
+    flow_temp = gauge(5, 0.1, unit="°C")  # read with FC04
 ```
 
 Input and holding are separate address spaces (input 507 ≠ holding 507), so the
@@ -127,9 +134,10 @@ Bits work the same way over their own pair of spaces:
 ```python
 from modbus_connection.model import Component, coil, discrete_input
 
+
 class IO(Component):
-    relay = coil(0, writable=True)       # FC01, read/write
-    fault = discrete_input(0)            # FC02, read-only — distinct from coil 0
+    relay = coil(0, writable=True)  # FC01, read/write
+    fault = discrete_input(0)  # FC02, read-only — distinct from coil 0
 ```
 
 `coil` fields are read/written via FC01; `discrete_input` fields are read from
@@ -148,6 +156,7 @@ otherwise. Some devices honour only FC16 even for a single register; pass
 ```python
 from modbus_connection.model import Component, integer
 
+
 class Inverter(Component):
     limit = integer(0, writable=True, force_fc16=True)
 ```
@@ -164,6 +173,7 @@ def in_range(value: int) -> int:
         raise ValueError(f"{value} out of range")
     return value
 
+
 class Boiler(Component):
     setpoint = integer(0, writable=in_range)
 ```
@@ -178,7 +188,7 @@ Each component has its own update listeners, fired after each update:
 
 ```python
 unsubscribe = meter.add_update_listener(lambda: print("updated", meter.voltage))
-await meter.async_update()   # prints
+await meter.async_update()  # prints
 unsubscribe()
 ```
 
@@ -209,6 +219,7 @@ static typing stays exact:
 
 ```python
 from modbus_connection.model import Component, string
+
 
 class Controller(Component):
     _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
