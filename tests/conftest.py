@@ -16,6 +16,8 @@ from pymodbus import ModbusDeviceIdentification
 from pymodbus.server import ModbusTcpServer
 from pymodbus.simulator import DataType, SimData, SimDevice
 
+from modbus_connection import ModbusConnection
+
 UNIT_ID = 1
 
 # Known holding-register contents, shared by the raw-read and parity tests.
@@ -78,6 +80,17 @@ def _device_identity() -> ModbusDeviceIdentification:
     ident.ProductCode = DEVICE_ID[1].decode()
     ident.MajorMinorRevision = DEVICE_ID[2].decode()
     return ident
+
+
+async def drop_link(conn: ModbusConnection) -> None:
+    """Down a live connection the way a transport drop does.
+
+    Stands in for a real link loss (which both backends report through their
+    connection-lost hook): the client is cleared and torn down, so the link is
+    down and the next request has to reconnect.
+    """
+    client, conn._client = conn._client, None
+    await conn._close_client(client)
 
 
 def _free_port() -> int:

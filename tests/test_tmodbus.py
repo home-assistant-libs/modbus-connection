@@ -2,45 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 from tmodbus.exceptions import InvalidResponseError
 from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 
+import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import (
     ModbusConnectionError,
     ModbusProtocolError,
     ModbusTcpParams,
 )
-from modbus_connection.tmodbus import TmodbusConnection, TmodbusUnit
-
-_PARAMS = ModbusTcpParams(host="test")
+from modbus_connection.tmodbus import ModbusConnection
 
 
-def _unit_over(unit_client: object) -> TmodbusUnit:
-    """A unit-1 handle whose per-unit tmodbus client is ``unit_client``.
+class _FakeClient:
+    """A stand-in tmodbus client: always 'connected', records file-record calls."""
 
-    Units resolve their client through the owning connection, so the fake base
-    client only needs ``for_unit_id``.
-    """
-    conn = TmodbusConnection(_PARAMS)
-
-    class _Base:
-        connected = True
-
-        def for_unit_id(self, unit_id: int) -> object:
-            return unit_client
-
-    conn._client = _Base()
-    return conn.for_unit(1)
-
-
-class _FakeFileClient:
-    """A stand-in tmodbus client that records file-record calls."""
+    connected = True
 
     def __init__(self, read_data: bytes = b"") -> None:
         self._read_data = read_data
         self.read_calls: list[tuple[int, int, int]] = []
         self.write_calls: list[tuple[int, int, bytes]] = []
+
+    def for_unit_id(self, unit_id: int) -> _FakeClient:
+        return self
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
 
     async def read_file_record(
         self, file_number: int, record_number: int, record_length: int
@@ -55,9 +49,26 @@ class _FakeFileClient:
         return object()
 
 
-async def test_read_file_record_decodes_to_words() -> None:
-    client = _FakeFileClient(b"\x00\x2a\x01\x00")  # words 42 and 256
-    unit = _unit_over(client)
+@pytest.fixture
+def connection_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[_FakeClient], ModbusConnection]:
+    """Build a ModbusConnection that connects to a fake client, not a device."""
+
+    def build(client: _FakeClient) -> ModbusConnection:
+        monkeypatch.setattr(
+            tmodbus_backend, "create_async_tcp_client", lambda *a, **k: client
+        )
+        return ModbusConnection(ModbusTcpParams(host="test"))
+
+    return build
+
+
+async def test_read_file_record_decodes_to_words(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    client = _FakeClient(b"\x00\x2a\x01\x00")  # words 42 and 256
+    unit = connection_to(client).for_unit(1)
 
     words = await unit.read_file_record(file=4, record=1, length=2)
 
@@ -65,50 +76,49 @@ async def test_read_file_record_decodes_to_words() -> None:
     assert client.read_calls == [(4, 1, 2)]
 
 
-async def test_write_file_record_encodes_words_to_payload() -> None:
-    client = _FakeFileClient()
-    unit = _unit_over(client)
+async def test_write_file_record_encodes_words_to_payload(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    client = _FakeClient()
+    unit = connection_to(client).for_unit(1)
 
     await unit.write_file_record(file=7, record=9, values=[42, 256])
 
     assert client.write_calls == [(7, 9, b"\x00\x2a\x01\x00")]
 
 
-class _InvalidResponseClient:
+class _InvalidResponseClient(_FakeClient):
     """A unit client whose reads always fail with an invalid response."""
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         raise InvalidResponseError("bad CRC", response_bytes=b"\x00")
 
 
-async def test_invalid_response_maps_to_protocol_error() -> None:
-    unit = _unit_over(_InvalidResponseClient())
+async def test_invalid_response_maps_to_protocol_error(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    unit = connection_to(_InvalidResponseClient()).for_unit(1)
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
 
 
-class _DroppingClient:
+class _DroppingClient(_FakeClient):
     """A unit client whose reads always fail as a lost connection."""
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         raise TModbusConnectionError("link down")
 
 
-class _ClosableClient:
-    """A client whose ``disconnect`` succeeds without doing anything."""
-
-    async def disconnect(self) -> None:
-        pass
-
-
-async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> None:
+async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
     # Loss is reported by the transport's on_connection_lost hook, not by a failed
     # request, so a request that hits a dropped link only translates the error.
-    unit = _unit_over(_DroppingClient())
-    conn = unit._conn
+    conn = connection_to(_DroppingClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
+    unit = conn.for_unit(1)
 
     for _ in range(3):
         with pytest.raises(ModbusConnectionError):
@@ -117,27 +127,24 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost() -> No
     assert calls == []
 
 
-async def test_transport_hook_fires_callbacks_and_clears_the_client() -> None:
-    # A transport drop downs the connection: the dead client (and the unit-bound
-    # clients cached against it) are cleared, so the next connect() starts fresh.
-    unit = _unit_over(_FakeFileClient())
-    conn = unit._conn
-    await unit.read_file_record(file=4, record=1, length=2)  # populate the cache
+async def test_transport_hook_fires_registered_callbacks(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    conn = connection_to(_FakeClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
     conn._on_connection_lost(TModbusConnectionError("link down"))
 
     assert calls == [1]
-    assert conn.connected is False
-    assert conn._unit_clients == {}
 
 
-async def test_close_suppresses_on_connection_lost_hook() -> None:
+async def test_close_suppresses_on_connection_lost_hook(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
     # A deliberate close() also triggers tmodbus's on_connection_lost hook (with a
     # None cause); that is not a lost connection, so it must not fire callbacks.
-    conn = TmodbusConnection(_PARAMS)
-    conn._client = _ClosableClient()
+    conn = connection_to(_FakeClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -145,3 +152,20 @@ async def test_close_suppresses_on_connection_lost_hook() -> None:
     conn._on_connection_lost(None)  # the hook close() would drive from the loop
 
     assert calls == []
+
+
+async def test_transport_hook_clears_the_client_and_unit_cache(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    # A transport drop downs the connection: the dead client (and the unit-bound
+    # clients cached against it) are cleared, so the next request reconnects
+    # against a fresh client.
+    fake = _FakeClient()
+    unit = connection_to(fake).for_unit(1)
+    conn = unit._conn
+    await unit.read_file_record(file=4, record=1, length=2)  # connect + cache
+
+    conn._on_connection_lost(TModbusConnectionError("link down"))
+
+    assert conn.connected is False
+    assert conn._unit_clients == {}
