@@ -63,14 +63,17 @@ __all__ = [
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Map pymodbus transport exceptions onto the neutral hierarchy.
+    """Ensure-connect, pace, and map pymodbus exceptions onto the neutral hierarchy.
 
-    Also paces the request so a configured inter-request gap is honored across
-    every unit on the link.
+    Every request first establishes the link on demand via the owner's
+    ``connect()``, so a handle can be used without an explicit connect. Also
+    paces the request so a configured inter-request gap is honored across every
+    unit on the link.
     """
 
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
+        await self._conn.connect()
         try:
             async with self._conn._pacer.paced(self._unit_id):
                 return await func(self, *args, **kwargs)
@@ -234,8 +237,8 @@ class PymodbusUnit:
     """A stateless per-unit handle. Every method raises on failure.
 
     The backend client is resolved through the owning connection on use, so
-    handles can be handed out before the connection is established; a request
-    on an unestablished connection raises ``ModbusConnectionError``.
+    handles can be handed out before the connection is established; every request
+    establishes the link on demand.
     """
 
     def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
