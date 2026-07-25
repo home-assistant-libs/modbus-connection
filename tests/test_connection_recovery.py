@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import socket
 from collections.abc import AsyncIterator, Callable
 
 import pytest
@@ -34,12 +33,6 @@ BACKENDS: dict[str, Callable[[ModbusTcpParams], ModbusConnection]] = {
 }
 
 VALUE = 4321
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 async def _wait_until_listening(host: str, port: int) -> None:
@@ -85,8 +78,8 @@ class _Server:
 
 
 @pytest.fixture
-async def server_port() -> AsyncIterator[tuple[str, int]]:
-    yield "127.0.0.1", _free_port()
+async def server_port(free_port: int) -> AsyncIterator[tuple[str, int]]:
+    yield "127.0.0.1", free_port
 
 
 @pytest.fixture
