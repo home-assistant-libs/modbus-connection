@@ -62,48 +62,32 @@ __all__ = [
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
-    *,
-    retry_on_connection_error: bool = True,
 ) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
     """Ensure-connect, pace, run, and map pymodbus exceptions onto the neutral
     hierarchy.
 
     Decorates ``PymodbusUnit`` methods so each body just calls the client
     directly. Every request first establishes the link on demand via the
-    owner's ``connect()``. Read-only operations retry a connection-level failure
-    exactly once on a fresh connection. Mutating operations use
-    ``_map_errors_without_retry`` because a lost response leaves their result
-    unknown; Modbus exception responses and timeouts are never retried.
+    owner's ``connect()``, and every failure is raised — nothing is replayed
+    here. A dropped link is reported by pymodbus's disconnect trace hook, which
+    clears the dead client so the *next* request reconnects.
     """
 
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         conn = self._conn
-        attempt = 0
-        while True:
-            await conn.connect()
-            try:
-                async with conn._pacer.paced(self._unit_id):
-                    return await func(self, *args, **kwargs)
-            except ConnectionException as err:
-                await conn._drop_connection()
-                if retry_on_connection_error and attempt == 0:
-                    attempt += 1
-                    continue
-                raise ModbusConnectionError(str(err)) from err
-            except ModbusIOException as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except ModbusException as err:
-                raise ModbusError(str(err)) from err
+        await conn.connect()
+        try:
+            async with conn._pacer.paced(self._unit_id):
+                return await func(self, *args, **kwargs)
+        except ConnectionException as err:
+            raise ModbusConnectionError(str(err)) from err
+        except ModbusIOException as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except ModbusException as err:
+            raise ModbusError(str(err)) from err
 
     return wrapper
-
-
-def _map_errors_without_retry[**P, R](
-    func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Map errors for a mutating request without replaying it."""
-    return _map_errors(func, retry_on_connection_error=False)
 
 
 def _check(response: ModbusPDU) -> ModbusPDU:
@@ -178,17 +162,6 @@ class ModbusConnection(BaseModbusConnection):
             raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
-
-    async def _drop_connection(self) -> None:
-        """Down the link after a transport error so the next request reconnects."""
-        client = self._client
-        if client is None:
-            return
-        self._client = None
-        try:
-            await self._close_client(client)
-        except ModbusConnectionError:
-            pass
 
     async def _connect_client(self) -> ModbusBaseClient:
         # Unlike tmodbus's create_* functions, pymodbus client constructors can
@@ -313,13 +286,13 @@ class PymodbusUnit:
         )
         return response.registers
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_register(self, address: int, value: int) -> None:
         _check(
             await self._client.write_register(address, value, device_id=self._unit_id)
         )
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_registers(self, address: int, values: list[int]) -> None:
         _check(
             await self._client.write_registers(address, values, device_id=self._unit_id)
@@ -343,11 +316,11 @@ class PymodbusUnit:
         )
         return response.bits[:count]
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_coil(self, address: int, value: bool) -> None:
         _check(await self._client.write_coil(address, value, device_id=self._unit_id))
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
         _check(await self._client.write_coils(address, values, device_id=self._unit_id))
 
@@ -367,7 +340,7 @@ class PymodbusUnit:
         # response subclass carries the function-code-specific attribute.
         return bytes(response.identifier)  # type: ignore[attr-defined]
 
-    @_map_errors_without_retry
+    @_map_errors
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
@@ -380,7 +353,7 @@ class PymodbusUnit:
             )
         )
 
-    @_map_errors_without_retry
+    @_map_errors
     async def read_write_registers(
         self,
         read_address: int,
@@ -428,7 +401,7 @@ class PymodbusUnit:
         data = response.records[0].record_data  # type: ignore[attr-defined]  # concrete response attr
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
@@ -445,7 +418,7 @@ class PymodbusUnit:
             )
         )
 
-    @_map_errors_without_retry
+    @_map_errors
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
         request = _build_diagnostic(sub_function, data)
         request.dev_id = self._unit_id

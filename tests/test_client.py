@@ -1,6 +1,6 @@
 """Behavior of the lazily-connecting, self-reconnecting ``ModbusConnection``s.
 
-These tests drive fake backend base clients (no sockets) so the connect/retry
+These tests drive fake backend base clients (no sockets) so the connect
 lifecycle is fully deterministic; the end-to-end reads against real servers live
 in ``test_backends`` / ``test_pacing`` / ``test_protocol`` and the transport
 test modules.
@@ -294,25 +294,28 @@ async def test_next_request_reconnects_after_connect_failure(
     assert fake.connect_calls == 2
 
 
-# -- retry-once on a mid-request connection drop ------------------------------
+# -- a mid-request connection drop is not replayed ----------------------------
 
 
-async def test_retries_once_on_connection_error(
+async def test_read_connection_error_raises_without_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # A request that meets a drop raises; nothing is retransmitted. Recovery is
+    # the transport's loss hook clearing the dead client so the next request
+    # reconnects (proven against real sockets in ``test_connection_recovery``).
     fake = _FakeBaseClient()
     _install(monkeypatch, fake)
     client = _client(fake)
-    # First read drops the link mid-request; the retry on a fresh connection wins.
     fake.read_behaviors = [TModbusConnectionError("reset"), [7]]
 
-    assert await client.for_unit(1).read_holding_registers(0, 1) == [7]
-    assert fake.read_calls == 2
-    assert fake.connect_calls == 2  # initial connect + reconnect for the retry
-    assert fake.disconnect_calls == 1  # the dead link was dropped before retrying
+    with pytest.raises(ModbusConnectionError):
+        await client.for_unit(1).read_holding_registers(0, 1)
+
+    assert fake.read_calls == 1
+    assert fake.connect_calls == 1
 
 
-async def test_does_not_retry_write_on_connection_error(
+async def test_write_connection_error_raises_without_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _FakeBaseClient()
@@ -325,8 +328,6 @@ async def test_does_not_retry_write_on_connection_error(
 
     assert fake.write_calls == 1
     assert fake.connect_calls == 1
-    assert fake.disconnect_calls == 1
-    assert client.connected is False
 
 
 async def test_modbus_exception_response_is_not_retried(
@@ -343,30 +344,6 @@ async def test_modbus_exception_response_is_not_retried(
     assert excinfo.value.exception_code == 2
     assert fake.read_calls == 1  # propagated immediately, no retry
     assert fake.connect_calls == 1
-
-
-async def test_drops_and_reconnects_after_final_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = _FakeBaseClient()
-    _install(monkeypatch, fake)
-    client = _client(fake)
-    # Both the request and its one retry hit a dead link: the request fails and
-    # the link is left dropped.
-    fake.read_behaviors = [
-        TModbusConnectionError("reset"),
-        TModbusConnectionError("still dead"),
-    ]
-
-    with pytest.raises(ModbusConnectionError):
-        await client.for_unit(1).read_holding_registers(0, 1)
-
-    assert fake.read_calls == 2
-    assert client.connected is False  # dropped, so the next request starts clean
-
-    # The next request reconnects from scratch.
-    assert await client.for_unit(1).read_holding_registers(0, 1) == [1234]
-    assert fake.connect_calls == 3  # initial + retry-reconnect + next-request
 
 
 # -- close --------------------------------------------------------------------
@@ -643,7 +620,7 @@ async def test_udp_lazy_first_request_connects(
     assert client.connected is True
 
 
-async def test_udp_retries_once_on_connection_error(
+async def test_udp_connection_error_raises_without_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from pymodbus.exceptions import ConnectionException
@@ -652,29 +629,11 @@ async def test_udp_retries_once_on_connection_error(
     client = _udp_client(monkeypatch, fake)
     fake.read_behaviors = [ConnectionException("reset")]
 
-    assert await client.for_unit(1).read_holding_registers(0, 1) == [7]
-
-    assert fake.read_calls == 2
-    assert fake.connect_calls == 2  # initial connect + reconnect for the retry
-    assert fake.close_calls == 1  # the dead link was dropped before retrying
-
-
-async def test_udp_does_not_retry_write_on_connection_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from pymodbus.exceptions import ConnectionException
-
-    fake = _FakePymodbusBase()
-    client = _udp_client(monkeypatch, fake)
-    fake.write_behaviors = [ConnectionException("response lost")]
-
     with pytest.raises(ModbusConnectionError):
-        await client.for_unit(1).write_register(0, 7)
+        await client.for_unit(1).read_holding_registers(0, 1)
 
-    assert fake.write_calls == 1
+    assert fake.read_calls == 1
     assert fake.connect_calls == 1
-    assert fake.close_calls == 1
-    assert client.connected is False
 
 
 async def test_udp_close_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:

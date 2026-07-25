@@ -128,17 +128,6 @@ class ModbusConnection(BaseModbusConnection):
             raise ModbusConnectionError(error_message) from err
         return client
 
-    async def _drop_connection(self) -> None:
-        """Down the link after a transport error so the next request reconnects."""
-        client = self._client
-        if client is None:
-            return
-        self._client = None
-        try:
-            await self._close_client(client)
-        except ModbusConnectionError:
-            pass
-
     async def _create_client(self) -> AsyncModbusClient:
         params = self._params
         if isinstance(params, ModbusTcpParams):
@@ -204,53 +193,36 @@ TmodbusConnection = ModbusConnection
 
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
-    *,
-    retry_on_connection_error: bool = True,
 ) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
     """Ensure-connect, pace, run, and map tmodbus exceptions onto the neutral
     hierarchy.
 
     Decorates ``TmodbusUnit`` methods so each body just calls the client
     directly. Every request first establishes the link on demand via the
-    owner's ``connect()``. Read-only operations retry a connection-level failure
-    exactly once on a fresh connection. Mutating operations use
-    ``_map_errors_without_retry`` because a lost response leaves their result
-    unknown. Retransmitting a request the device answered busy to is tmodbus's
-    own job, bounded by the retry strategy this module hands its clients.
+    owner's ``connect()``, and every failure is raised — nothing is replayed
+    here. A dropped link is reported by the transport's connection-lost hook,
+    which clears the dead client so the *next* request reconnects.
     """
 
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         conn = self._conn
-        attempt = 0
-        while True:
-            await conn.connect()
-            try:
-                async with conn._pacer.paced(self._unit_id):
-                    return await func(self, *args, **kwargs)
-            except TModbusConnectionError as err:
-                await conn._drop_connection()
-                if retry_on_connection_error and attempt == 0:
-                    attempt += 1
-                    continue
-                raise ModbusConnectionError(str(err)) from err
-            except (TimeoutError, RequestRetryFailedError) as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except InvalidResponseError as err:
-                raise ModbusProtocolError(str(err)) from err
-            except ModbusResponseError as err:
-                raise ModbusExceptionError(int(err.error_code)) from err
-            except TModbusError as err:
-                raise ModbusError(str(err)) from err
+        await conn.connect()
+        try:
+            async with conn._pacer.paced(self._unit_id):
+                return await func(self, *args, **kwargs)
+        except TModbusConnectionError as err:
+            raise ModbusConnectionError(str(err)) from err
+        except (TimeoutError, RequestRetryFailedError) as err:
+            raise ModbusTimeoutError(str(err)) from err
+        except InvalidResponseError as err:
+            raise ModbusProtocolError(str(err)) from err
+        except ModbusResponseError as err:
+            raise ModbusExceptionError(int(err.error_code)) from err
+        except TModbusError as err:
+            raise ModbusError(str(err)) from err
 
     return wrapper
-
-
-def _map_errors_without_retry[**P, R](
-    func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
-) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Map errors for a mutating request without replaying it."""
-    return _map_errors(func, retry_on_connection_error=False)
 
 
 class TmodbusUnit:
@@ -286,11 +258,11 @@ class TmodbusUnit:
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         return await self._client.read_input_registers(address, count)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_register(self, address: int, value: int) -> None:
         await self._client.write_single_register(address, value)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_registers(self, address: int, values: list[int]) -> None:
         await self._client.write_multiple_registers(address, values)
 
@@ -304,11 +276,11 @@ class TmodbusUnit:
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
         return await self._client.read_discrete_inputs(address, count)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_coil(self, address: int, value: bool) -> None:
         await self._client.write_single_coil(address, value)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_coils(self, address: int, values: list[bool]) -> None:
         await self._client.write_multiple_coils(address, values)
 
@@ -323,13 +295,13 @@ class TmodbusUnit:
         response = await self._client.read_server_id()
         return bytes(response.server_id)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
         await self._client.mask_write_register(address, and_mask, or_mask)
 
-    @_map_errors_without_retry
+    @_map_errors
     async def read_write_registers(
         self,
         read_address: int,
@@ -356,7 +328,7 @@ class TmodbusUnit:
         data = await self._client.read_file_record(file, record, length)
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
-    @_map_errors_without_retry
+    @_map_errors
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15

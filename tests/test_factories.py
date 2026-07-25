@@ -3,7 +3,7 @@
 Unlike direct ``ModbusConnection(params)`` construction, ``connect_*`` performs
 the first connect before returning — an unreachable device raises from the
 factory call itself. The returned object is the same lazy connection, so the
-reconnect/retry semantics afterwards are identical.
+reconnect semantics afterwards are identical.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusConnection, ModbusConnectionError
 
-from .conftest import UNIT_ID
+from .conftest import UNIT_ID, drop_link
 
 both_backends = pytest.mark.parametrize(
     "backend",
@@ -74,7 +74,7 @@ async def test_factory_connection_self_heals(
     host, port = modbus_server
     conn = await backend.connect_tcp(host, port=port)  # type: ignore[attr-defined]
     try:
-        await conn._drop_connection()  # stand-in for a link drop
+        await drop_link(conn)
         assert conn.connected is False
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
         assert conn.connected is True

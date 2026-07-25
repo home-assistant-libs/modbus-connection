@@ -118,8 +118,7 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Loss is reported by the transport's on_connection_lost hook, not by a failed
-    # request, so a request that hits a dropped link (even through the retry) only
-    # translates the error.
+    # request, so a request that hits a dropped link only translates the error.
     conn = _client_over(monkeypatch, _DroppingClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
