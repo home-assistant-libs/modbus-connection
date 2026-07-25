@@ -66,7 +66,7 @@ async def test_pymodbus_udp_write_roundtrip(udp_server: tuple[str, int]) -> None
         await conn.close()
 
 
-async def test_tmodbus_udp_not_implemented() -> None:
-    """tmodbus ships no UDP transport: connect_udp raises NotImplementedError."""
-    with pytest.raises(NotImplementedError):
+async def test_tmodbus_udp_rejected() -> None:
+    """tmodbus ships no UDP transport: the constructed connection rejects it."""
+    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
         await tmodbus_connect_udp("127.0.0.1", port=502)

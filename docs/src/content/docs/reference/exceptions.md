@@ -108,5 +108,4 @@ code is correct on both.
 
 A backend that can't implement a given Modbus function code raises the builtin
 `NotImplementedError` (not part of the `ModbusError` tree). tmodbus does this for
-diagnostics and the comm-event codes, and for the UDP / ASCII-over-TCP
-transports it lacks.
+diagnostics and the comm-event codes.
