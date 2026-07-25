@@ -52,10 +52,6 @@ consumer (a device library, a `Component`, …).
   rides on.
 - Every method **raises** on any failure (timeout, exception response, link down).
   It never returns `None` or swallows errors.
-- A device answering busy (Modbus exception `SERVER_DEVICE_BUSY`, 0x06 — the
-  request was not executed, retransmit later) is retried automatically with a
-  short bounded backoff, for reads and writes alike, before the error would
-  surface.
 
 ```python
 conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))

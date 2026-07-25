@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
-from tenacity import AsyncRetrying, retry_never
+from tenacity import AsyncRetrying, retry_never, stop_after_delay, wait_exponential
 from tmodbus import (
     AsyncModbusClient,
     create_async_ascii_client,
@@ -27,14 +26,12 @@ from tmodbus.exceptions import (
 )
 
 from .._client import (
-    _DEVICE_BUSY,
     BaseModbusConnection,
     ModbusParams,
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
     ModbusUdpParams,
-    _busy_backoffs,
 )
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -60,7 +57,18 @@ __all__ = [
 # to derive per-unit handles (``for_unit_id``), so its own binding is never used
 # for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
 _PLACEHOLDER_UNIT_ID = 1
-_NO_RESPONSE_RETRIES = AsyncRetrying(retry=retry_never)
+
+# tmodbus unions this strategy's ``retry`` predicate with its own, but takes the
+# stop and wait from here — so ``retry_never`` adds no retry reason of ours while
+# the bound stop keeps tmodbus's device-busy retries from looping forever
+# (tenacity's default is ``stop_never``). ``reraise`` surfaces the underlying
+# busy response instead of tenacity's ``RetryError`` once the bound is reached.
+_RESPONSE_RETRIES = AsyncRetrying(
+    retry=retry_never,
+    stop=stop_after_delay(60),
+    wait=wait_exponential(min=0.1, max=10),
+    reraise=True,
+)
 
 
 class ModbusConnection(BaseModbusConnection):
@@ -145,8 +153,7 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
-                response_retry_strategy=_NO_RESPONSE_RETRIES,
-                retry_on_device_busy=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
                 retry_on_device_failure=False,
                 on_connection_lost=self._on_connection_lost,
             )
@@ -158,8 +165,7 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
-                response_retry_strategy=_NO_RESPONSE_RETRIES,
-                retry_on_device_busy=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
                 retry_on_device_failure=False,
                 ssl=await params.create_ssl_context(),
                 on_connection_lost=self._on_connection_lost,
@@ -179,8 +185,7 @@ class ModbusConnection(BaseModbusConnection):
             parity=params.parity,  # type: ignore[arg-type]
             stopbits=params.stopbits,  # type: ignore[arg-type]
             auto_reconnect=False,
-            response_retry_strategy=_NO_RESPONSE_RETRIES,
-            retry_on_device_busy=False,
+            response_retry_strategy=_RESPONSE_RETRIES,
             retry_on_device_failure=False,
             on_connection_lost=self._on_connection_lost,
         )
@@ -210,17 +215,14 @@ def _map_errors[**P, R](
     owner's ``connect()``. Read-only operations retry a connection-level failure
     exactly once on a fresh connection. Mutating operations use
     ``_map_errors_without_retry`` because a lost response leaves their result
-    unknown. A busy exception response (SERVER_DEVICE_BUSY, 0x06) means the
-    device did not execute the request, so it is retransmitted — for reads and
-    writes alike — on a bounded backoff before the busy error surfaces; other
-    Modbus exception responses and timeouts are never retried.
+    unknown. Retransmitting a request the device answered busy to is tmodbus's
+    own job, bounded by the retry strategy this module hands its clients.
     """
 
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         conn = self._conn
         attempt = 0
-        busy_waits = _busy_backoffs()
         while True:
             await conn.connect()
             try:
@@ -237,13 +239,7 @@ def _map_errors[**P, R](
             except InvalidResponseError as err:
                 raise ModbusProtocolError(str(err)) from err
             except ModbusResponseError as err:
-                code = int(err.error_code)
-                if code == _DEVICE_BUSY:
-                    wait = next(busy_waits, None)
-                    if wait is not None:
-                        await asyncio.sleep(wait)
-                        continue
-                raise ModbusExceptionError(code) from err
+                raise ModbusExceptionError(int(err.error_code)) from err
             except TModbusError as err:
                 raise ModbusError(str(err)) from err
 
