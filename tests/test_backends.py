@@ -250,7 +250,6 @@ async def test_next_request_reconnects_after_drop(
     try:
         unit = conn.for_unit(UNIT_ID)
         assert await unit.read_holding_registers(0, 1) == [1234]
-        # Simulate a transport drop by driving the connection-lost hook.
         if backend == "pymodbus":
             conn._on_trace_connect(False)  # type: ignore[attr-defined]
         else:
