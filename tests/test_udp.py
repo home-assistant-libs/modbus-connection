@@ -76,5 +76,5 @@ async def test_connect_udp_factory_reads(udp_server: tuple[str, int]) -> None:
 
 async def test_tmodbus_udp_rejected() -> None:
     """tmodbus ships no UDP transport: the constructed connection rejects it."""
-    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
+    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
         await tmodbus_connect_udp("127.0.0.1", port=502)

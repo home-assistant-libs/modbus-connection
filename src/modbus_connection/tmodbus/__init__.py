@@ -78,7 +78,7 @@ class ModbusConnection(BaseModbusConnection):
         message_spacing: float = 0.0,
     ) -> None:
         if isinstance(params, ModbusUdpParams):
-            raise TypeError(
+            raise ValueError(
                 "Modbus UDP is not supported by the tmodbus ModbusConnection; "
                 "use modbus_connection.pymodbus.ModbusConnection"
             )

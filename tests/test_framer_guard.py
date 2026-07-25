@@ -15,7 +15,7 @@ from modbus_connection import (
 
 def test_tmodbus_rejects_udp_params() -> None:
     # tmodbus has no UDP transport; the error points at the client that does.
-    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
+    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
         tmodbus_backend.ModbusConnection(ModbusUdpParams(host="127.0.0.1"))
 
 
