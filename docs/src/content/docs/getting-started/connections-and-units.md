@@ -23,9 +23,7 @@ is permanent: later calls to `connect()` or unit operations raise
 from modbus_connection import ModbusTcpParams
 from modbus_connection.tmodbus import ModbusConnection
 
-connection = ModbusConnection(
-    ModbusTcpParams(host="192.168.1.50", port=502)
-)
+connection = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
 ```
 
 ## `ModbusUnit`
