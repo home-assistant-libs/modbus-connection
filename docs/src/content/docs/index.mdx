@@ -86,8 +86,6 @@ asyncio.run(main())
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
-    It has no lifecycle methods — a consumer cannot connect or close the link it
-    rides on. Every method **raises** on failure; it never returns `None`.
   </Card>
 </CardGrid>
 

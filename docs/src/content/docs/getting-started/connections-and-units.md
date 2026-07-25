@@ -38,9 +38,6 @@ unit = connection.for_unit(1)
 values = await unit.read_holding_registers(9, 2)
 ```
 
-A unit has no connection lifecycle methods. Its operations raise on failure
-instead of returning `None`.
-
 :::note[Legacy connection factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
 `connect_serial` temporarily for compatibility; they are scheduled for removal.

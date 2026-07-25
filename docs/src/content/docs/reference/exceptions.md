@@ -5,7 +5,6 @@ description: The neutral exception hierarchy every backend maps its errors onto.
 
 Both backends map their errors onto the **same neutral hierarchy**, so
 `except ModbusError` catches everything regardless of which backend produced it.
-Every `ModbusUnit` method raises on failure — it never returns `None`.
 
 ```text
 ModbusError
