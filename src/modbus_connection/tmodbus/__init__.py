@@ -68,6 +68,16 @@ class ModbusConnection(BaseModbusConnection):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
+        if isinstance(params, ModbusUdpParams):
+            raise TypeError(
+                "Modbus UDP is not supported by the tmodbus ModbusConnection; "
+                "use modbus_connection.pymodbus.ModbusConnection"
+            )
+        if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
+            raise ValueError(
+                "ASCII-over-TCP is not supported by the tmodbus "
+                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
+            )
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
         self._closing = False
         self._unit_clients: dict[int, AsyncModbusClient] = {}
@@ -115,12 +125,11 @@ class ModbusConnection(BaseModbusConnection):
     async def _create_client(self) -> AsyncModbusClient:
         params = self._params
         if isinstance(params, ModbusTcpParams):
+            # ascii was rejected at construction.
             if params.framer == "socket":
                 create = create_async_tcp_client
-            elif params.framer == "rtu":
-                create = create_async_rtu_over_tcp_client
             else:
-                raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
+                create = create_async_rtu_over_tcp_client
             return create(
                 params.host,
                 params.port,
@@ -129,8 +138,7 @@ class ModbusConnection(BaseModbusConnection):
                 auto_reconnect=False,
                 on_connection_lost=self._on_connection_lost,
             )
-        if isinstance(params, ModbusUdpParams):
-            raise NotImplementedError("tmodbus has no UDP transport")
+        assert not isinstance(params, ModbusUdpParams)  # rejected at construction
         if isinstance(params, ModbusTlsParams):
             return create_async_tcp_client(
                 params.host,
@@ -337,8 +345,7 @@ async def connect_tcp(
 
     ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
     (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
-    gateways speak. ``"ascii"`` (ASCII-over-TCP) raises ``NotImplementedError``:
-    tmodbus has no ASCII-over-TCP transport.
+    gateways speak. tmodbus has no ASCII-over-TCP transport.
 
     ``message_spacing`` is the minimum gap, in seconds, left after each request
     before the next may start — applied across every unit sharing the link. Use
@@ -366,8 +373,8 @@ async def connect_udp(
 ) -> ModbusConnection:
     """Modbus UDP is not available over tmodbus.
 
-    tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
-    Kept here so the backend's connect surface stays complete.
+    Kept here so the backend's connect surface stays complete; use
+    ``modbus_connection.pymodbus`` for UDP.
     """
     connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
