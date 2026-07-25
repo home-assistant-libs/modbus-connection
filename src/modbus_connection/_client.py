@@ -188,6 +188,8 @@ class BaseModbusConnection(ABC):
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
+        # The single in-flight connect attempt shared by concurrent callers.
+        self._connect_task: asyncio.Task[None] | None = None
         # The connected backend client; ``None`` whenever the link is down (not
         # yet connected, dropped, or closed).
         self._client: Any = None
@@ -201,14 +203,30 @@ class BaseModbusConnection(ABC):
 
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
-        reconnects. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``)
-        if the link cannot be established, and ``ClientClosedError`` once the
+        reconnects. Concurrent callers share one in-flight attempt and its
+        result; cancelling one caller leaves that attempt running for the
+        others. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if
+        the link cannot be established, and ``ClientClosedError`` once the
         connection was ``close()``\\d.
         """
         if self._closed:
             raise ClientClosedError("connection is closed")
         if self._client is not None:
             return
+        task = self._connect_task
+        if task is None:
+            task = self._connect_task = asyncio.create_task(self._do_connect())
+            task.add_done_callback(self._connect_done)
+        await asyncio.shield(task)
+
+    def _connect_done(self, task: asyncio.Task[None]) -> None:
+        """Clear a completed connect flight and consume an unobserved failure."""
+        if self._connect_task is task:
+            self._connect_task = None
+        if not task.cancelled():
+            task.exception()
+
+    async def _do_connect(self) -> None:
         client = await self._connect_client()
         if self._closed:
             # A concurrent close() marked the connection closed while this
@@ -235,6 +253,13 @@ class BaseModbusConnection(ABC):
         ``connect()`` raises ``ClientClosedError``.
         """
         self._closed = True
+        if (task := self._connect_task) is not None:
+            # Wait the shared connect attempt out; shielded so cancelling this
+            # close doesn't kill the flight for concurrent connect() callers.
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
         client = self._client
         if client is None:
             return
