@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Literal
@@ -160,6 +160,25 @@ def _target(params: ModbusParams) -> str:
     if isinstance(params, ModbusSerialParams):
         return params.device
     return f"{params.host}:{params.port}"
+
+
+# Modbus exception code SERVER_DEVICE_BUSY: the device did not execute the
+# request and asks for it to be retransmitted later.
+_DEVICE_BUSY = 6
+
+_BUSY_RETRANSMITS = 5
+_BUSY_BACKOFF_INITIAL = 0.1
+
+
+def _busy_backoffs() -> Iterator[float]:
+    """Waits between retransmissions of a request the device answered busy to.
+
+    A bounded exponential backoff (0.1, 0.2, 0.4, 0.8, 1.6 seconds); when the
+    schedule is exhausted the busy error surfaces to the caller. Both backends'
+    request wrappers draw from this one schedule, so they retry identically.
+    """
+    for attempt in range(_BUSY_RETRANSMITS):
+        yield _BUSY_BACKOFF_INITIAL * 2**attempt
 
 
 class BaseModbusConnection(ABC):

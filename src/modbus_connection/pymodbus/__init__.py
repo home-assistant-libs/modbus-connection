@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
@@ -26,12 +27,14 @@ from pymodbus.pdu.diag_message import DiagnosticBase
 from pymodbus.pdu.file_message import FileRecord
 
 from .._client import (
+    _DEVICE_BUSY,
     BaseModbusConnection,
     ModbusParams,
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
     ModbusUdpParams,
+    _busy_backoffs,
 )
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
@@ -65,18 +68,30 @@ def _map_errors[**P, R](
     owner's ``connect()``. Read-only operations retry a connection-level failure
     exactly once on a fresh connection. Mutating operations use
     ``_map_errors_without_retry`` because a lost response leaves their result
-    unknown. Modbus exception responses and timeouts are never retried.
+    unknown. A busy exception response (SERVER_DEVICE_BUSY, 0x06) means the
+    device did not execute the request, so it is retransmitted — for reads and
+    writes alike — on a bounded backoff before the busy error surfaces; other
+    Modbus exception responses and timeouts are never retried.
     """
 
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         conn = self._conn
         attempt = 0
+        busy_waits = _busy_backoffs()
         while True:
             await conn.connect()
             try:
                 async with conn._pacer.paced(self._unit_id):
                     return await func(self, *args, **kwargs)
+            except ModbusExceptionError as err:
+                # Raised by ``_check`` on an exception-response PDU.
+                if err.exception_code == _DEVICE_BUSY:
+                    wait = next(busy_waits, None)
+                    if wait is not None:
+                        await asyncio.sleep(wait)
+                        continue
+                raise
             except ConnectionException as err:
                 await conn._drop_connection()
                 if retry_on_connection_error and attempt == 0:

@@ -743,3 +743,153 @@ async def test_udp_close_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.connected is False
     with pytest.raises(ClientClosedError):
         await client.for_unit(1).read_holding_registers(0, 1)
+
+
+# -- device-busy retransmission -------------------------------------------------
+
+
+class _DeviceBusy(ModbusResponseError):
+    """A concrete Modbus exception response (server device busy, 0x06)."""
+
+    error_code = 6
+
+    def __init__(self) -> None:
+        super().__init__(error_code=6, function_code=3)
+
+
+class _DeviceFailure(ModbusResponseError):
+    """A concrete Modbus exception response (server device failure, 0x04)."""
+
+    error_code = 4
+
+    def __init__(self) -> None:
+        super().__init__(error_code=4, function_code=3)
+
+
+def _record_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Replace ``asyncio.sleep`` with an instant recorder of requested waits."""
+    waits: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        waits.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    return waits
+
+
+async def test_busy_read_is_retransmitted_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SERVER_DEVICE_BUSY means the device did not execute the request and asks
+    # for a retransmission — the wrapper retries it after a short backoff.
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    client = _client(fake)
+    fake.read_behaviors = [_DeviceBusy(), _DeviceBusy(), [7]]
+    waits = _record_sleeps(monkeypatch)
+
+    assert await client.for_unit(1).read_holding_registers(0, 1) == [7]
+
+    assert fake.read_calls == 3
+    assert waits == [0.1, 0.2]  # exponential backoff between retransmissions
+
+
+async def test_busy_write_is_retransmitted_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Unlike connection-loss replay, busy retransmission is safe for writes too:
+    # the device explicitly reported the request was not executed.
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    client = _client(fake)
+    fake.write_behaviors = [_DeviceBusy(), None]
+    waits = _record_sleeps(monkeypatch)
+
+    await client.for_unit(1).write_register(0, 7)
+
+    assert fake.write_calls == 2
+    assert waits == [0.1]
+
+
+async def test_pymodbus_busy_read_is_retransmitted_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakePymodbusBase()
+    client = _udp_client(monkeypatch, fake)
+    fake.read_behaviors = [ModbusExceptionError(6), None]
+    waits = _record_sleeps(monkeypatch)
+
+    assert await client.for_unit(1).read_holding_registers(0, 1) == [7]
+
+    assert fake.read_calls == 2
+    assert waits == [0.1]
+
+
+async def test_pymodbus_busy_write_is_retransmitted_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakePymodbusBase()
+    client = _udp_client(monkeypatch, fake)
+    fake.write_behaviors = [ModbusExceptionError(6), None]
+    waits = _record_sleeps(monkeypatch)
+
+    await client.for_unit(1).write_register(0, 7)
+
+    assert fake.write_calls == 2
+    assert waits == [0.1]
+
+
+async def test_busy_retransmission_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A permanently busy device exhausts the backoff schedule and the busy
+    # error surfaces unchanged.
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    client = _client(fake)
+    fake.read_behaviors = [_DeviceBusy() for _ in range(10)]
+    waits = _record_sleeps(monkeypatch)
+
+    with pytest.raises(ModbusExceptionError) as excinfo:
+        await client.for_unit(1).read_holding_registers(0, 1)
+
+    assert excinfo.value.exception_code == 6
+    assert fake.read_calls == 6  # the request + five retransmissions
+    assert waits == [0.1, 0.2, 0.4, 0.8, 1.6]
+
+
+async def test_device_failure_response_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SERVER_DEVICE_FAILURE (0x04) carries no retransmit-later promise.
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    client = _client(fake)
+    fake.read_behaviors = [_DeviceFailure(), [7]]
+    waits = _record_sleeps(monkeypatch)
+
+    with pytest.raises(ModbusExceptionError) as excinfo:
+        await client.for_unit(1).read_holding_registers(0, 1)
+
+    assert excinfo.value.exception_code == 4
+    assert fake.read_calls == 1
+    assert waits == []
+
+
+async def test_busy_retransmissions_respect_message_spacing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A retransmission goes through the pacer like any request: with a spacing
+    # wider than the backoff, the second transmission waits for the gap too.
+    fake = _FakeBaseClient()
+    _install(monkeypatch, fake)
+    spacing = 0.15
+    client = _client(fake, message_spacing=spacing)
+    fake.read_behaviors = [_DeviceBusy(), [7]]
+
+    start = time.monotonic()
+    assert await client.for_unit(1).read_holding_registers(0, 1) == [7]
+    elapsed = time.monotonic() - start
+
+    assert fake.read_calls == 2
+    assert elapsed >= spacing  # backoff alone (0.1 s) would not reach this

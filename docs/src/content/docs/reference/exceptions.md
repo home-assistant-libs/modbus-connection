@@ -84,6 +84,11 @@ except ModbusExceptionError as err:
         ...
 ```
 
+One code is handled for you: `SERVER_DEVICE_BUSY` (0x06) means the device did
+not execute the request and asks for a retransmission, so units retry it
+automatically with a short bounded backoff and only raise if the device stays
+busy.
+
 ### `BlockReadError`
 
 Raised by the [device-modelling layer](/modbus-connection/modelling/overview/), not
