@@ -69,6 +69,11 @@ def _map_errors[**P, R](
     ``connect()``, so a handle can be used without an explicit connect. Also
     paces the request so a configured inter-request gap is honored across every
     unit on the link.
+
+    Every failure is raised — nothing is replayed here, and pymodbus is
+    configured not to replay either. A dropped link is reported by pymodbus's
+    disconnect trace hook, which clears the dead client so the *next* request
+    reconnects.
     """
 
     @functools.wraps(func)
@@ -186,6 +191,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -196,6 +202,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -207,6 +214,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
@@ -220,6 +228,7 @@ class ModbusConnection(BaseModbusConnection):
             timeout=self._timeout,
             name="modbus_connection",
             reconnect_delay=0,
+            retries=0,
             trace_connect=self._on_trace_connect,
         )
 
