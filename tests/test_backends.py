@@ -19,7 +19,7 @@ from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import TmodbusConnection
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
-from .conftest import COILS, DEVICE_ID, DISCRETE, HOLDING, INPUT, UNIT_ID
+from .conftest import COILS, DEVICE_ID, DISCRETE, HOLDING, INPUT, UNIT_ID, drop_link
 
 BACKENDS = ["pymodbus", "tmodbus"]
 
@@ -225,11 +225,7 @@ async def test_connect_reestablishes_a_downed_link(
     try:
         unit = conn.for_unit(UNIT_ID)
         assert await unit.read_holding_registers(0, 1) == [1234]
-        # Stand in for a transport drop: tear the live client down and clear it
-        # without close()ing the connection, which would be permanent.
-        dropped = conn._client
-        conn._client = None
-        await conn._close_client(dropped)
+        await drop_link(conn)
         assert conn.connected is False
         await conn.connect()
         assert conn.connected is True

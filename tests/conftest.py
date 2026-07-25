@@ -16,6 +16,8 @@ from pymodbus import ModbusDeviceIdentification
 from pymodbus.server import ModbusTcpServer
 from pymodbus.simulator import DataType, SimData, SimDevice
 
+from modbus_connection import ModbusConnection
+
 UNIT_ID = 1
 
 # Known holding-register contents, shared by the raw-read and parity tests.
@@ -80,14 +82,35 @@ def _device_identity() -> ModbusDeviceIdentification:
     return ident
 
 
-def _free_port() -> int:
+async def drop_link(conn: ModbusConnection) -> None:
+    """Down a live connection the way a transport drop does.
+
+    Stands in for a real link loss (which both backends report through their
+    connection-lost hook): the client is cleared and torn down, so the link is
+    down and the next request has to reconnect.
+    """
+    client, conn._client = conn._client, None
+    await conn._close_client(client)
+
+
+@pytest.fixture
+def free_port() -> int:
+    """A port on localhost that nothing is listening on."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
 @pytest.fixture
-async def modbus_server() -> AsyncIterator[tuple[str, int]]:
+def free_udp_port() -> int:
+    """A UDP port on localhost that nothing is bound to."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+async def modbus_server(free_port: int) -> AsyncIterator[tuple[str, int]]:
     """Start a Modbus TCP server with the known datastore; yield (host, port)."""
     # Non-shared blocks, ordered (coils, discrete inputs, holding, input).
     # id=0 serves every unit id (incl. UNIT_ID).
@@ -100,7 +123,7 @@ async def modbus_server() -> AsyncIterator[tuple[str, int]]:
             _register_block(INPUT),
         ),
     )
-    host, port = "127.0.0.1", _free_port()
+    host, port = "127.0.0.1", free_port
     server = ModbusTcpServer(device, identity=_device_identity(), address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     # Wait until the listener is actually accepting connections.
