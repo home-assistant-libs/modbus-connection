@@ -40,9 +40,8 @@ values = await unit.read_holding_registers(9, 2)
 
 :::note[Legacy connection factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
-`connect_serial` temporarily for compatibility; they are scheduled for removal.
-New code should construct the backend's `ModbusConnection` with a shared
-parameter object.
+`connect_serial` for compatibility. They are no longer recommended; new code
+should construct the backend's `ModbusConnection` with a shared parameter object.
 :::
 
 Continue with [Connection parameters](/modbus-connection/getting-started/connection-parameters/)
