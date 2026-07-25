@@ -7,7 +7,6 @@ import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
@@ -229,13 +228,18 @@ class BaseModbusConnection(ABC):
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
 
-    @abstractmethod
     async def close(self) -> None:
         """Tear the connection down — owner only, idempotent, and permanent.
 
         After ``close()`` the connection never reconnects; any later
         ``connect()`` raises ``ClientClosedError``.
         """
+        self._closed = True
+        client = self._client
+        if client is None:
+            return
+        self._client = None
+        await self._close_client(client)
 
     # -- backend hooks ----------------------------------------------------------
 
@@ -244,11 +248,7 @@ class BaseModbusConnection(ABC):
         """Build, connect, and return a backend client from ``self._params``,
         mapping failures onto the neutral hierarchy."""
 
+    @abstractmethod
     async def _close_client(self, client: Any) -> None:
-        """Close one backend client; concrete backends override to map errors."""
-        close = getattr(client, "close", None) or getattr(client, "disconnect", None)
-        if close is None:
-            return
-        result = close()
-        if isawaitable(result):
-            await result
+        """Tear one backend client down, mapping failures onto the neutral
+        hierarchy."""
