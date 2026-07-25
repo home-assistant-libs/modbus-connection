@@ -72,6 +72,31 @@ class ModbusConnection(BaseModbusConnection):
         self._closing = False
         self._unit_clients: dict[int, AsyncModbusClient] = {}
 
+    def _validate_params(self, params: ModbusParams) -> None:
+        if isinstance(params, ModbusUdpParams):
+            raise TypeError(
+                "Modbus UDP is not supported by the tmodbus ModbusConnection; "
+                "use modbus_connection.pymodbus.ModbusConnection"
+            )
+        if isinstance(params, ModbusTcpParams):
+            if params.framer == "ascii":
+                raise ValueError(
+                    "ASCII-over-TCP is not supported by the tmodbus "
+                    "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
+                )
+            if params.framer not in ("socket", "rtu"):
+                raise ValueError(
+                    f"unknown framer {params.framer!r}; "
+                    "expected 'socket', 'rtu', or 'ascii'"
+                )
+        elif isinstance(params, ModbusSerialParams) and params.framer not in (
+            "rtu",
+            "ascii",
+        ):
+            raise ValueError(
+                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
+            )
+
     def for_unit(self, unit_id: int) -> TmodbusUnit:
         return TmodbusUnit(self, unit_id)
 
@@ -347,6 +372,8 @@ async def connect_tcp(
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
+    if framer == "ascii":
+        raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
     connection = ModbusConnection(
         ModbusTcpParams(host=host, port=port, framer=framer),
         timeout=timeout,
@@ -367,15 +394,10 @@ async def connect_udp(
     """Modbus UDP is not available over tmodbus.
 
     tmodbus ships no UDP transport, so this always raises ``NotImplementedError``.
-    Kept here so the backend's connect surface stays complete.
+    Kept here so the backend's connect surface stays complete; use
+    ``modbus_connection.pymodbus`` for UDP.
     """
-    connection = ModbusConnection(
-        ModbusUdpParams(host=host, port=port, framer=framer),
-        timeout=timeout,
-        message_spacing=message_spacing,
-    )
-    await connection.connect()
-    return connection
+    raise NotImplementedError("tmodbus has no UDP transport")
 
 
 async def connect_tls(

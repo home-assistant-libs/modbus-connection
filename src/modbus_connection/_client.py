@@ -165,10 +165,11 @@ class BaseModbusConnection(ABC):
 
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
-    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
-    factories do exactly that before returning). Consumers NEVER receive this
-    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
-    connection's OWNER, and only the owner tears it down with ``close()``;
+    **no I/O**, but unsupported (params type, framer) combinations for the
+    backend fail here; ``connect()`` establishes the link (the backends'
+    ``connect_*`` factories do exactly that before returning). Consumers NEVER
+    receive this object — only a ``ModbusUnit`` from ``for_unit``. It is held
+    by the connection's OWNER, and only the owner tears it down with ``close()``;
     reconnecting after a drop is likewise the owner's job — by calling
     ``connect()`` again.
     """
@@ -180,6 +181,7 @@ class BaseModbusConnection(ABC):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
+        self._validate_params(params)
         self._params = params
         self._timeout = timeout
         self._pacer = Pacer(message_spacing)
@@ -218,6 +220,10 @@ class BaseModbusConnection(ABC):
         """Tear the connection down — owner only."""
 
     # -- backend hooks ----------------------------------------------------------
+
+    @abstractmethod
+    def _validate_params(self, params: ModbusParams) -> None:
+        """Reject unsupported (params type, framer) combinations at construction."""
 
     @abstractmethod
     async def _connect_client(self) -> Any:
