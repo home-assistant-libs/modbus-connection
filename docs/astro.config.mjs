@@ -18,11 +18,11 @@ export default defineConfig({
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
-            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable pymodbus and tmodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
+            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable tmodbus and pymodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
           details: [
             "Important notes for working with modbus-connection:",
             "",
-            "- Install with `pip install \"modbus-connection[pymodbus]\"` or `[tmodbus]`; the bare install pulls neither backend.",
+            "- Install with `pip install \"modbus-connection[tmodbus]\"` or `[pymodbus]`; the bare install pulls neither backend.",
             "- A connection is transient and owner-held. Import `ModbusConnection` from the selected backend, construct it with a shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclass, then call `await connection.connect()` before I/O.",
             "- Consumers receive a `ModbusUnit` via `connection.for_unit(unit_id)` — a stateless per-unit handle. Every method raises on failure; it never returns `None`.",
             "- The `modbus_connection.model` framework maps registers/coils to typed attributes on a `Component`; `modbus_connection.model.sunspec` adds SunSpec point types with their unimplemented sentinels.",

@@ -18,7 +18,7 @@ Connection parameter objects are frozen and keyword-only. Import them from
 
 ```python
 from modbus_connection import ModbusSerialParams
-from modbus_connection.pymodbus import ModbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 
 connection = ModbusConnection(
     ModbusSerialParams(device="/dev/ttyUSB0", framer="ascii", baudrate=9600),

@@ -22,8 +22,8 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
    `ModbusUnit`
    [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
    lets you type against Modbus without committing to a backend. Two
-   interchangeable backends, [pymodbus](https://github.com/pymodbus-dev/pymodbus)
-   and [tmodbus](https://github.com/wlcrs/tmodbus), implement it.
+   interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
+   [pymodbus](https://github.com/pymodbus-dev/pymodbus), implement it.
 2. An optional **device-modelling framework** (`modbus_connection.model`) that
    maps a device's registers and coils to typed Python attributes and reads the
    whole device — or one sub-system — in as few Modbus calls as possible.

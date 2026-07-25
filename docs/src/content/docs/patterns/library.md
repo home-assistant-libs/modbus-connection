@@ -189,7 +189,7 @@ finally:
 
 - **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
   link; your library only reads and writes registers. This keeps the library
-  backend-neutral — it works over pymodbus, tmodbus, or the mock unchanged.
+  backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
 - **One sub-system per `Component`.** Group registers by function; give each its
   own file. It keeps the address map readable and lets a sub-system refresh alone.
 - **Pool with a `ComponentGroup`.** The whole device reads in a handful of Modbus

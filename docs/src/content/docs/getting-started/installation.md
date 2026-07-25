@@ -9,8 +9,8 @@ The top-level package is a pure interface and imports no Modbus library, so a
 bare install pulls **neither** backend. Pick one with an extra:
 
 ```bash
-pip install "modbus-connection[pymodbus]"   # pymodbus backend
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
+pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
 You can install both extras if you want to choose the backend at runtime — the
@@ -29,4 +29,4 @@ print(modbus_connection.__all__)
 ```
 
 Importing `modbus_connection` never imports a backend. The backend is only
-loaded when you import `modbus_connection.pymodbus` or `modbus_connection.tmodbus`.
+loaded when you import `modbus_connection.tmodbus` or `modbus_connection.pymodbus`.

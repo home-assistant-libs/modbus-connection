@@ -6,8 +6,9 @@ The top-level `modbus_connection` package provides the abstract
 `ModbusConnection`, the `ModbusUnit`
 [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html), and a
 tiny exception hierarchy. Two interchangeable backends implement them
-([pymodbus](https://github.com/pymodbus-dev/pymodbus) and
-[tmodbus](https://github.com/wlcrs/tmodbus)); the bare install pulls neither.
+([tmodbus](https://github.com/wlcrs/tmodbus) and
+[pymodbus](https://github.com/pymodbus-dev/pymodbus)); the bare install pulls
+neither.
 
 One physical Modbus link addresses many units (1–247). Sharing a single,
 internally-serialized connection across many consumers is strictly better than
@@ -17,8 +18,8 @@ makes that sharing possible while keeping the backend swappable.
 ## Install
 
 ```bash
-pip install "modbus-connection[pymodbus]"   # pymodbus backend
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
+pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
 ## Example
@@ -78,7 +79,7 @@ hierarchy — lives on the website:
 ## Develop
 
 ```bash
-uv sync --extra pymodbus
+uv sync --extra tmodbus
 uv run pytest
 ```
 
