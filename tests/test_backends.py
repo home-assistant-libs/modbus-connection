@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from modbus_connection import (
+    ClientClosedError,
     ModbusConnection,
     ModbusConnectionError,
     ModbusExceptionError,
@@ -218,19 +219,40 @@ async def test_connect_is_a_noop_when_connected(
 async def test_connect_reestablishes_a_downed_link(
     modbus_server: tuple[str, int], backend: str
 ) -> None:
-    # Once the link is down (closed here, standing in for a drop), connect() is
-    # no longer a no-op: the owner reconnects by calling it again — with a
-    # fresh backend client. Unit handles resolve through the owner, so a handle
+    # Once the link is down (a transport drop, not a close()), connect() is no
+    # longer a no-op: the owner reconnects by calling it again — with a fresh
+    # backend client. Unit handles resolve through the owner, so a handle
     # obtained before the drop keeps working over the new client.
     host, port = modbus_server
     conn = await _connect(backend, host, port)
     try:
         unit = conn.for_unit(UNIT_ID)
         assert await unit.read_holding_registers(0, 1) == [1234]
-        await conn.close()
+        # Stand in for a transport drop: tear the live client down and clear it
+        # without close()ing the connection, which would be permanent.
+        dropped = conn._client
+        conn._client = None
+        await conn._close_client(dropped)
         assert conn.connected is False
         await conn.connect()
         assert conn.connected is True
         assert await unit.read_holding_registers(0, 1) == [1234]
     finally:
         await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_close_is_permanent(modbus_server: tuple[str, int], backend: str) -> None:
+    # close() is idempotent and permanent: it never reconnects afterwards, so a
+    # later connect() raises ClientClosedError instead of re-establishing.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
+
+    await conn.close()
+    await conn.close()  # second close must not raise
+    assert conn.connected is False
+
+    with pytest.raises(ClientClosedError):
+        await conn.connect()
+    assert conn.connected is False

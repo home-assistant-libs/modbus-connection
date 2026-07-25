@@ -149,11 +149,7 @@ class ModbusConnection(BaseModbusConnection):
     def for_unit(self, unit_id: int) -> PymodbusUnit:
         return PymodbusUnit(self, unit_id)
 
-    async def close(self) -> None:
-        client = self._client
-        if client is None:
-            return
-        self._client = None
+    async def _close_client(self, client: ModbusBaseClient) -> None:
         try:
             client.close()
         except (ModbusException, OSError) as err:
