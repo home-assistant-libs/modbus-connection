@@ -18,7 +18,6 @@ class ClientClosedError(ModbusConnectionError):
     """A request was attempted on a connection that was closed with ``close()``.
 
     A closed connection never reconnects; the owner must construct a new one.
-    Also a ``ModbusConnectionError``, so existing handlers keep catching it.
     """
 
 

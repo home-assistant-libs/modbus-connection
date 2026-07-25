@@ -57,6 +57,12 @@ A request was attempted on a connection after its owner called `close()`. A
 closed connection never reconnects; the owner must construct a new one. It
 subclasses `ModbusConnectionError`, so existing handlers keep catching it.
 
+### `ClientClosedError`
+
+A request or `connect()` was attempted on a connection after its owner called
+`close()`. A closed connection never reconnects; the owner must construct a new
+one.
+
 ### `ModbusTimeoutError`
 
 An operation timed out: a request got no valid response in time, or a connect
@@ -123,4 +129,4 @@ code is correct on both.
 
 A backend that can't implement a given Modbus function code raises the builtin
 `NotImplementedError` (not part of the `ModbusError` tree). tmodbus does this for
-diagnostics and the comm-event codes, and for the UDP / ASCII-over-TCP transports.
+diagnostics and the comm-event codes.

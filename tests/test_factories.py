@@ -53,15 +53,15 @@ async def test_connect_tcp_unreachable_raises_immediately(backend: object) -> No
         await backend.connect_tcp("127.0.0.1", port=_closed_port())  # type: ignore[attr-defined]
 
 
-async def test_tmodbus_connect_udp_not_implemented() -> None:
-    """tmodbus ships no UDP transport: connect_udp raises NotImplementedError."""
-    with pytest.raises(NotImplementedError):
+async def test_tmodbus_connect_udp_rejected() -> None:
+    """tmodbus ships no UDP transport: connect_udp surfaces the constructor error."""
+    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
         await tmodbus_backend.connect_udp("127.0.0.1", port=502)
 
 
-async def test_tmodbus_connect_tcp_ascii_not_implemented() -> None:
-    """tmodbus has no ASCII-over-TCP transport: framer="ascii" raises."""
-    with pytest.raises(NotImplementedError):
+async def test_tmodbus_connect_tcp_ascii_rejected() -> None:
+    """tmodbus has no ASCII-over-TCP transport: framer="ascii" is rejected."""
+    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
         await tmodbus_backend.connect_tcp("127.0.0.1", framer="ascii")
 
 

@@ -1,4 +1,12 @@
-"""pymodbus-backed implementation of the modbus_connection abstraction."""
+"""pymodbus-backed implementation of the modbus_connection abstraction.
+
+Provides the connect functions (``connect_tcp`` / ``connect_udp`` /
+``connect_serial``) plus the concrete ``ModbusConnection`` / ``PymodbusUnit``
+classes. These are the only backend-specific touchpoints — swapping to tmodbus
+changes only the import.
+
+Requires the ``[pymodbus]`` extra.
+"""
 
 from __future__ import annotations
 
@@ -178,14 +186,6 @@ class ModbusConnection(BaseModbusConnection):
     def for_unit(self, unit_id: int) -> PymodbusUnit:
         return PymodbusUnit(self, unit_id)
 
-    async def close(self) -> None:
-        await self._begin_close()
-        client = self._client
-        if client is None:
-            return
-        self._client = None
-        await self._close_client(client)
-
     async def _close_client(self, client: ModbusBaseClient) -> None:
         try:
             client.close()
@@ -193,19 +193,6 @@ class ModbusConnection(BaseModbusConnection):
             raise ModbusConnectionError(str(err)) from err
 
     # -- internals ------------------------------------------------------------
-
-    def _validate_params(self, params: ModbusParams) -> None:
-        # Client creation happens on connect, so framer names are validated
-        # eagerly here to fail at construction.
-        if isinstance(params, (ModbusTcpParams, ModbusUdpParams)):
-            FramerType(params.framer)
-        elif isinstance(params, ModbusSerialParams) and params.framer not in (
-            "rtu",
-            "ascii",
-        ):
-            raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
-            )
 
     async def _drop_connection(self) -> None:
         """Down the link after a transport error so the next request reconnects."""

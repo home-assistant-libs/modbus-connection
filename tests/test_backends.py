@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from modbus_connection import (
+    ClientClosedError,
     ModbusConnection,
     ModbusExceptionError,
     ModbusTcpParams,
@@ -232,3 +233,20 @@ async def test_connect_reestablishes_a_downed_link(
         assert await unit.read_holding_registers(0, 1) == [1234]
     finally:
         await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_close_is_permanent(modbus_server: tuple[str, int], backend: str) -> None:
+    # close() is idempotent and permanent: it never reconnects afterwards, so a
+    # later connect() raises ClientClosedError instead of re-establishing.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
+
+    await conn.close()
+    await conn.close()  # second close must not raise
+    assert conn.connected is False
+
+    with pytest.raises(ClientClosedError):
+        await conn.connect()
+    assert conn.connected is False

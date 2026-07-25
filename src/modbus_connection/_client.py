@@ -7,7 +7,6 @@ import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
@@ -186,14 +185,14 @@ class BaseModbusConnection(ABC):
 
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
-    **no I/O**; unsupported (params type, framer) combinations fail here.
-    Every unit request establishes the link on demand through ``connect()``
-    (the backends' ``connect_*`` factories call it before returning, and the
-    owner may call it explicitly), so after a drop the next request
-    reconnects. Consumers NEVER receive this object — only a ``ModbusUnit``
-    from ``for_unit``. It is held by the connection's OWNER, and only the
-    owner tears it down with ``close()`` — which is permanent: any later
-    request raises ``ClientClosedError``.
+    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
+    factories do exactly that before returning). Every unit request also
+    establishes the link on demand through ``connect()``, so after a drop the
+    next request reconnects. Consumers NEVER receive this object — only a
+    ``ModbusUnit`` from ``for_unit``. It is held by the connection's OWNER, and
+    only the owner tears it down with ``close()`` — which is permanent:
+    reconnecting after a drop is automatic, but after ``close()`` every
+    ``connect()`` raises ``ClientClosedError``.
     """
 
     def __init__(
@@ -203,7 +202,6 @@ class BaseModbusConnection(ABC):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        self._validate_params(params)
         self._params = params
         self._timeout = timeout
         self._pacer = Pacer(message_spacing)
@@ -225,12 +223,11 @@ class BaseModbusConnection(ABC):
 
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
-        reconnects. Every unit request does this on demand under a
-        single-flight guard: concurrent callers share one in-flight operation
-        and its result. That operation retries a connection error once before
-        any request can be dispatched; timeouts are not retried. Cancellation
-        of one caller leaves the shared operation running for the others.
-        There is no time-based backoff. Raises ``ModbusConnectionError`` (or
+        reconnects. Every unit request does this on demand under a single-flight
+        guard: concurrent callers share one in-flight operation and its result.
+        That operation retries a connection error once before any request can be
+        dispatched; timeouts are not retried. Cancelling one caller leaves that
+        operation running for the others. Raises ``ModbusConnectionError`` (or
         ``ModbusTimeoutError``) if the link cannot be established, and
         ``ClientClosedError`` once the connection was ``close()``\\d.
         """
@@ -241,7 +238,7 @@ class BaseModbusConnection(ABC):
         task = self._connect_task
         if task is None:
             task = self._connect_task = asyncio.create_task(
-                self._establish_with_retry()
+                self._do_connect_with_retry()
             )
             task.add_done_callback(self._connect_done)
         await asyncio.shield(task)
@@ -253,9 +250,11 @@ class BaseModbusConnection(ABC):
         if not task.cancelled():
             task.exception()
 
-    async def _establish(self) -> None:
+    async def _do_connect(self) -> None:
         client = await self._connect_client()
         if self._closed:
+            # A concurrent close() marked the connection closed while this
+            # client was still being established; dispose of it and refuse.
             try:
                 await self._close_client(client)
             except Exception:
@@ -263,28 +262,14 @@ class BaseModbusConnection(ABC):
             raise ClientClosedError("connection is closed")
         self._client = client
 
-    async def _establish_with_retry(self) -> None:
+    async def _do_connect_with_retry(self) -> None:
         """Establish before dispatch, retrying one connection failure."""
         try:
-            await self._establish()
+            await self._do_connect()
         except ClientClosedError:
             raise
         except ModbusConnectionError:
-            await self._establish()
-
-    async def _begin_close(self) -> None:
-        """Mark closed and wait for any shared connect attempt to clean itself up."""
-        self._closed = True
-        task = self._connect_task
-        if task is None:
-            return
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            if not task.cancelled():
-                raise
-        except Exception:
-            pass
+            await self._do_connect()
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
@@ -294,30 +279,34 @@ class BaseModbusConnection(ABC):
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
 
-    @abstractmethod
     async def close(self) -> None:
         """Tear the connection down — owner only, idempotent, and permanent.
 
-        If connection establishment is in flight, wait for it and close any
-        client it creates before returning.
+        After ``close()`` the connection never reconnects; any later
+        ``connect()`` raises ``ClientClosedError``.
         """
+        self._closed = True
+        if (task := self._connect_task) is not None:
+            # Wait the shared connect attempt out; shielded so cancelling this
+            # close doesn't kill the flight for concurrent connect() callers.
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+        client = self._client
+        if client is None:
+            return
+        self._client = None
+        await self._close_client(client)
 
     # -- backend hooks ----------------------------------------------------------
-
-    @abstractmethod
-    def _validate_params(self, params: ModbusParams) -> None:
-        """Reject unsupported (params type, framer) combinations at construction."""
 
     @abstractmethod
     async def _connect_client(self) -> Any:
         """Build, connect, and return a backend client from ``self._params``,
         mapping failures onto the neutral hierarchy."""
 
+    @abstractmethod
     async def _close_client(self, client: Any) -> None:
-        """Close one backend client; concrete backends override to map errors."""
-        close = getattr(client, "close", None) or getattr(client, "disconnect", None)
-        if close is None:
-            return
-        result = close()
-        if isawaitable(result):
-            await result
+        """Tear one backend client down, mapping failures onto the neutral
+        hierarchy."""

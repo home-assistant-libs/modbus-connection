@@ -12,6 +12,7 @@ from pymodbus.server import ModbusUdpServer
 
 from modbus_connection import ModbusUdpParams
 from modbus_connection.pymodbus import ModbusConnection, connect_udp
+from modbus_connection.tmodbus import connect_udp as tmodbus_connect_udp
 
 from .conftest import sim_holding_device
 
@@ -78,3 +79,9 @@ async def test_connect_udp_factory_reads(udp_server: tuple[str, int]) -> None:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
         await conn.close()
+
+
+async def test_tmodbus_udp_rejected() -> None:
+    """tmodbus ships no UDP transport: the constructed connection rejects it."""
+    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
+        await tmodbus_connect_udp("127.0.0.1", port=502)
