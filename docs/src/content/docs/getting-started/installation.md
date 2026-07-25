@@ -16,7 +16,7 @@ pip install "modbus-connection[pymodbus]"   # pymodbus backend
 
 ## Which backend?
 
-The backends differ only in transport coverage — device code typed against
+The backends differ in transport coverage — device code typed against
 `ModbusUnit` runs unchanged over either.
 
 | Transport | `tmodbus.ModbusConnection` | `pymodbus.ModbusConnection` |
@@ -29,8 +29,10 @@ The backends differ only in transport coverage — device code typed against
 
 Beyond coverage, tmodbus distinguishes a garbled reply from a missing one
 (`ModbusProtocolError` vs `ModbusTimeoutError` — see
-[Exceptions](/modbus-connection/reference/exceptions/)); pick pymodbus when you
-need UDP or ASCII-over-TCP.
+[Exceptions](/modbus-connection/reference/exceptions/)), and it retransmits a
+request the device answered busy (`SERVER_DEVICE_BUSY`) until the device is
+ready or a minute has passed; pymodbus surfaces the busy response instead. Pick
+pymodbus when you need UDP or ASCII-over-TCP.
 
 ## Verifying the install
 
