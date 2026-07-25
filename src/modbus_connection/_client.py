@@ -238,20 +238,6 @@ class BaseModbusConnection(ABC):
             raise ClientClosedError("connection is closed")
         self._client = client
 
-    async def _begin_close(self) -> None:
-        """Mark closed and wait for any shared connect attempt to clean itself up."""
-        self._closed = True
-        task = self._connect_task
-        if task is None:
-            return
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            if not task.cancelled():
-                raise
-        except Exception:
-            pass
-
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
         """Return this backend's unit handle bound to ``unit_id``."""
@@ -266,7 +252,14 @@ class BaseModbusConnection(ABC):
         After ``close()`` the connection never reconnects; any later
         ``connect()`` raises ``ClientClosedError``.
         """
-        await self._begin_close()
+        self._closed = True
+        if (task := self._connect_task) is not None:
+            # Wait the shared connect attempt out; shielded so cancelling this
+            # close doesn't kill the flight for concurrent connect() callers.
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
         client = self._client
         if client is None:
             return
