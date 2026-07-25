@@ -215,7 +215,7 @@ class BaseModbusConnection(ABC):
             return
         task = self._connect_task
         if task is None:
-            task = self._connect_task = asyncio.create_task(self._establish())
+            task = self._connect_task = asyncio.create_task(self._do_connect())
             task.add_done_callback(self._connect_done)
         await asyncio.shield(task)
 
@@ -226,7 +226,7 @@ class BaseModbusConnection(ABC):
         if not task.cancelled():
             task.exception()
 
-    async def _establish(self) -> None:
+    async def _do_connect(self) -> None:
         client = await self._connect_client()
         if self._closed:
             # A concurrent close() marked the connection closed while this
