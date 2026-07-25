@@ -30,14 +30,6 @@ async def _connect(backend: str, host: str, port: int) -> ModbusConnection:
     return await tmodbus_connect_tcp(host, port=port)
 
 
-def _drop_via_loss_hook(conn: ModbusConnection, backend: str) -> None:
-    """Simulate a transport drop by driving the backend's connection-lost hook."""
-    if backend == "pymodbus":
-        conn._on_trace_connect(False)  # type: ignore[attr-defined]
-    else:
-        conn._on_connection_lost(None)  # type: ignore[attr-defined]
-
-
 @pytest.fixture(params=BACKENDS)
 async def unit(
     request: pytest.FixtureRequest, modbus_server: tuple[str, int]
@@ -258,7 +250,11 @@ async def test_next_request_reconnects_after_drop(
     try:
         unit = conn.for_unit(UNIT_ID)
         assert await unit.read_holding_registers(0, 1) == [1234]
-        _drop_via_loss_hook(conn, backend)
+        # Simulate a transport drop by driving the connection-lost hook.
+        if backend == "pymodbus":
+            conn._on_trace_connect(False)  # type: ignore[attr-defined]
+        else:
+            conn._on_connection_lost(None)  # type: ignore[attr-defined]
         assert conn.connected is False
         assert await unit.read_holding_registers(0, 1) == [1234]
         assert conn.connected is True
