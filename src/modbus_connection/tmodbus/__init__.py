@@ -79,7 +79,6 @@ class ModbusConnection(BaseModbusConnection):
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
-        self._closing = False
         self._unit_clients: dict[int, AsyncModbusClient] = {}
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
@@ -95,7 +94,6 @@ class ModbusConnection(BaseModbusConnection):
         return client
 
     async def _close_client(self, client: AsyncModbusClient) -> None:
-        self._closing = True
         self._unit_clients.clear()
         try:
             await client.disconnect()
@@ -115,7 +113,6 @@ class ModbusConnection(BaseModbusConnection):
             raise ModbusTimeoutError(str(err)) from err
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(error_message) from err
-        self._closing = False
         return client
 
     async def _create_client(self) -> AsyncModbusClient:
@@ -165,7 +162,7 @@ class ModbusConnection(BaseModbusConnection):
 
     def _on_connection_lost(self, exc: Exception | None) -> None:
         # Our own close() also triggers this hook, which is not a lost connection.
-        if self._closing:
+        if self._closed:
             return
         self._client = None
         self._unit_clients.clear()
