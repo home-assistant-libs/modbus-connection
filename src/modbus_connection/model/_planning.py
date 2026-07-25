@@ -75,6 +75,28 @@ def _validate_ranges(ranges: tuple[Range, ...]) -> None:
             )
 
 
+def _ranges_excluding(
+    intervals: Iterable[Range], excluded: set[int]
+) -> tuple[Range, ...]:
+    """Split ``intervals`` around every excluded address, dropping empty runs.
+
+    Each ``(low, high)`` interval is cut at every excluded address it covers,
+    so the result only ever *splits* the input — it never merges across an
+    interval boundary. Used to narrow a component's readable ranges to the
+    addresses a device actually serves.
+    """
+    result: list[Range] = []
+    for low, high in intervals:
+        start = low
+        for cut in sorted(address for address in excluded if low <= address <= high):
+            if cut > start:
+                result.append((start, cut - 1))
+            start = cut + 1
+        if start <= high:
+            result.append((start, high))
+    return tuple(result)
+
+
 def _plan_blocks(
     spans: Iterable[tuple[int, int]],
     ranges: tuple[Range, ...] | None = None,

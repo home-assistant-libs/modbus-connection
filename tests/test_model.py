@@ -26,6 +26,7 @@ from modbus_connection.model import (
     int32,
     integer,
     raw_register,
+    repeating_group,
     string,
     uint32,
     uint64,
@@ -1380,3 +1381,147 @@ async def test_load_raw_rejects_an_unknown_space() -> None:
     # the store name "coils" is not one of them.
     with pytest.raises(ValueError, match="unknown space"):
         unit.load_raw({"coils": {0: True}})
+
+
+# -- restrict_fields ----------------------------------------------------------
+
+
+class _Boiler(Component):
+    """The issue #80 shape: a declared range with a hole a device may refuse."""
+
+    register_ranges = ((2000, 2005), (2050, 2050))
+
+    t0 = integer(0)
+    t1 = integer(1)
+    actual_high = integer(2)  # register 2002 — the one a controller may refuse
+    t3 = integer(3)
+    t4 = integer(4)
+    t5 = integer(5)
+    mode = integer(50, writable=True)
+
+
+_SERVED = ("t0", "t1", "t3", "t4", "t5", "mode")  # every field except actual_high
+
+
+def _boiler(refuse: int | None = None) -> tuple[_Boiler, _Counting]:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update(dict.fromkeys((2000, 2001, 2003, 2004, 2005, 2050), 0))
+    if refuse is not None:
+        inner.fail_read(refuse, ModbusExceptionError(2, "illegal data address"))
+    unit = _Counting(inner)
+    return _Boiler(unit, base_offset=2000), unit  # type: ignore[arg-type]
+
+
+async def test_restrict_fields_issue_scenario_fails_without_it() -> None:
+    # The baseline the issue describes: one refused register in the middle of a
+    # declared range takes down the whole update.
+    boiler, _ = _boiler(refuse=2002)
+    with pytest.raises(BlockReadError):
+        await boiler.async_update()
+
+
+async def test_restrict_fields_splits_declared_range_around_dropped_register() -> None:
+    boiler, unit = _boiler(refuse=2002)
+    boiler.restrict_fields(_SERVED)
+    await boiler.async_update()  # no BlockReadError — 2002 is never in a block
+
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 2002 not in read
+    # The declared range is split at 2002; the (2050, 2050) isolation survives.
+    assert boiler.register_ranges == ((2000, 2001), (2003, 2005), (2050, 2050))
+    assert boiler.t0 == 0 and boiler.t5 == 0 and boiler.mode == 0
+    assert boiler.actual_high is None  # dropped -> reads as None
+
+
+async def test_restrict_fields_keeps_writes_working_and_drops_the_rest() -> None:
+    boiler, _ = _boiler()
+    boiler.restrict_fields(["mode"])
+    await boiler.write("mode", 7)  # a kept writable field still writes
+    with pytest.raises(AttributeError):
+        await boiler.write("t0", 1)  # a dropped field can no longer be written
+
+
+async def test_restrict_fields_synthesizes_ranges_when_none() -> None:
+    class Gap(Component):  # no register_ranges -> gap-based planning
+        a = integer(0)
+        b = integer(1)
+        c = integer(2)
+        d = integer(3)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 10, 1: 11, 3: 13})
+    inner.fail_read(2, ModbusExceptionError(2))
+    unit = _Counting(inner)
+    comp = Gap(unit)  # type: ignore[arg-type]
+    comp.restrict_fields(["a", "b", "d"])  # drop c (register 2)
+    await comp.async_update()  # would raise if any block spanned 2
+
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 2 not in read
+    assert comp.register_ranges == ((0, 1), (3, 3))
+    assert comp.a == 10 and comp.d == 13
+
+
+def test_restrict_fields_only_splits_never_merges_declared_ranges() -> None:
+    class Dev(Component):
+        # 4 is deliberately isolated (a wider block returns garbage for it).
+        register_ranges = ((0, 2), (4, 4))
+        a = integer(0)
+        b = integer(1)
+        c = integer(2)
+        d = integer(4)
+
+    comp = Dev(MockModbusConnection().for_unit(1))
+    comp.restrict_fields(["a", "c", "d"])  # drop b (register 1)
+    # (0, 2) is split around 1; (4, 4) is left untouched, never merged.
+    assert comp.register_ranges == ((0, 0), (2, 2), (4, 4))
+
+
+async def test_restrict_fields_narrows_bit_fields() -> None:
+    class IO(Component):
+        coil_ranges = ((0, 3),)
+        a = coil(0)
+        b = coil(1)
+        c = coil(3)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils.update({0: True, 3: True})
+    inner.fail_read(1, ModbusExceptionError(2), register_type="coil")
+    io = IO(inner)
+    io.restrict_fields(["a", "c"])  # drop coil b (address 1)
+    await io.async_update()
+
+    assert io.coil_ranges == ((0, 0), (2, 3))
+    assert io.a is True and io.c is True and io.b is None
+
+
+async def test_restrict_fields_can_be_called_after_first_update() -> None:
+    boiler, _ = _boiler()
+    await boiler.async_update()
+    first_plan = boiler._plan
+    assert boiler.actual_high == 0  # read on the first update
+
+    boiler.restrict_fields(_SERVED)
+    assert boiler._plan is None  # the cached plan is invalidated
+    await boiler.async_update()
+
+    assert boiler._plan is not first_plan  # re-planned from the narrowed fields
+    assert boiler.actual_high is None  # its stale value was cleared
+
+
+def test_restrict_fields_rejects_unknown_name() -> None:
+    boiler = _Boiler(MockModbusConnection().for_unit(1), base_offset=2000)
+    with pytest.raises(ValueError, match="unknown field"):
+        boiler.restrict_fields(["t0", "nope"])
+
+
+def test_restrict_fields_rejects_repeating_group() -> None:
+    class Sub(Component):
+        v = integer(0)
+
+    class Parent(Component):
+        subs = repeating_group(2, Sub, stride=1)
+
+    parent = Parent(MockModbusConnection().for_unit(1))
+    with pytest.raises(ValueError, match="repeating_group"):
+        parent.restrict_fields([])

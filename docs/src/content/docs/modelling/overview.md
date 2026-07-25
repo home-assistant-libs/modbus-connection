@@ -111,6 +111,45 @@ class Thermostat(Component):
 With `register_ranges` declared, `max_gap` is ignored. Leave the ranges as the
 default `None` for a device with a contiguous map (plain gap-based planning).
 
+## Firmware-dependent register subsets
+
+Some devices serve only a **subset** of a known layout, and which registers they
+answer depends on the firmware — with no model or version register to key off. The
+layout is otherwise perfectly typed; only the served subset varies per device. A
+block read is atomic, so a single unserved register *inside* a block fails the whole
+read (see [above](#when-a-block-read-fails)) — and separating blocks onto their own
+components doesn't help when the served and unserved registers are interleaved.
+
+`Component.restrict_fields(names)` narrows a component to the fields the device
+actually serves. Probe the device once at setup to learn which fields answer, then
+keep those:
+
+```python
+boiler = Boiler(unit, base_offset=2000)
+boiler.restrict_fields(served_field_names)  # keep just these
+await boiler.async_update()  # stock update, reads only served registers
+```
+
+Narrowing the fields alone is not enough — the planner still pools a block across
+the addresses *between* the fields it keeps, so a dropped register in the middle of
+a block would still be read. `restrict_fields` therefore **reshapes the readable
+ranges in the same call**, so a block can only ever cover served addresses:
+
+- A declared `register_ranges` is only ever **split** at a dropped field's address,
+  never merged — so a range you deliberately kept narrow (because a wider block
+  returns garbage) stays narrow.
+- A space that declared no ranges has them **synthesised** from the kept fields when
+  it drops one; `max_gap` no longer governs that space.
+- A dropped field reads as `None` and can no longer be written (`write()` raises for
+  it, as the device doesn't serve it).
+
+It invalidates the cached plan, so call it any time — before or after the first
+update. It works on register and bit fields; a component that declares a
+[`repeating_group`](/modbus-connection/modelling/repeats/) is not supported and
+raises. Deriving `served_field_names` is up to you — a probe (a block read per range,
+falling back to single reads on a refusal) or an externally configured firmware
+variant — because interpreting what a device serves is device-specific.
+
 ## Register spaces: holding vs input
 
 A component's register fields default to the **holding** space (FC03). For a

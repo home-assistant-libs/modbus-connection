@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, overload
 
@@ -14,6 +15,8 @@ from ._planning import (
     ReadPlan,
     RegisterSpace,
     Space,
+    _plan_blocks,
+    _ranges_excluding,
 )
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
@@ -163,6 +166,99 @@ class Component(_ComponentBase):
         }
         return ReadPlan.build(
             self._read_items, ranges, max_gap=self.max_gap, max_span=self.max_span
+        )
+
+    def restrict_fields(self, names: Iterable[str]) -> None:
+        """Narrow this component to ``names`` and reshape its read plan.
+
+        For a device that serves only a firmware-dependent *subset* of this
+        component's registers — and refuses any block read spanning a register
+        it lacks — keep just the fields the device answers. Only the register
+        and bit fields in ``names`` are kept; the rest read as ``None`` and can
+        no longer be written.
+
+        Narrowing the fields alone is not enough: the planner still pools a
+        block across the addresses *between* the fields it keeps, so a dropped
+        register in the middle of a block would still be read. This therefore
+        reshapes the readable ranges in the same call, so a block can only ever
+        cover served addresses. Declared ranges are only ever *split* at a
+        dropped field's address, never merged — preserving any range you
+        deliberately kept narrow. A space that declared no ranges has them
+        synthesised from the kept fields when it drops one, and ``max_gap`` no
+        longer governs that space.
+
+        The cached read plan is invalidated, so this may be called before or
+        after the first update.
+
+        Raises ``ValueError`` for an unknown field name, or if the component
+        declares ``repeating_group`` fields (unsupported).
+        """
+        if self._static_groups or self._repeating_fields:
+            raise ValueError(
+                "restrict_fields is not supported on a component with "
+                "repeating_group fields"
+            )
+        keep = set(names)
+        unknown = keep - set(self._register_fields) - set(self._bit_fields)
+        if unknown:
+            raise ValueError(f"unknown field(s): {', '.join(sorted(unknown))}")
+
+        kept_registers = {n: f for n, f in self._register_fields.items() if n in keep}
+        kept_bits = {n: f for n, f in self._bit_fields.items() if n in keep}
+
+        self.register_ranges = self._reshaped_ranges(
+            self.register_ranges,
+            kept_registers.values(),
+            [f for n, f in self._register_fields.items() if n not in keep],
+        )
+        for space, attr in (("coil", "coil_ranges"), ("discrete", "discrete_ranges")):
+            setattr(
+                self,
+                attr,
+                self._reshaped_ranges(
+                    getattr(self, attr),
+                    [f for f in kept_bits.values() if f.space == space],
+                    [
+                        f
+                        for n, f in self._bit_fields.items()
+                        if f.space == space and n not in keep
+                    ],
+                ),
+            )
+
+        self._register_fields = kept_registers
+        self._bit_fields = kept_bits
+        # Drop any already-read value for a removed field so it reads as None,
+        # whether restrict_fields runs before or after the first update.
+        for name in [n for n in self._values if n not in keep]:
+            del self._values[name]
+        for name in [n for n in self._bits if n not in keep]:
+            del self._bits[name]
+        self.__dict__.pop("_read_items", None)
+        self._invalidate_group_cache()
+        self._invalidate_plan()
+
+    def _reshaped_ranges(
+        self,
+        declared: tuple[Range, ...] | None,
+        kept_fields: Iterable[RegisterField[Any] | _BitField],
+        dropped_fields: Iterable[RegisterField[Any] | _BitField],
+    ) -> tuple[Range, ...] | None:
+        """Reshape one space's ranges to exclude the dropped fields' addresses."""
+        excluded: set[int] = set()
+        for field in dropped_fields:
+            address = self._address(field)
+            excluded.update(range(address, address + field.count))
+        if not excluded:
+            return declared  # nothing dropped from this space — leave it as declared
+        if declared is not None:
+            return _ranges_excluding(declared, excluded)
+        spans = [(self._address(f), f.count) for f in kept_fields]
+        if not spans:
+            return declared  # every field in this space dropped — ranges unused
+        blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
+        return _ranges_excluding(
+            [(start, start + count - 1) for start, count in blocks], excluded
         )
 
     async def async_update(self) -> None:
