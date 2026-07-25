@@ -129,9 +129,9 @@ connection = PymodbusConnection(
 await connection.connect()
 ```
 
-A backend rejects params it doesn't carry when the connection is constructed.
-tmodbus has no UDP or ASCII-over-TCP transport — use the pymodbus backend for
-them.
+A backend rejects params it doesn't carry when the connection is constructed —
+see [Which backend?](/modbus-connection/getting-started/installation/#which-backend)
+for the transport matrix.
 
 :::note[Compatibility factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
@@ -212,8 +212,7 @@ Beyond these it also exposes the diagnostic and identification codes — excepti
 status (0x07), diagnostics (0x08), comm-event counter/log (0x0B / 0x0C),
 report-server-id (0x11), mask-write (0x16), read/write-registers (0x17), FIFO
 queue (0x18), file records (0x14 / 0x15), and device identification (0x2B/0x0E).
-A backend that cannot implement a code raises `NotImplementedError` (tmodbus does,
-for diagnostics and the comm-event codes).
+A backend that cannot implement a code raises `NotImplementedError`.
 
 The raw reads return lists of `int` (registers) or `bool` (bits) — no datatype
 decoding. That lives one layer up.
