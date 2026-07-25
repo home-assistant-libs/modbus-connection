@@ -96,11 +96,15 @@ class ModbusConnection(BaseModbusConnection):
 
     async def close(self) -> None:
         self._closing = True
+        self._closed = True
         client = self._client
         if client is None:
             return
         self._client = None
         self._unit_clients.clear()
+        await self._close_client(client)
+
+    async def _close_client(self, client: AsyncModbusClient) -> None:
         try:
             await client.disconnect()
         except (TModbusError, OSError) as err:

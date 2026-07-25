@@ -14,6 +14,7 @@ from tmodbus.exceptions import TModbusError
 import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import (
+    ClientClosedError,
     ModbusConnectionError,
     ModbusTcpParams,
     ModbusTimeoutError,
@@ -140,6 +141,12 @@ async def test_tmodbus_close_maps_backend_error() -> None:
 
 
 # -- neutral type shape -------------------------------------------------------
+
+
+def test_client_closed_error_is_a_connection_error() -> None:
+    # Existing handlers that catch ModbusConnectionError (or ModbusError) keep
+    # catching the more specific use-after-close error.
+    assert issubclass(ClientClosedError, ModbusConnectionError)
 
 
 def test_modbus_timeout_error_is_builtin_timeout_error() -> None:

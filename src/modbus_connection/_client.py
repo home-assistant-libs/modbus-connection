@@ -7,11 +7,13 @@ import ssl
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
 from ._tls import build_tls_context
+from .exceptions import ClientClosedError
 
 if TYPE_CHECKING:
     from ._protocol import ModbusUnit
@@ -165,12 +167,13 @@ class BaseModbusConnection(ABC):
 
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
-    **no I/O**; ``connect()`` establishes the link (the backends'
-    ``connect_*`` factories do exactly that before returning). Consumers NEVER
-    receive this object — only a ``ModbusUnit`` from ``for_unit``. It is held
-    by the connection's OWNER, and only the owner tears it down with ``close()``;
-    reconnecting after a drop is likewise the owner's job — by calling
-    ``connect()`` again.
+    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
+    factories do exactly that before returning). Consumers NEVER receive this
+    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
+    connection's OWNER, and only the owner tears it down with ``close()`` —
+    which is permanent: reconnecting after a drop is the owner's job (by
+    calling ``connect()`` again), but after ``close()`` every ``connect()``
+    raises ``ClientClosedError``.
     """
 
     def __init__(
@@ -185,6 +188,7 @@ class BaseModbusConnection(ABC):
         self._pacer = Pacer(message_spacing)
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
+        self._closed = False
         # The connected backend client; ``None`` whenever the link is down (not
         # yet connected, dropped, or closed).
         self._client: Any = None
@@ -199,11 +203,23 @@ class BaseModbusConnection(ABC):
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
         reconnects. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``)
-        if the link cannot be established.
+        if the link cannot be established, and ``ClientClosedError`` once the
+        connection was ``close()``\\d.
         """
+        if self._closed:
+            raise ClientClosedError("connection is closed")
         if self._client is not None:
             return
-        self._client = await self._connect_client()
+        client = await self._connect_client()
+        if self._closed:
+            # A concurrent close() marked the connection closed while this
+            # client was still being established; dispose of it and refuse.
+            try:
+                await self._close_client(client)
+            except Exception:
+                pass
+            raise ClientClosedError("connection is closed")
+        self._client = client
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
@@ -215,7 +231,11 @@ class BaseModbusConnection(ABC):
 
     @abstractmethod
     async def close(self) -> None:
-        """Tear the connection down — owner only."""
+        """Tear the connection down — owner only, idempotent, and permanent.
+
+        After ``close()`` the connection never reconnects; any later
+        ``connect()`` raises ``ClientClosedError``.
+        """
 
     # -- backend hooks ----------------------------------------------------------
 
@@ -223,3 +243,12 @@ class BaseModbusConnection(ABC):
     async def _connect_client(self) -> Any:
         """Build, connect, and return a backend client from ``self._params``,
         mapping failures onto the neutral hierarchy."""
+
+    async def _close_client(self, client: Any) -> None:
+        """Close one backend client; concrete backends override to map errors."""
+        close = getattr(client, "close", None) or getattr(client, "disconnect", None)
+        if close is None:
+            return
+        result = close()
+        if isawaitable(result):
+            await result
