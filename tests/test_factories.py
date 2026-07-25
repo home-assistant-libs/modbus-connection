@@ -1,10 +1,4 @@
-"""The eager connect factories: immediate initial connect, then self-healing.
-
-Unlike direct ``ModbusConnection(params)`` construction, ``connect_*`` performs
-the first connect before returning — an unreachable device raises from the
-factory call itself. The returned object is the same lazy connection, so the
-reconnect semantics afterwards are identical.
-"""
+"""The eager connect factories."""
 
 from __future__ import annotations
 
@@ -55,13 +49,13 @@ async def test_connect_tcp_unreachable_raises_immediately(backend: ModuleType) -
 
 
 async def test_tmodbus_connect_udp_rejected() -> None:
-    """tmodbus ships no UDP transport: connect_udp surfaces the constructor error."""
+    """connect_udp surfaces the constructor error."""
     with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
         await tmodbus_backend.connect_udp("127.0.0.1", port=502)
 
 
 async def test_tmodbus_connect_tcp_ascii_rejected() -> None:
-    """tmodbus has no ASCII-over-TCP transport: framer="ascii" is rejected."""
+    """connect_tcp surfaces the constructor error for a rejected framer."""
     with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
         await tmodbus_backend.connect_tcp("127.0.0.1", framer="ascii")
 
