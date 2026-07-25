@@ -7,6 +7,7 @@ import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
+from tenacity import AsyncRetrying, retry_never, stop_after_delay, wait_exponential
 from tmodbus import (
     AsyncModbusClient,
     create_async_ascii_client,
@@ -56,6 +57,19 @@ __all__ = [
 # to derive per-unit handles (``for_unit_id``), so its own binding is never used
 # for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
 _PLACEHOLDER_UNIT_ID = 1
+
+# The strategy tmodbus applies to a device that answers busy. Supplying one
+# replaces tmodbus's default wholesale, so the stop and wait repeat its values;
+# ``retry_never`` adds no retry reason of ours (tmodbus unions this predicate
+# with its own). ``reraise`` is the reason we supply a strategy at all: once the
+# bound is reached it surfaces the device's busy response, so a permanently busy
+# device reads as busy rather than as tmodbus's retries-exhausted timeout.
+_RESPONSE_RETRIES = AsyncRetrying(
+    retry=retry_never,
+    stop=stop_after_delay(60),
+    wait=wait_exponential(min=0.1, max=10),
+    reraise=True,
+)
 
 
 class ModbusConnection(BaseModbusConnection):
@@ -129,6 +143,8 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
                 on_connection_lost=self._on_connection_lost,
             )
         assert not isinstance(params, ModbusUdpParams)  # rejected at construction
@@ -139,6 +155,8 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
                 ssl=await params.create_ssl_context(),
                 on_connection_lost=self._on_connection_lost,
             )
@@ -157,6 +175,8 @@ class ModbusConnection(BaseModbusConnection):
             parity=params.parity,  # type: ignore[arg-type]
             stopbits=params.stopbits,  # type: ignore[arg-type]
             auto_reconnect=False,
+            response_retry_strategy=_RESPONSE_RETRIES,
+            retry_on_device_failure=False,
             on_connection_lost=self._on_connection_lost,
         )
 
@@ -180,6 +200,11 @@ def _map_errors[**P, R](
     Decorates ``TmodbusUnit`` methods so each body just calls the client
     directly. Every request first establishes the link on demand via the
     owner's ``connect()``, so a handle can be used without an explicit connect.
+
+    Every failure is raised — nothing is replayed here, and tmodbus only
+    retransmits a request the device answered busy. A dropped link is reported
+    by the transport's connection-lost hook, which clears the dead client so the
+    *next* request reconnects.
     """
 
     @functools.wraps(func)
