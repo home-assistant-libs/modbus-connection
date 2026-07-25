@@ -53,12 +53,6 @@ teardown.
 
 ### `ClientClosedError`
 
-A request was attempted on a connection after its owner called `close()`. A
-closed connection never reconnects; the owner must construct a new one. It
-subclasses `ModbusConnectionError`, so existing handlers keep catching it.
-
-### `ClientClosedError`
-
 A request or `connect()` was attempted on a connection after its owner called
 `close()`. A closed connection never reconnects; the owner must construct a new
 one.
