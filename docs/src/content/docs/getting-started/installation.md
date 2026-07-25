@@ -19,7 +19,7 @@ You can install both extras if you want to choose the backend at runtime — the
 ## Which backend?
 
 Both backends implement the same Protocols, so device code typed against
-`ModbusUnit` runs unchanged over either. They differ only in transport coverage
+`ModbusUnit` runs unchanged over either. They differ in transport coverage
 and a few edge behaviours:
 
 | | pymodbus | tmodbus |
@@ -29,11 +29,17 @@ and a few edge behaviours:
 | Serial (RTU / ASCII) | ✅ | ✅ |
 | TLS (Modbus Security) | ✅ | ✅ |
 | Distinguishes a garbled reply from a missing one | ❌ (both become a timeout) | ✅ (`ModbusProtocolError`) |
+| Answers a busy device (`SERVER_DEVICE_BUSY`) | surfaces it | retransmits, then surfaces it |
 
 Both backends do native Modbus TCP and RTU-over-TCP. tmodbus has no
 ASCII-over-TCP (ASCII exists only on the serial side) and no UDP — use pymodbus if
 you need either. Otherwise the choice is yours; tmodbus reports protocol errors
-more precisely.
+more precisely, and it retransmits a request the device answered busy until the
+device is ready or a minute has passed, where pymodbus hands you the busy
+response straight away.
+
+Neither backend replays a request for any other reason: a timeout, a dropped
+link, or an exception response is raised on the first attempt.
 
 ## Verifying the install
 

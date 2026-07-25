@@ -7,6 +7,7 @@ import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
+from tenacity import AsyncRetrying, retry_never, stop_after_delay, wait_exponential
 from tmodbus import (
     AsyncModbusClient,
     create_async_ascii_client,
@@ -17,7 +18,6 @@ from tmodbus import (
 from tmodbus.exceptions import (
     InvalidResponseError,
     ModbusResponseError,
-    RequestRetryFailedError,
     TModbusError,
 )
 from tmodbus.exceptions import (
@@ -56,6 +56,15 @@ __all__ = [
 # to derive per-unit handles (``for_unit_id``), so its own binding is never used
 # for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
 _PLACEHOLDER_UNIT_ID = 1
+
+# Repeats tmodbus's own bounds; ``reraise`` is what we are after, so an
+# exhausted retry surfaces the device's busy response rather than a timeout.
+_RESPONSE_RETRIES = AsyncRetrying(
+    retry=retry_never,
+    stop=stop_after_delay(60),
+    wait=wait_exponential(min=0.1, max=10),
+    reraise=True,
+)
 
 
 class ModbusConnection(BaseModbusConnection):
@@ -129,6 +138,8 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
                 on_connection_lost=self._on_connection_lost,
             )
         assert not isinstance(params, ModbusUdpParams)  # rejected at construction
@@ -139,6 +150,8 @@ class ModbusConnection(BaseModbusConnection):
                 unit_id=_PLACEHOLDER_UNIT_ID,
                 timeout=self._timeout,
                 auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
                 ssl=await params.create_ssl_context(),
                 on_connection_lost=self._on_connection_lost,
             )
@@ -157,6 +170,8 @@ class ModbusConnection(BaseModbusConnection):
             parity=params.parity,  # type: ignore[arg-type]
             stopbits=params.stopbits,  # type: ignore[arg-type]
             auto_reconnect=False,
+            response_retry_strategy=_RESPONSE_RETRIES,
+            retry_on_device_failure=False,
             on_connection_lost=self._on_connection_lost,
         )
 
@@ -190,7 +205,7 @@ def _map_errors[**P, R](
                 return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
             raise ModbusConnectionError(str(err)) from err
-        except (TimeoutError, RequestRetryFailedError) as err:
+        except TimeoutError as err:
             raise ModbusTimeoutError(str(err)) from err
         except InvalidResponseError as err:
             raise ModbusProtocolError(str(err)) from err

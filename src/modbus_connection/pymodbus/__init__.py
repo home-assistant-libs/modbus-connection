@@ -186,6 +186,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -196,6 +197,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType(params.framer),
                 trace_connect=self._on_trace_connect,
             )
@@ -207,6 +209,7 @@ class ModbusConnection(BaseModbusConnection):
                 timeout=self._timeout,
                 name="modbus_connection",
                 reconnect_delay=0,
+                retries=0,
                 framer=FramerType.TLS,
                 trace_connect=self._on_trace_connect,
             )
@@ -220,6 +223,7 @@ class ModbusConnection(BaseModbusConnection):
             timeout=self._timeout,
             name="modbus_connection",
             reconnect_delay=0,
+            retries=0,
             trace_connect=self._on_trace_connect,
         )
 
