@@ -171,27 +171,8 @@ class Component(_ComponentBase):
     def restrict_fields(self, names: Iterable[str]) -> None:
         """Narrow this component to ``names`` and reshape its read plan.
 
-        For a device that serves only a firmware-dependent *subset* of this
-        component's registers — and refuses any block read spanning a register
-        it lacks — keep just the fields the device answers. Only the register
-        and bit fields in ``names`` are kept; the rest read as ``None`` and can
-        no longer be written.
-
-        Narrowing the fields alone is not enough: the planner still pools a
-        block across the addresses *between* the fields it keeps, so a dropped
-        register in the middle of a block would still be read. This therefore
-        reshapes the readable ranges in the same call, so a block can only ever
-        cover served addresses. Declared ranges are only ever *split* at a
-        dropped field's address, never merged — preserving any range you
-        deliberately kept narrow. A space that declared no ranges has them
-        synthesised from the kept fields when it drops one, and ``max_gap`` no
-        longer governs that space.
-
-        The cached read plan is invalidated, so this may be called before or
-        after the first update.
-
-        Raises ``ValueError`` for an unknown field name, or if the component
-        declares ``repeating_group`` fields (unsupported).
+        Only the fields in ``names`` are kept; excluded fields read as ``None``
+        and can no longer be written.
         """
         if self._static_groups or self._repeating_fields:
             raise ValueError(

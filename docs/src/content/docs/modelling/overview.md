@@ -130,26 +130,6 @@ boiler.restrict_fields(served_field_names)  # keep just these
 await boiler.async_update()  # stock update, reads only served registers
 ```
 
-Narrowing the fields alone is not enough — the planner still pools a block across
-the addresses *between* the fields it keeps, so a dropped register in the middle of
-a block would still be read. `restrict_fields` therefore **reshapes the readable
-ranges in the same call**, so a block can only ever cover served addresses:
-
-- A declared `register_ranges` is only ever **split** at a dropped field's address,
-  never merged — so a range you deliberately kept narrow (because a wider block
-  returns garbage) stays narrow.
-- A space that declared no ranges has them **synthesised** from the kept fields when
-  it drops one; `max_gap` no longer governs that space.
-- A dropped field reads as `None` and can no longer be written (`write()` raises for
-  it, as the device doesn't serve it).
-
-It invalidates the cached plan, so call it any time — before or after the first
-update. It works on register and bit fields; a component that declares a
-[`repeating_group`](/modbus-connection/modelling/repeats/) is not supported and
-raises. Deriving `served_field_names` is up to you — a probe (a block read per range,
-falling back to single reads on a refusal) or an externally configured firmware
-variant — because interpreting what a device serves is device-specific.
-
 ## Register spaces: holding vs input
 
 A component's register fields default to the **holding** space (FC03). For a
