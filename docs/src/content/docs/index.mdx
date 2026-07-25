@@ -18,10 +18,9 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 **modbus-connection** is two things in one package:
 
-1. A **connection abstraction** — the abstract `ModbusConnection` and the
-   `ModbusUnit`
-   [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
-   lets you type against Modbus without committing to a backend. Two
+1. A **connection abstraction** — the abstract `ModbusConnection` class and
+   `ModbusUnit` protocol — that lets you type against Modbus without committing
+   to a backend. Two
    interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
    [pymodbus](https://github.com/pymodbus-dev/pymodbus), implement it.
 2. An optional **device-modelling framework** (`modbus_connection.model`) that
