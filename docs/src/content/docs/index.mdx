@@ -18,11 +18,11 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 **modbus-connection** is two things in one package:
 
-1. A **connection abstraction** — the `ModbusConnection` and `ModbusUnit`
-   [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html) — that
-   lets you type against Modbus without committing to a backend. Two
-   interchangeable backends, [pymodbus](https://github.com/pymodbus-dev/pymodbus)
-   and [tmodbus](https://github.com/wlcrs/tmodbus), implement it.
+1. A **connection abstraction** — the abstract `ModbusConnection` class and
+   `ModbusUnit` protocol — that lets you type against Modbus without committing
+   to a backend. Two
+   interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
+   [pymodbus](https://github.com/pymodbus-dev/pymodbus), implement it.
 2. An optional **device-modelling framework** (`modbus_connection.model`) that
    maps a device's registers and coils to typed Python attributes and reads the
    whole device — or one sub-system — in as few Modbus calls as possible.
@@ -32,7 +32,7 @@ you can build a device library once and let the consumer choose the backend.
 
 ## Example
 
-Model a device once, then connect, update, read, and write it. The optional
+Model a device once, then construct, update, read, and write it. The optional
 `modbus_connection.model` framework maps a device's registers and coils to typed
 attributes and reads the whole device in as few Modbus calls as possible.
 
@@ -41,7 +41,7 @@ import asyncio
 
 from modbus_connection import ModbusTcpParams
 from modbus_connection.model import Component, gauge, uint32, coil
-from modbus_connection.tmodbus import TmodbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 
 
 class Meter(Component):
@@ -59,9 +59,8 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
-        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()        # one pooled block read
@@ -81,13 +80,11 @@ asyncio.run(main())
   <Card title="ModbusConnection" icon="random">
     The shared link to a Modbus network. One physical link addresses many units
     (1–247). It is **transient and owner-held**: construct a backend connection
-    from shared parameters, then connect it before I/O. Only the owner ever
-    holds it, and only the owner tears it down with `close()`.
+    from shared parameters; the first unit operation connects on demand. Only
+    the owner ever holds it, and only the owner tears it down with `close()`.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
-    It has no lifecycle methods — a consumer cannot connect or close the link it
-    rides on. Every method **raises** on failure; it never returns `None`.
   </Card>
 </CardGrid>
 
@@ -103,12 +100,12 @@ this abstraction makes possible while keeping the backend swappable.
 <CardGrid>
   <LinkCard
     title="Connections and units"
-    description="Connection parameters, transports, TLS, message spacing, and the raw ModbusUnit surface."
+    description="Connection ownership, lifecycle, and per-unit handles."
     href="/modbus-connection/getting-started/connections-and-units/"
   />
   <LinkCard
     title="Device modelling"
-    description="Map registers and coils to typed attributes with Component and the field factories."
+    description="Map registers and coils to typed attributes with Component and the built-in fields."
     href="/modbus-connection/modelling/overview/"
   />
   <LinkCard
@@ -123,7 +120,7 @@ this abstraction makes possible while keeping the backend swappable.
   />
   <LinkCard
     title="Building a library"
-    description="How a device library's entrypoint and a standalone query helper come together."
+    description="Structure a device library around components and one typed entrypoint."
     href="/modbus-connection/patterns/library/"
   />
   <LinkCard

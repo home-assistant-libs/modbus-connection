@@ -38,9 +38,7 @@ class ModbusTcpParams:
     """TCP port."""
 
     framer: Literal["socket", "rtu", "ascii"] = "socket"
-    """Wire framing: ``"socket"`` for native Modbus TCP (MBAP), ``"rtu"`` for
-    RTU-over-TCP — what transparent serial-to-Ethernet gateways speak — or
-    ``"ascii"`` for ASCII frames tunnelled over the TCP stream."""
+    """Wire framing."""
 
     def __post_init__(self) -> None:
         """Validate the wire framing."""
@@ -61,8 +59,7 @@ class ModbusUdpParams:
     """UDP port."""
 
     framer: Literal["socket", "rtu", "ascii"] = "socket"
-    """Wire framing, same choices as TCP: ``"socket"`` for native Modbus
-    (MBAP), ``"rtu"``, or ``"ascii"``."""
+    """Wire framing."""
 
     def __post_init__(self) -> None:
         """Validate the wire framing."""
@@ -83,19 +80,13 @@ class ModbusTlsParams:
     """TLS port."""
 
     verify: bool | str = True
-    """How the device's certificate is checked (the ``httpx`` convention):
-    ``True`` verifies against the system trust store, ``False`` disables
-    verification (self-signed devices), and a path (``str``) verifies against
-    a CA bundle file or directory of CAs (e.g. to pin a device's own
-    self-signed certificate)."""
+    """Whether and how to verify the server certificate."""
 
     check_hostname: bool = True
-    """Match the certificate against the host name while verifying; ignored
-    when ``verify`` is ``False``."""
+    """Whether to verify the certificate hostname."""
 
     client_cert: str | None = None
-    """Path to this side's own certificate, presented to the device
-    (mutual TLS)."""
+    """Path to the client certificate."""
 
     client_key: str | None = None
     """Path to the private key belonging to ``client_cert``."""
@@ -104,8 +95,7 @@ class ModbusTlsParams:
     """Password for ``client_key``, if it is encrypted."""
 
     sslctx: ssl.SSLContext | None = None
-    """A ready-made TLS context. When supplied, it is used as-is and overrides
-    ``verify``, ``check_hostname``, and the client-certificate fields."""
+    """TLS context overriding the other TLS options."""
 
     async def create_ssl_context(self) -> ssl.SSLContext:
         """Return the supplied TLS context or build one from these parameters."""
@@ -141,8 +131,7 @@ class ModbusSerialParams:
     """Stop bits per character."""
 
     framer: Literal["rtu", "ascii"] = "rtu"
-    """Serial framing: ``"rtu"`` for binary Modbus RTU (the default) or
-    ``"ascii"`` for the ASCII transmission mode."""
+    """Serial framing."""
 
     def __post_init__(self) -> None:
         """Validate the serial framing."""
@@ -162,18 +151,7 @@ def _target(params: ModbusParams) -> str:
 
 
 class BaseModbusConnection(ABC):
-    """A shared, internally-serialized link to a Modbus network.
-
-    The concrete classes are the backends' connection types. Construction takes
-    only the params dataclass — the credentials for every connect — and does
-    **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
-    factories do exactly that before returning). Every unit request also calls
-    ``connect()`` first, so the link is established on demand and, after a drop,
-    the next request reconnects. Consumers NEVER receive this object — only a
-    ``ModbusUnit`` from ``for_unit``. It is held by the connection's OWNER, and
-    only the owner tears it down with ``close()`` — which is permanent: after
-    ``close()`` every ``connect()`` raises ``ClientClosedError``.
-    """
+    """Represent a shared link to a Modbus network."""
 
     def __init__(
         self,
@@ -201,13 +179,8 @@ class BaseModbusConnection(ABC):
     async def connect(self) -> None:
         """Establish the connection; a no-op if already connected.
 
-        Builds and connects a fresh backend client from the stored params —
-        after a drop the dead client was cleared, so calling this again
-        reconnects. Concurrent callers share one in-flight attempt and its
-        result; cancelling one caller leaves that attempt running for the
-        others. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if
-        the link cannot be established, and ``ClientClosedError`` once the
-        connection was ``close()``\\d.
+        Raises ``ModbusConnectionError`` if the connection fails and
+        ``ClientClosedError`` if the connection was closed.
         """
         if self._closed:
             raise ClientClosedError("connection is closed")
@@ -247,11 +220,7 @@ class BaseModbusConnection(ABC):
         return self._lost_callbacks.subscribe(callback)
 
     async def close(self) -> None:
-        """Tear the connection down — owner only, idempotent, and permanent.
-
-        After ``close()`` the connection never reconnects; any later
-        ``connect()`` raises ``ClientClosedError``.
-        """
+        """Close the connection permanently."""
         self._closed = True
         if (task := self._connect_task) is not None:
             # Wait the shared connect attempt out; shielded so cancelling this
@@ -270,10 +239,8 @@ class BaseModbusConnection(ABC):
 
     @abstractmethod
     async def _connect_client(self) -> Any:
-        """Build, connect, and return a backend client from ``self._params``,
-        mapping failures onto the neutral hierarchy."""
+        """Build and connect a client."""
 
     @abstractmethod
     async def _close_client(self, client: Any) -> None:
-        """Tear one backend client down, mapping failures onto the neutral
-        hierarchy."""
+        """Close a client."""

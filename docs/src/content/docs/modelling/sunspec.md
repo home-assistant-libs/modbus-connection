@@ -1,5 +1,5 @@
 ---
-title: SunSpec
+title: SunSpec fields
 description: SunSpec point types as ready-made model fields, pre-wired with their unimplemented sentinels and scale-factor registers.
 ---
 
@@ -7,10 +7,10 @@ description: SunSpec point types as ready-made model fields, pre-wired with thei
 most PV inverters, meters and batteries. Each point has a fixed data type and a
 reserved *unimplemented* value the device sends when the point is absent.
 
-`modbus_connection.model.sunspec` provides field factories that build model fields
+`modbus_connection.model.sunspec` provides helpers that build model fields
 with the right width, sign and sentinel — so an unimplemented point decodes to
 `None` automatically. They are the same fields you'd otherwise hand-roll with the
-[generic factories](/modbus-connection/modelling/fields/), minus the boilerplate.
+[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate.
 
 ```python
 from modbus_connection.model import Component
@@ -51,10 +51,10 @@ to `None`, and a write with one raises `ValueError`.
 
 ## Numeric points
 
-Each factory bakes in the SunSpec "unimplemented" sentinel for its type, so an
+Each helper bakes in the SunSpec "unimplemented" sentinel for its type, so an
 absent point decodes to `None`.
 
-| Factory | Registers | Sentinel |
+| Helper | Registers | Sentinel |
 | --- | --- | --- |
 | `int16` | 1 | `0x8000` |
 | `uint16` | 1 | `0xFFFF` |
@@ -75,7 +75,7 @@ Accumulators are monotonic counters; SunSpec uses `0` to mean "not accumulated",
 which decodes to `None`. An accumulator may reference a scale-factor register
 like the numeric points do.
 
-| Factory | Registers |
+| Helper | Registers |
 | --- | --- |
 | `acc16` | 1 |
 | `acc32` | 2 |
@@ -185,103 +185,5 @@ class Meter(Component):
 See [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story
 on `base_offset`, `stride`, and `index`.
 
-## Model discovery
-
-A SunSpec device advertises which models it implements: a `"SunS"` marker at
-the device's base address, then a chain of models, each a 2-register header
-(model ID, data length) followed by that many data registers, terminated by
-model ID `0xFFFF`. `scan` walks the chain:
-
-```python
-from modbus_connection.model.sunspec import scan
-
-models = await scan(unit, 40000)  # -> dict[int, list[SunSpecModel]]
-```
-
-`base_address` is the 0-based address of the marker — the spec sanctions 0,
-40000 and 50000, and an integration knows which one its manufacturer uses.
-The result maps each model ID to its occurrences in chain order: the same ID
-can appear more than once (e.g. several meters), and vendor models
-(ID ≥ 64000) appear like any other. Each `SunSpecModel` carries `model_id`,
-`address` (of the header) and `length`.
-
-## Components at discovered models
-
-`SunSpecComponent` is the base for a component placed at a discovered model.
-Declare its fields relative to the model start — the header sits at 0/1, the
-data block starts at 2 — and construct it with the discovered model:
-
-```python
-from modbus_connection.model.sunspec import SunSpecComponent, sunssf, uint16
-
-
-class Inverter(SunSpecComponent):  # SunSpec model 103, relative layout
-    a = uint16(2, scale_register=6)  # AC current, scaled by A_SF at data+4
-    a_sf = sunssf(6)
-
-
-if (found := models.get(103)) is not None:
-    inv = Inverter(unit, found[0])
-```
-
-`base_offset` places every address, including `scale_register` and any
-`repeating_group`. The model header is verified on every update — own or
-pooled through a `ComponentGroup` — because devices shift the register map
-when a configuration change resizes a model; a mismatch raises
-`SunSpecMapShiftError` (a `SunSpecError`), and the owner recovers by
-re-scanning and building new components at the new addresses (the read plan
-is cached per instance).
-
-## Generating components from the official definitions
-
-SunSpec publishes every standard model as JSON in
-[sunspec/models](https://github.com/sunspec/models). The generator is a helper
-to get an integration started: it turns those definitions into base classes —
-one `SunSpecComponent` subclass per model, with every point wired up:
-
-```bash
-python -m modbus_connection.model.sunspec.generate 1 103 160 -o sunspec_models.py
-```
-
-Arguments are model IDs (fetched from the official repository) or paths to
-local `model_N.json` files; without `-o` the module prints to stdout. The
-output is ordinary source, not a build artifact: commit it to your integration
-as a starting point. Devices routinely deviate from the published models —
-points left unimplemented, vendor quirks, off-spec sentinels or addresses —
-so expect to trim and adjust the generated classes to your manufacturer's
-actual implementation. Classes are named after the model's own name (model
-103 is `InverterThreePhase`), falling back to a `Model<id>` suffix when two
-generated models share a name. Pair them with [`scan`](#model-discovery):
-
-```python
-class OperatingState(IntEnum):
-    OFF = 1
-    SLEEPING = 2
-    ...
-
-
-class InverterThreePhase(SunSpecComponent):
-    """SunSpec model 103: Inverter (Three Phase)."""
-
-    a = uint16(2, scale_register=6, unit="A")
-    """Amps. AC Current."""
-
-    st = enum16(38, OperatingState)
-    """Operating State."""
-```
-
-```python
-models = await scan(unit, 40000)
-if (found := models.get(103)) is not None:
-    inverter = InverterThreePhase(unit, found[0])
-```
-
-Not every model can be fully wired statically yet. Geometry only the device
-knows — model 705's curves are each sized by the device's `NPt`, so their
-stride isn't in the definition — still gets its classes, with a commented-out
-`repeating_group` line to fill in at runtime instead of wiring it wrong. What
-generates an error rather than a wrong layout: a block placed after a
-device-sized sibling (its address is unknowable), a block mixing in-block and
-fixed-block scale factors, a point scaled by a factor in an enclosing
-repeating block, and unknown point types or count references. Everything else
-in the official catalogue generates.
+Continue with [SunSpec discovery](/modbus-connection/modelling/sunspec-discovery/)
+to locate models on a device.

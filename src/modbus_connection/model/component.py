@@ -23,41 +23,7 @@ if TYPE_CHECKING:
 
 
 class Component(_ComponentBase):
-    """A device sub-system whose attributes map to registers, coils and inputs.
-
-    Subclasses declare ``RegisterField`` / ``CoilField`` / ``DiscreteInputField``
-    descriptors (usually via the typed factories). Each component reads only its
-    own registers, so it can refresh independently; listeners registered via
-    :meth:`add_update_listener` fire after each update.
-
-    Register fields live in one space, holding (FC03, default) or input (FC04) via
-    :attr:`register_space`; input registers are read-only. Bit fields carry their
-    own space — ``coil`` (FC01, writable) and ``discrete_input`` (FC02, read-only)
-    — may be mixed, and are read separately. Declare :attr:`register_ranges` /
-    :attr:`coil_ranges` / :attr:`discrete_ranges` (as class attributes or per
-    instance) so pooled reads never cross an unreadable gap.
-
-    ``base_offset`` places the whole declared layout at another base address:
-    it is added to **every** address the component touches — fields, bits,
-    :func:`repeating_group` counts and ``scale_register`` addresses — on reads
-    and writes alike. Declare the layout once (relative to the block start,
-    or at a default location) and instantiate it wherever the block actually
-    sits, e.g. a SunSpec model at its discovered address. Repeated identical
-    sub-units are addressed per instance instead: pass ``index`` (1-based) with
-    a per-field ``stride`` (the two compose as
-    ``field.address + field.stride * (index - 1)``, with ``scale_register``
-    following ``scale_register_stride``), or model them as a
-    :func:`repeating_group` — its instances shift per instance while their
-    ``scale_register`` addresses keep following the parent's block, since a
-    repeating block's scale factors usually sit in the shared fixed part of the
-    model. A sub-unit that instead carries its own scale factors sets the
-    :attr:`scale_in_block` class attribute, moving each instance's scale
-    registers with its shift too.
-
-    The read plan is derived from the static field layout and cached on the first
-    :meth:`async_update`. The fields and ranges are read once then; to change the
-    layout, build a new component.
-    """
+    """Map a device subsystem to typed register and bit attributes."""
 
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
@@ -145,14 +111,7 @@ class Component(_ComponentBase):
         return self.register_space
 
     def _scale_address(self, field: RegisterField[Any]) -> int:
-        """Resolve a field's scale-register address.
-
-        Scale registers move with the block (``base_offset``) but not with a
-        repeating instance's shift — a repeated sub-unit's scale factors sit
-        in the parent's shared fixed block. A sub-unit that sets
-        ``scale_in_block`` moves its scale registers with the instance shift
-        too — a block that carries its own scale factors.
-        """
+        """Resolve a field's scale-register address."""
         assert field.scale_register is not None
         address = (
             field.scale_register
@@ -175,11 +134,7 @@ class Component(_ComponentBase):
 
     @cached_property
     def _read_items(self) -> list[ReadItem]:
-        """This component's read targets, scale registers resolved.
-
-        Derived once from the static field layout and cached for the instance's
-        life; do not mutate the field set afterwards.
-        """
+        """Return this component's read targets."""
         items = []
         for field in self._register_fields.values():
             scale_address = (
@@ -211,23 +166,9 @@ class Component(_ComponentBase):
         )
 
     async def async_update(self) -> None:
-        """Read this component's registers and coils, then notify listeners.
+        """Read this component and notify its listeners.
 
-        Reads only this sub-system's own registers, so it can refresh on its own.
-        A device that owns several components can instead pool them into one
-        bulk read with a :class:`ComponentGroup`. The block plan is built on the
-        first call and reused on later polls.
-
-        A :func:`repeating_group` field needs a second pass: the first read
-        fetches the count (it is part of the read plan), then
-        :meth:`async_update_repeating_groups` reads the sized-out instances.
-
-        If the device answers one of the block reads with a Modbus exception
-        response (e.g. illegal data address), this raises
-        :class:`~modbus_connection.exceptions.BlockReadError` and the update is not
-        partially applied — an exception on any block fails the whole update. A
-        device with genuinely optional blocks should read those on a separate
-        component so their absence doesn't fail this update.
+        Raises ``BlockReadError`` if the device rejects a block.
         """
         await self._refresh(collect_raw=False)
 
@@ -236,14 +177,8 @@ class Component(_ComponentBase):
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
 
-        Applies the field's ``index`` / ``stride`` / ``base_offset`` to resolve the
-        address, then defers to the shared write path (``writable`` validator,
-        FC06 / FC16 / ``force_fc16``); see :func:`._writing.write_register_field`.
-        A dynamically-scaled field reads its scale factor fresh in the same
-        write and encodes the value with it; a not-implemented scale factor
-        raises ``ValueError``. Writing a read-only field or space raises
-        ``AttributeError``. Override in a subclass for device-specific write
-        sequencing.
+        Raises ``AttributeError`` for an unknown or read-only field and
+        ``ValueError`` if the value cannot be scaled.
         """
         if field in self._register_fields:
             register = self._register_fields[field]
@@ -271,12 +206,7 @@ class Component(_ComponentBase):
 
 
 class RepeatingGroupField[C: Component]:
-    """A list of sub-component instances whose length is read at poll time.
-
-    Built by :func:`repeating_group`. Placed as a descriptor on a parent
-    ``Component``; reading the attribute returns the ``list`` of instances from
-    the last update (empty before the first), each a fully typed ``C``.
-    """
+    """Describe repeated subcomponents."""
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
 
@@ -310,36 +240,9 @@ def repeating_group[C: Component](
     *,
     stride: int,
 ) -> RepeatingGroupField[C]:
-    """A repeated sub-block whose instance count is read from a register at poll time.
+    """Create a repeated subcomponent field.
 
-    Declares, on a parent ``Component``, a list of ``component_class`` instances
-    sized at runtime — the runtime-counted counterpart to ``index`` / ``stride``,
-    for a device that advertises its repeat count (a SunSpec multiple-MPPT model's
-    ``N`` point, a meter's channel count) instead of fixing it in the layout::
-
-        class MPPTModule(Component):              # one module, at instance 0
-            dc_w = integer(11, scale_register=2)
-            dc_v = integer(10, scale_register=1)
-
-        class Inverter(Component):
-            modules = repeating_group(uint16(8), MPPTModule, stride=20)
-
-        inv = Inverter(unit)
-        await inv.async_update()
-        inv.modules              # list[MPPTModule]
-        inv.modules[0].dc_w      # typed per-instance access; writes via the instance
-
-    ``count`` is a :class:`RegisterField` read each poll, or a fixed ``int`` —
-    a fixed count is static, so its instances fold into the parent's normal read
-    instead of taking the two-phase path. ``component_class`` models one instance
-    at instance 0's addresses; instance *i* is read at ``base_offset = i * stride``
-    (so ``stride`` is the block length). An unimplemented or unreadable count
-    yields no instances.
-
-    A sub-unit that carries its own scale factors inside its block sets the
-    :attr:`Component.scale_in_block` class attribute, so each instance's scale
-    registers shift with it instead of naming a shared scale factor in the
-    parent's fixed block.
+    Raises ``ValueError`` for a non-positive stride or negative fixed count.
     """
     if stride <= 0:
         raise ValueError(f"repeating_group stride must be > 0, got {stride}")

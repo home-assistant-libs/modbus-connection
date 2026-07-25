@@ -1,10 +1,4 @@
-"""The base shared by ``Component`` and ``ManualComponent``.
-
-What the two component classes have in common beyond the ``_Readable`` refresh
-template: update listeners, and the ``repeating_group`` machinery — fixed-count
-(static) groups fold into the normal read plan, register-count groups are sized
-and read in a second pass. Not part of the public API.
-"""
+"""Share component update and repeating-group behavior."""
 
 from __future__ import annotations
 
@@ -23,15 +17,7 @@ UpdateListener = Callable[[], None]
 
 
 class _ComponentBase(_Readable):
-    """Listeners plus ``repeating_group`` state and update, shared by the two
-    component classes.
-
-    The subclass supplies ``_unit`` and, split by count kind, ``_static_groups``
-    (fixed ``int``) and ``_repeating_fields`` (``RegisterField``). It calls
-    :meth:`_build_groups` once to set up per-instance state (and build the static
-    instances), and folds :attr:`_count_items` and :attr:`_static_items` into its
-    read plan; the inherited refresh then runs the second pass.
-    """
+    """Share update listeners and repeating groups between component types."""
 
     _base_offset: int = 0
     _instance_offset: int = 0
@@ -130,31 +116,11 @@ class _ComponentBase(_Readable):
             self.__dict__.pop(attr, None)
 
     async def async_update_repeating_groups(self) -> None:
-        """Size each register-count group to the count just read, and read them.
-
-        The counts are already in ``self._counts`` (they are part of the read
-        plan's ``_count_items``), so this is the second pass of an update. Reads
-        the instances pooled among themselves, without notifying — the caller
-        does. A :class:`ComponentGroup` calls this on each member after its pooled
-        read, so a member's register-count groups refresh inside the group too.
-
-        A fixed-count group's instances are read in the first pass (they fold
-        into the read plan), but a register-count group *nested* inside one still
-        needs this second pass — its count was fetched with the instance's other
-        registers, so drive each fixed-count instance's second pass here too.
-        """
+        """Resize and update register-count groups."""
         await self._refresh_repeating_groups(collect_raw=False)
 
     async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
-        """The register-count second pass, shared by the update and raw reads.
-
-        Sizes each register-count group to the count read on the first pass and
-        reads the instances pooled among themselves, without notifying — the
-        top-level read notifies once, cascading to these instances. Also drives
-        each fixed-count instance's own nested second pass. With ``collect_raw``
-        the instances' raw values are merged and returned; otherwise the returned
-        dict is empty (the reads collect nothing).
-        """
+        """Refresh register-count groups and optionally collect raw values."""
         raw: Raw = {}
         for name in self._static_groups:
             for instance in self._groups[name]:

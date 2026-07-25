@@ -1,4 +1,4 @@
-"""Shared TLS helpers for the backend ``connect_tls`` functions."""
+"""Build TLS contexts for Modbus connections."""
 
 from __future__ import annotations
 
@@ -13,15 +13,7 @@ def build_tls_context(
     client_key: str | None,
     client_key_password: str | None,
 ) -> ssl.SSLContext:
-    """Build a client TLS context for ``connect_tls`` (blocking; run in a thread).
-
-    ``verify`` / ``check_hostname`` are the *server* side (see ``connect_tls``);
-    ``client_cert`` / ``client_key`` / ``client_key_password`` are the *client*
-    certificate this side presents for mutual TLS, applied independently.
-
-    Reads the system trust store and any cert files from disk, so callers offload
-    it with :func:`asyncio.to_thread`.
-    """
+    """Build a client TLS context."""
     if isinstance(verify, str):
         if os.path.isdir(verify):
             context = ssl.create_default_context(capath=verify)

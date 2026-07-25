@@ -1,16 +1,4 @@
-"""pytest fixtures for the in-memory mock backend.
-
-Registered as a ``pytest11`` entry point, so any project that installs
-``modbus-connection`` gets these fixtures with no conftest wiring:
-
-    async def test_reads_setpoint(mock_modbus_unit):
-        mock_modbus_unit.holding[40] = 1234
-        assert await mock_modbus_unit.read_holding_registers(40, 1) == [1234]
-
-The fixtures hand back the concrete ``Mock...`` types so a test can configure
-stores and register ``on_write`` callbacks. The code under test still only sees
-the ``ModbusConnection`` / ``ModbusUnit`` Protocols.
-"""
+"""Provide pytest fixtures for the in-memory Modbus implementation."""
 
 from __future__ import annotations
 

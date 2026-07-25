@@ -21,13 +21,8 @@ value printing every time:
 | `print_component(component, *, title=None, file=None)` | Print every field on a component by reflection. |
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
 
-:::note[Backend]
-Only `connect_from_args` needs a backend. It prefers **tmodbus** where supported,
-uses **pymodbus** for UDP and ASCII-over-TCP, and falls back to pymodbus when
-tmodbus is absent. With no installed backend covering the request it raises
-`ModbusError`. The counter and printer are backend-neutral, so `--help` and
-argument parsing work without either backend.
-:::
+Only `connect_from_args` needs a backend. Argument parsing, `--help`, read
+counting, and printing work without one.
 
 ## A complete query script
 
@@ -88,35 +83,23 @@ python query.py --help          # works without a backend installed
 
 ## Through an ESPHome serial proxy
 
-The machine running the query helper doesn't need a serial port of its own. An
-ESPHome device running the [`serial_proxy`](https://esphome.io/components/serial_proxy/)
-component exposes a UART over its native API, so a Modbus device wired to the ESP is
-reachable over the network. Point the **serial** transport at it with an `esphome://`
-URL in place of a device path — nothing else about the script changes:
+An ESPHome device running
+[`serial_proxy`](https://esphome.io/components/serial_proxy/) can expose its
+UART to the query helper. Pass an `esphome://` URL as the serial target:
 
 ```bash
 python query.py "esphome://basement.local/?port_name=modbus" \
     --transport serial --unit 246 --baudrate 19200
 ```
 
-The URL is just the connection target, so the serial options carry through to the
-ESP's UART — `--baudrate` / `--parity` / `--stopbits` are applied remotely by the
-proxy. RTU is the serial default, so no `--framer` is needed.
+This requires the `tmodbus` extra and
+[`aioesphomeapi`](https://github.com/esphome/aioesphomeapi). Serial options such
+as `--baudrate`, `--parity`, and `--stopbits` are applied to the remote UART.
 
-:::note[Requires the tmodbus backend + aioesphomeapi]
-`esphome://` is resolved by **tmodbus**'s serial layer, so it works only when the
-tmodbus backend is the one in use (`connect_from_args` tries it first) and
-[`aioesphomeapi`](https://github.com/esphome/aioesphomeapi) is installed:
-`pip install aioesphomeapi`. The pymodbus backend has no ESPHome handler and
-rejects the scheme. Your query script is unchanged either way — it's the same
-serial path, just a different target URL.
-:::
-
-**URL format** — `esphome://<host>[:<port>]/?port_name=<name>`, where `<port>`
-defaults to `6053` (the ESPHome API port) and `<name>` is the `serial_proxy`
-instance's name. For an encrypted or password-protected device, add a `noise_psk=`
-(or `password=`) query parameter. A device with a single unnamed proxy also accepts
-the numeric form `esphome://<host>/<instance>`.
+The URL format is
+`esphome://<host>[:<port>]/?port_name=<name>`. The port defaults to `6053`.
+Add `noise_psk=` or `password=` for an authenticated device. A single unnamed
+proxy also accepts `esphome://<host>/<instance>`.
 
 ## The building blocks
 
@@ -142,20 +125,17 @@ produces is read back by `connect_from_args`, so the two always stay in step.
 
 ### `connect_from_args`
 
-Opens the connection the parsed arguments describe. It prefers tmodbus where
-supported, routes UDP and ASCII-over-TCP to pymodbus, and falls back to pymodbus
-when tmodbus is absent. Backends are resolved lazily, so importing the module
-needs no backend. Pass `message_spacing=` for a device that needs a gap between
-frames — it's a fixed device property, so the tool sets it rather than exposing
-it as a CLI argument:
+Opens the connection the parsed arguments describe. Backends are resolved lazily,
+so importing the module needs no backend. Pass `message_spacing=` for a device
+that needs a gap between frames:
 
 ```python
 conn = await connect_from_args(args, message_spacing=0.1)
 ```
 
-The returned connection is already connected. It raises `ModbusError` if no
-installed backend supports the request and `ModbusConnectionError` immediately
-if the link can't be opened.
+The returned connection is already connected. It raises `ModbusError` if it
+cannot select an installed implementation and `ModbusConnectionError` if the
+link can't be opened.
 
 ### `CountingUnit`
 

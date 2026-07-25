@@ -2,12 +2,13 @@
 
 A small, **backend-neutral** Modbus connection abstraction.
 
-The top-level `modbus_connection` package is a pure interface — the
-`ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html)
-and a tiny exception hierarchy — so consumers can type against it without
-committing to a backend. Two interchangeable backends implement it
-([pymodbus](https://github.com/pymodbus-dev/pymodbus) and
-[tmodbus](https://github.com/wlcrs/tmodbus)); the bare install pulls neither.
+The top-level `modbus_connection` package provides the abstract
+`ModbusConnection`, the `ModbusUnit`
+[Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html), and a
+tiny exception hierarchy. Two interchangeable backends implement them
+([tmodbus](https://github.com/wlcrs/tmodbus) and
+[pymodbus](https://github.com/pymodbus-dev/pymodbus)); the bare install pulls
+neither.
 
 One physical Modbus link addresses many units (1–247). Sharing a single,
 internally-serialized connection across many consumers is strictly better than
@@ -17,13 +18,13 @@ makes that sharing possible while keeping the backend swappable.
 ## Install
 
 ```bash
-pip install "modbus-connection[pymodbus]"   # pymodbus backend
 pip install "modbus-connection[tmodbus]"    # tmodbus backend
+pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
 ## Example
 
-Model a device once, then connect, update, read, and write it. The optional
+Model a device once, then construct, update, read, and write it. The optional
 `modbus_connection.model` framework maps a device's registers and coils to typed
 attributes and reads the whole device in as few Modbus calls as possible.
 
@@ -32,7 +33,7 @@ import asyncio
 
 from modbus_connection import ModbusTcpParams
 from modbus_connection.model import Component, gauge, uint32, coil
-from modbus_connection.tmodbus import TmodbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 
 
 class Meter(Component):
@@ -50,9 +51,8 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
-        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()  # one pooled block read
@@ -70,15 +70,15 @@ asyncio.run(main())
 
 Everything else — the other transports (UDP, serial, TLS), the full field-type
 and read-planning reference, repeated sub-units, the SunSpec field types and
-model generator, the query helper, the in-memory mock backend for tests, and
-the exception hierarchy — lives on the website:
+model generator, the in-memory mock backend for tests, and the exception
+hierarchy — lives on the website:
 
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 
 ## Develop
 
 ```bash
-uv sync --extra pymodbus
+uv sync --extra tmodbus
 uv run pytest
 ```
 

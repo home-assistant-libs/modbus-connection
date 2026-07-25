@@ -92,16 +92,15 @@ The consumer then works entirely in Python objects:
 ```python
 import asyncio
 from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import TmodbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 from trovis_modbus import Trovis557x
 
 
 async def main() -> None:
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
     )
     try:
-        await connection.connect()
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
         await device.async_update()
@@ -189,15 +188,10 @@ finally:
 
 - **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
   link; your library only reads and writes registers. This keeps the library
-  backend-neutral — it works over pymodbus, tmodbus, or the mock unchanged.
+  backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
 - **One sub-system per `Component`.** Group registers by function; give each its
   own file. It keeps the address map readable and lets a sub-system refresh alone.
 - **Pool with a `ComponentGroup`.** The whole device reads in a handful of Modbus
   calls instead of one per field.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
-
-## Next
-
-- [Query helper](/modbus-connection/patterns/query-helper/) — a standalone CLI to
-  dump every value from a real device without any application around it.

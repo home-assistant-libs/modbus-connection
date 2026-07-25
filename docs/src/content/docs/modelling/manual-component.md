@@ -47,7 +47,7 @@ mc.remove(key)
 
 - A **register** target takes its `space` on `add()` — `"holding"` (default) or
   `"input"`.
-- A **bit** target's space is fixed by the factory (`coil` → FC01,
+- A **bit** target's space is fixed by the helper (`coil` → FC01,
   `discrete_input` → FC02); passing `space` for a bit raises.
 - A [`repeating_group`](/modbus-connection/modelling/repeats/) can be `add()`ed
   like any other target; its instances come out via `get(key)` as a `list` of

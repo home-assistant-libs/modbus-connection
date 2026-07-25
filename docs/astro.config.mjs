@@ -18,13 +18,13 @@ export default defineConfig({
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
-            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable pymodbus and tmodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
+            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable tmodbus and pymodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
           details: [
             "Important notes for working with modbus-connection:",
             "",
-            "- Install with `pip install \"modbus-connection[pymodbus]\"` or `[tmodbus]`; the bare install pulls neither backend.",
-            "- A connection is transient and owner-held. Construct `TmodbusConnection` or `PymodbusConnection` from a shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclass, then call `await connection.connect()` before I/O.",
-            "- Consumers receive a `ModbusUnit` via `connection.for_unit(unit_id)` — a stateless per-unit handle. Every method raises on failure; it never returns `None`.",
+            "- Install with `pip install \"modbus-connection[tmodbus]\"` or `[pymodbus]`; the bare install pulls neither backend.",
+            "- A connection is transient and owner-held. Import `ModbusConnection` from the selected backend and construct it with a shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclass; the first unit operation connects on demand.",
+            "- Consumers receive a `ModbusUnit` via `connection.for_unit(unit_id)`.",
             "- The `modbus_connection.model` framework maps registers/coils to typed attributes on a `Component`; `modbus_connection.model.sunspec` adds SunSpec point types with their unimplemented sentinels.",
             "- The library is not Home Assistant specific, but ships helpers and patterns that make it a good fit for Home Assistant integrations.",
           ].join("\n"),
@@ -48,9 +48,19 @@ export default defineConfig({
           items: [
             { label: "Introduction", slug: "index" },
             { label: "Installation", slug: "getting-started/installation" },
+            { label: "Choosing a backend", slug: "getting-started/backends" },
             {
               label: "Connections and units",
               slug: "getting-started/connections-and-units",
+            },
+            {
+              label: "Connection parameters",
+              slug: "getting-started/connection-parameters",
+            },
+            { label: "Modbus operations", slug: "getting-started/operations" },
+            {
+              label: "Encoding and decoding",
+              slug: "getting-started/encoding-decoding",
             },
           ],
         },
@@ -59,7 +69,15 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "modelling/overview" },
             { label: "Built-in fields", slug: "modelling/fields" },
-            { label: "SunSpec", slug: "modelling/sunspec" },
+            { label: "SunSpec fields", slug: "modelling/sunspec" },
+            {
+              label: "SunSpec discovery",
+              slug: "modelling/sunspec-discovery",
+            },
+            {
+              label: "SunSpec generation",
+              slug: "modelling/sunspec-generation",
+            },
             { label: "Repeated sub-units", slug: "modelling/repeats" },
             { label: "Component groups", slug: "modelling/component-group" },
             { label: "Manual components", slug: "modelling/manual-component" },

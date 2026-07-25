@@ -1,17 +1,4 @@
-"""Decode Modbus register words into Python values.
-
-Pure and backend-neutral: feed these the ``list[int]`` a raw ``ModbusUnit`` read
-returns and get a typed Python value back. They cover the SunSpec point types
-(see :mod:`modbus_connection.model.sunspec`). The model layer builds on them;
-callers who don't model a whole device can use them directly::
-
-    words = await unit.read_holding_registers(0x10, 2)
-    power = decode_uint32(words)
-
-``word_order`` selects the order of the registers themselves for multi-register
-values; it defaults to ``"big"`` (the Modbus convention), so ABCD ordering is
-the default.
-"""
+"""Decode Modbus register words into Python values."""
 
 from __future__ import annotations
 

@@ -5,7 +5,6 @@ description: The neutral exception hierarchy every backend maps its errors onto.
 
 Both backends map their errors onto the **same neutral hierarchy**, so
 `except ModbusError` catches everything regardless of which backend produced it.
-Every `ModbusUnit` method raises on failure — it never returns `None`.
 
 ```text
 ModbusError
@@ -95,25 +94,4 @@ fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
 ### `ModbusProtocolError`
 
 A reply arrived but was **not a valid frame** — bad CRC/LRC, framing, or a
-mismatched header. Only backends that can tell a garbled reply from a missing one
-raise it: **tmodbus does**; **pymodbus cannot**, and surfaces both a garbled and a
-missing reply as `ModbusTimeoutError`.
-
-## Backend differences
-
-| Situation | pymodbus | tmodbus |
-| --- | --- | --- |
-| No response in time | `ModbusTimeoutError` | `ModbusTimeoutError` |
-| Garbled / corrupt reply | `ModbusTimeoutError` | `ModbusProtocolError` |
-| Device exception response | `ModbusExceptionError` | `ModbusExceptionError` |
-| Link down | `ModbusConnectionError` | `ModbusConnectionError` |
-
-If you need to distinguish a corrupt reply from a silent timeout, use tmodbus. If
-you catch `ModbusError` (or `ModbusTimeoutError` plus `ModbusExceptionError`) your
-code is correct on both.
-
-## Not-implemented function codes
-
-A backend that can't implement a given Modbus function code raises the builtin
-`NotImplementedError` (not part of the `ModbusError` tree). tmodbus does this for
-diagnostics and the comm-event codes.
+mismatched header.

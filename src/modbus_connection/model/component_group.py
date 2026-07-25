@@ -22,33 +22,7 @@ if TYPE_CHECKING:
 
 
 class ComponentGroup(_Readable):
-    """Several :class:`Component`s on one unit, refreshed in pooled block reads.
-
-    Groups the sub-systems of one physical device — e.g. a Trovis controller's
-    water heater and heating circuits 1-3 — and reads them together: their
-    register and coil targets are merged into a single consolidated set of block
-    reads, so adjacent registers from different components are fetched in the same
-    Modbus call rather than each component querying on its own. Each component's
-    listeners fire after the update.
-
-    Components may mix register spaces — an input (FC04) sub-system and a holding
-    (FC03) sub-system in the same group are read with separate block reads — and
-    likewise mix bit spaces, coils (FC01) and discrete inputs (FC02).
-
-    The pooled plan is built from the components' static layout on the first
-    :meth:`async_update` and reused on every later poll. The readable address
-    ``ranges`` come from the components — they describe one device's address map.
-    ``register_ranges`` applies per register space, so components sharing a space
-    must declare the same :attr:`Component.register_ranges` (a device's input and
-    holding ranges may differ); every component must share
-    :attr:`Component.coil_ranges`, :attr:`Component.discrete_ranges`,
-    :attr:`Component.max_gap` and :attr:`Component.max_span` (they describe one
-    device). A mismatch raises ``ValueError``.
-
-    The component list, their fields, and the ranges are read once and cached;
-    mutating any of them after the first update is not supported — build a new
-    ``ComponentGroup`` instead.
-    """
+    """Pool reads for several components on one unit."""
 
     def __init__(
         self,
@@ -113,19 +87,8 @@ class ComponentGroup(_Readable):
         return raw
 
     async def async_update(self, *, notify: bool = True) -> None:
-        """Refresh every component in one pooled set of reads, then notify each.
+        """Refresh every component with pooled reads.
 
-        The block plan is built on the first call and reused on later polls. Pass
-        ``notify=False`` to read without firing the components' listeners, for a
-        caller that notifies them itself.
-
-        The pooled read fetches each member's own fields plus any
-        :func:`repeating_group` counts; a second pass then sizes and reads each
-        member's register-count groups, so those refresh inside the group too.
-
-        Like :meth:`Component.async_update`, a block answering with a Modbus
-        exception response raises
-        :class:`~modbus_connection.exceptions.BlockReadError` and fails the whole
-        update — here that is any block across the pooled members.
+        Raises ``BlockReadError`` if the device rejects a block.
         """
         await self._refresh(collect_raw=False, notify=notify)

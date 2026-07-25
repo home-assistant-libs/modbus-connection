@@ -6,13 +6,7 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class ModbusUnit(Protocol):
-    """A stateless handle bound to one unit (unit ID) on a shared connection.
-
-    Holds no buffered state beyond the address. Methods RAISE on any failure
-    (timeout, exception response, link down); they never return ``None`` or
-    swallow errors. A unit has NO lifecycle methods: a consumer cannot connect
-    or close the link it rides on.
-    """
+    """Represent one unit on a shared Modbus connection."""
 
     @property
     def connected(self) -> bool: ...
@@ -29,8 +23,6 @@ class ModbusUnit(Protocol):
     async def write_coil(self, address: int, value: bool) -> None: ...
     async def write_coils(self, address: int, values: list[bool]) -> None: ...
 
-    # The full Modbus function-code set (complete spec). A backend that doesn't
-    # implement a given code raises NotImplementedError.
     async def read_exception_status(self) -> int: ...  # 0x07
     async def report_server_id(self) -> bytes: ...  # 0x11
     async def mask_write_register(
@@ -56,15 +48,7 @@ class ModbusUnit(Protocol):
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
     def set_message_spacing(self, seconds: float) -> None:
-        """Set a minimum gap, in seconds, between consecutive requests to THIS
-        unit, layered on top of any connection-wide ``message_spacing``.
-
-        Keyed by unit id: the gap belongs to the unit, not the handle, so it
-        applies to every request to this unit on the connection — including ones
-        issued through other handles the owner hands out for the same id. Use it
-        for a single slow device on a link that other units share without needing
-        the pause. ``0`` clears it.
-        """
+        """Set the minimum interval between requests to this unit."""
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""

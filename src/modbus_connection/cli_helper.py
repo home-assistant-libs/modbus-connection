@@ -1,64 +1,4 @@
-"""Building blocks for a device *query helper* — a standalone CLI that connects
-to a real device, reads it once, and prints every value.
-
-The package itself never imports this module, so nothing here is pulled into a
-normal application. A query script imports the pieces it needs instead of
-re-implementing them every time:
-
-- :func:`add_connection_args` / :func:`connect_from_args` — turn command-line
-  arguments into a live connection, picking a backend that supports the requested
-  transport and framing.
-- :class:`CountingUnit` — wrap a ``ModbusUnit`` to count the reads it performs,
-  so you can see how well the pooled read plan collapses your fields.
-- :func:`print_component` / :func:`field_rows` — dump a modelled component's
-  fields to the terminal by reflection, no hand-listing.
-
-Only :func:`connect_from_args` needs a backend installed; the counter and the
-printer are backend-neutral, so ``--help`` and argument parsing work without one.
-
-A minimal query script::
-
-    import argparse
-    import asyncio
-
-    from modbus_connection import ModbusError
-    from modbus_connection.cli_helper import (
-        CountingUnit,
-        add_connection_args,
-        connect_from_args,
-        print_component,
-    )
-
-
-    async def main() -> int:
-        parser = argparse.ArgumentParser(description="Query a device.")
-        add_connection_args(parser)
-        parser.add_argument("--unit", type=int, default=1, help="Modbus unit id")
-        args = parser.parse_args()
-
-        try:
-            conn = await connect_from_args(args)
-        except ModbusError as err:
-            print(f"Could not connect: {err}")
-            return 1
-        counting = CountingUnit(conn.for_unit(args.unit))
-        try:
-            device = MyDevice(counting)  # your modelled component
-            await device.async_update()
-        finally:
-            await conn.close()
-
-        print_component(device)
-        print(f"\n{counting.reads} Modbus reads")
-        return 0
-
-
-    raise SystemExit(asyncio.run(main()))
-
-The unit id is not part of connecting — it varies per device and per tool — so
-add whatever the CLI needs (like ``--unit`` above) alongside the connection
-arguments.
-"""
+"""Build command-line tools that query modelled devices."""
 
 from __future__ import annotations
 
@@ -118,11 +58,9 @@ def _import_backend(name: str) -> ModuleType | None:
 
 
 def _load_backend(transport: str, framer: str | None) -> ModuleType:
-    """Return an installed backend supporting *transport* and *framer*.
+    """Return an installed backend for the requested connection.
 
-    tmodbus is preferred where supported. UDP and ASCII-over-TCP require
-    pymodbus. Imports stay lazy so importing this module and displaying CLI help
-    need no backend installed.
+    Raises ``ModbusError`` if no installed backend supports the request.
     """
     tmodbus_supported = transport != "udp" and not (
         transport == "tcp" and framer == "ascii"
@@ -149,18 +87,6 @@ def add_connection_args(
 ) -> argparse._ArgumentGroup:
     """Add the connection-specifying arguments to *parser*.
 
-    The arguments land in their own "Modbus connection" group, so they read as a
-    block in ``--help`` and stay clear of the CLI's own options. Returns the
-    group in case the caller wants to tweak it.
-
-    *connections* is the ``(transport, framer)`` pairs the tool supports —
-    transport and framing are coupled (serial has no ``socket`` framing, TLS has
-    no framing at all), so they travel together. A device that only speaks, say,
-    RTU-over-TCP passes ``(("tcp", "rtu"),)`` and only the arguments that make
-    sense appear: no serial or TLS options, no ``--transport`` flag (a lone
-    transport is fixed), and ``--framer`` fixed to ``rtu`` rather than offered.
-    A ``None`` framer means the backend default (and is required for TLS).
-    ``connect_from_args`` reads whatever this adds, so the two stay in step.
     Raises ``ValueError`` for an empty or invalid connection set.
     """
     pairs = tuple(connections)
@@ -261,19 +187,10 @@ def add_connection_args(
 async def connect_from_args(
     args: argparse.Namespace, *, message_spacing: float = 0.0
 ) -> BaseModbusConnection:
-    """Open the connection described by *args* (as parsed by ``add_connection_args``).
+    """Open the connection described by ``args``.
 
-    Dispatches to an existing async backend factory and waits for it to establish
-    the connection. tmodbus is preferred where it supports the requested
-    transport and framing; UDP and ASCII-over-TCP use pymodbus, as does any
-    request when tmodbus is absent. Backends are resolved lazily here so importing
-    this module (and ``--help``) needs no backend.
-
-    *message_spacing* is the minimum gap in seconds left after each request — a
-    fixed device property, so it is passed here by the tool rather than exposed
-    as a CLI argument. Raises ``ModbusError`` if no installed backend supports
-    the request and ``ModbusConnectionError`` if the connection cannot be
-    established.
+    Raises ``ModbusError`` if no backend is available and
+    ``ModbusConnectionError`` if the connection fails.
     """
     # Resolved lazily so the module (and --help) loads without any backend.
     common = {"timeout": args.timeout, "message_spacing": message_spacing}
@@ -326,17 +243,7 @@ async def connect_from_args(
 
 
 class CountingUnit:
-    """A ``ModbusUnit`` wrapper that counts the block reads it performs.
-
-    Pass ``connection.for_unit(id)`` through here before handing it to a
-    component; ``reads`` then tallies every block read the update issued (the
-    four FC01/02/03/04 reads the pooled plan uses) — a quick sanity check that
-    your ``ranges`` and ``max_gap`` are collapsing fields into as few Modbus
-    round-trips as the plan allows. Every other call is delegated untouched.
-
-    It implements ``ModbusUnit`` in full, so it drops in wherever one is expected
-    with no cast.
-    """
+    """Count block reads made through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
@@ -443,15 +350,7 @@ def _format_value(value: object) -> str:
 
 
 def field_rows(component: Component) -> list[tuple[str, str]]:
-    """Return ``(name, value)`` rows for every field on *component*, by reflection.
-
-    Walks the component's public attributes and keeps the modelled ones —
-    register/coil/discrete fields and computed ``@property`` values — skipping
-    methods and internals. A field's ``unit`` label (see
-    :class:`~modbus_connection.model.RegisterField`) is appended to its value.
-    Read the component (``await component.async_update()``) first; unread fields
-    render as ``—``.
-    """
+    """Return display rows for every field on ``component``."""
     cls = type(component)
     rows: list[tuple[str, str]] = []
     for name in dir(component):
@@ -474,12 +373,7 @@ def print_component(
     title: str | None = None,
     file: TextIO | None = None,
 ) -> None:
-    """Print every field on *component* under a heading, values aligned.
-
-    *title* defaults to the component's class name. Reflection-based, so a new
-    field shows up with no change here. Read the component first (see
-    :func:`field_rows`).
-    """
+    """Print every field on ``component`` under a heading."""
     rows = field_rows(component)
     out = file if file is not None else sys.stdout
     heading = title if title is not None else type(component).__name__
