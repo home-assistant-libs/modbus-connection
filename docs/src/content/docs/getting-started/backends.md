@@ -33,6 +33,6 @@ tmodbus retries `SERVER_DEVICE_BUSY` responses with exponential backoff for up
 to one minute. pymodbus raises the response immediately. Neither backend retries
 timeouts, dropped links, or other exception responses.
 
-Constructing a connection with unsupported parameters raises `TypeError` or
-`ValueError`. A `ModbusUnit` operation that the selected backend does not
-implement raises `NotImplementedError`.
+Constructing a connection with unsupported parameters raises `ValueError`. A
+`ModbusUnit` operation that the selected backend does not implement raises
+`NotImplementedError`.

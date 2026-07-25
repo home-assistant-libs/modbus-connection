@@ -45,7 +45,7 @@ async def test_connect_tcp_unreachable_raises_immediately(
 
 async def test_tmodbus_connect_udp_rejected() -> None:
     """connect_udp surfaces the constructor error."""
-    with pytest.raises(TypeError, match="pymodbus.ModbusConnection"):
+    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
         await tmodbus_backend.connect_udp("127.0.0.1", port=502)
 
 
