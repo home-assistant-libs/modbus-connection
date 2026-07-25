@@ -19,11 +19,7 @@ _MAX_MODELS: Final = 100
 
 @dataclass(frozen=True)
 class SunSpecModel:
-    """Location of a SunSpec model in the register map.
-
-    ``address`` points at the 2-register model header (model ID, length);
-    ``length`` is the number of data registers following the header.
-    """
+    """Locate a SunSpec model in the register map."""
 
     model_id: int
     address: int
@@ -31,16 +27,9 @@ class SunSpecModel:
 
 
 async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecModel]]:
-    """Walk the SunSpec model chain and return the discovered models by ID.
+    """Return the discovered SunSpec models by ID.
 
-    ``base_address`` is the 0-based register address of the map's ``"SunS"``
-    marker - the SunSpec spec sanctions 0, 40000 and 50000, and an
-    integration knows which one its manufacturer uses. Raises
-    :class:`SunSpecError` when the marker is missing or the chain doesn't
-    terminate.
-
-    The same model ID can occur more than once in a chain (e.g. several
-    meters), so each ID maps to its occurrences in chain order.
+    Raises ``SunSpecError`` if the marker is absent or the chain is invalid.
     """
     marker = await unit.read_holding_registers(base_address, 2)
     if decode_uint32(marker) != _SUNSPEC_MARKER:

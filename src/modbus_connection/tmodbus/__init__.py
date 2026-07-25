@@ -190,12 +190,7 @@ TmodbusConnection = ModbusConnection
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Ensure-connect, pace, and map tmodbus exceptions onto the neutral hierarchy.
-
-    Decorates ``TmodbusUnit`` methods so each body just calls the client
-    directly. Every request first establishes the link on demand via the
-    owner's ``connect()``, so a handle can be used without an explicit connect.
-    """
+    """Connect, pace, and map errors around a unit operation."""
 
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -218,12 +213,7 @@ def _map_errors[**P, R](
 
 
 class TmodbusUnit:
-    """A stateless per-unit handle over a unit-bound tmodbus client.
-
-    The unit-bound client is resolved through the owning connection on use, so
-    handles can be handed out before the connection is established; every request
-    establishes the link on demand.
-    """
+    """Represent a unit using tmodbus."""
 
     def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
         self._conn = connection
@@ -352,16 +342,7 @@ async def connect_tcp(
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus TCP / RTU-over-TCP connection over tmodbus.
-
-    ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
-    (MBAP), or ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
-    gateways speak. tmodbus has no ASCII-over-TCP transport.
-
-    ``message_spacing`` is the minimum gap, in seconds, left after each request
-    before the next may start — applied across every unit sharing the link. Use
-    it for devices that need a pause between frames; ``0`` (the default) disables
-    it.
+    """Open a Modbus TCP connection.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
@@ -382,10 +363,9 @@ async def connect_udp(
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Modbus UDP is not available over tmodbus.
+    """Open a Modbus UDP connection.
 
-    Kept here so the backend's connect surface stays complete; use
-    ``modbus_connection.pymodbus`` for UDP.
+    Raises ``TypeError`` for invalid connection parameters.
     """
     connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
@@ -409,33 +389,7 @@ async def connect_tls(
     timeout: float = 3,
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus/TLS (Modbus Security) connection over tmodbus.
-
-    The SSL context is handed to ``asyncio.create_connection`` (which uses ``host``
-    as the ``server_hostname`` for verification).
-
-    Server verification — ``verify`` controls how the device's certificate is
-    checked (the ``httpx`` convention):
-
-    - ``True`` (default) — verify against the system trust store.
-    - ``False`` — do not verify, for a device with a self-signed certificate.
-    - a path (``str``) — verify against a CA bundle (a file) or a directory of
-      CAs, e.g. to pin a device's own self-signed certificate.
-
-    ``check_hostname`` (default ``True``) gates hostname matching while still
-    verifying the certificate — set it ``False`` for a device reached by an
-    address its certificate has no SAN for; ignored when ``verify`` is ``False``.
-
-    Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
-    ``client_key_password`` are this side's own certificate, presented to the
-    device; independent of the server-verification arguments.
-
-    Pass a fully-configured ``sslctx`` to take full control; it overrides every
-    argument above.
-
-    ``message_spacing`` is the minimum gap, in seconds, left after each request
-    before the next may start (see ``connect_tcp``); ``0`` (the default) disables
-    it.
+    """Open a Modbus/TLS connection.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
@@ -467,14 +421,7 @@ async def connect_serial(
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus serial connection over tmodbus and return a live handle.
-
-    ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU (the
-    default) or ``"ascii"`` for the ASCII transmission mode.
-
-    ``message_spacing`` is the minimum gap, in seconds, left after each request
-    before the next may start (see ``connect_tcp``); ``0`` (the default) disables
-    it.
+    """Open a Modbus serial connection.
 
     Raises ``ModbusConnectionError`` on failure.
     """

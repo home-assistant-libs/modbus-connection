@@ -1,26 +1,4 @@
-"""An in-memory mock backend implementing the modbus_connection Protocols.
-
-This is a test double, not a wire backend: it never opens a socket. Reads pull
-from per-unit, address-keyed register stores and writes mutate them, so a test
-configures device state up front and asserts on it afterwards. It depends only
-on the standard library plus this package's own types — no pymodbus, no tmodbus.
-
-Register / coil values are *value specs* — each store entry may be:
-
-- a single value (``store.holding[0] = 1234``),
-- a list, occupying consecutive addresses from its key
-  (``store.holding[2] = [0x0001, 0x86A0]`` fills addresses 2 and 3), or
-- a zero-argument callable, evaluated on every read for dynamic values
-  (``store.holding[9] = lambda: next(counter)``).
-
-To simulate a device refusing a register block it doesn't serve (e.g. an
-uninstalled module), arm ``unit.fail_read(address, error)``.
-
-Writes additionally fire any callbacks registered with ``unit.on_write(...)``,
-so a test can react to a write by mocking other registers (e.g. flip a "ready"
-flag once a command register is set). To simulate a device rejecting a write,
-arm ``unit.fail_write(address, error)``.
-"""
+"""Provide in-memory Modbus test doubles."""
 
 from __future__ import annotations
 
@@ -41,12 +19,10 @@ __all__ = [
 ]
 
 RegisterSpec = int | list[int] | Callable[[], "int | list[int]"]
-"""A holding/input register store value: a single int, a list of consecutive
-ints, or a zero-arg callable returning either."""
+"""Value accepted by a mock register store."""
 
 CoilSpec = bool | list[bool] | Callable[[], "bool | list[bool]"]
-"""A coil/discrete-input store value: a single bool, a list, or a zero-arg
-callable returning either."""
+"""Value accepted by a mock bit store."""
 
 RegisterType = Literal["holding", "coil"]
 
@@ -56,11 +32,7 @@ ReadRegisterType = Literal["holding", "input", "coil", "discrete_input"]
 
 @dataclass(frozen=True)
 class WriteEvent:
-    """A write that just landed on a unit's store, passed to ``on_write`` callbacks.
-
-    ``register_type`` is ``"holding"`` for register writes and ``"coil"`` for coil
-    writes. ``values`` holds the written values, already materialized.
-    """
+    """Describe a write to a mock unit."""
 
     register_type: RegisterType
     address: int
@@ -70,10 +42,7 @@ class WriteEvent:
 def _materialize(
     space: dict[int, Any], convert: Callable[[Any], Any]
 ) -> dict[int, Any]:
-    """Flatten a value-spec store into a plain address -> value mapping.
-
-    Callables are evaluated and lists are spread across consecutive addresses.
-    """
+    """Materialize a mock store by address."""
     out: dict[int, Any] = {}
     for base, spec in space.items():
         value = spec() if callable(spec) else spec
@@ -96,13 +65,7 @@ def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
 
 
 class MockModbusConnection:
-    """An in-memory ``ModbusConnection``. Construct it directly in tests.
-
-    ``for_unit`` returns the same ``MockModbusUnit`` for a given id, so the unit a
-    test configures is the unit the code under test reads. ``connected`` starts
-    ``True``; ``close`` or ``simulate_connection_lost`` flip it ``False``, after
-    which unit I/O raises ``ModbusConnectionError`` like a real dropped link.
-    """
+    """Implement ``ModbusConnection`` in memory."""
 
     def __init__(self) -> None:
         self._units: dict[int, MockModbusUnit] = {}
@@ -136,14 +99,7 @@ BaseModbusConnection.register(MockModbusConnection)
 
 
 class MockModbusUnit:
-    """An in-memory ``ModbusUnit`` backed by per-space value-spec stores.
-
-    Configure ``holding``, ``input``, ``coils`` and ``discrete_inputs`` directly
-    (e.g. ``unit.holding[0] = 1234``). Reads resolve against them; writes mutate
-    ``holding`` / ``coils`` and notify ``on_write`` callbacks. The exotic
-    function codes (report-server-id, fifo, device-id, ...) raise
-    ``NotImplementedError`` until configured via ``set_response``.
-    """
+    """Implement ``ModbusUnit`` with in-memory stores."""
 
     def __init__(self, connection: MockModbusConnection, unit_id: int) -> None:
         self._conn = connection
@@ -163,8 +119,9 @@ class MockModbusUnit:
         return self._conn.connected
 
     def set_message_spacing(self, seconds: float) -> None:
-        """Record the per-unit gap. The mock does no real timing, so this only
-        stores the value (readable as ``message_spacing``) for tests to assert on.
+        """Record the per-unit request interval.
+
+        Raises ``ValueError`` if ``seconds`` is negative.
         """
         if seconds < 0:
             raise ValueError("message_spacing must be non-negative")
@@ -177,12 +134,7 @@ class MockModbusUnit:
     # -- test configuration helpers -------------------------------------------
 
     def on_write(self, callback: Callable[[WriteEvent], None]) -> Callable[[], None]:
-        """Register a callback fired after each register/coil write.
-
-        The callback receives a ``WriteEvent`` and runs *after* the store is
-        updated, so it can read current state and mutate other registers. Returns
-        an unsubscribe.
-        """
+        """Register a callback for register and coil writes."""
         self._write_callbacks.append(callback)
 
         def unsubscribe() -> None:
@@ -200,18 +152,7 @@ class MockModbusUnit:
         *,
         register_type: RegisterType = "holding",
     ) -> None:
-        """Arm (or clear) a failure for writes touching ``address``.
-
-        A matching write raises ``error`` *before* mutating the store, mirroring
-        a device that rejects the write: the stored value is left unchanged and
-        ``on_write`` callbacks do not fire. The failure persists until cleared
-        with ``fail_write(address, None)``.
-
-        ``register_type`` selects the data table — ``"holding"`` (the default,
-        covering register writes incl. ``mask_write_register``) or ``"coil"``.
-        Coil and holding addresses are independent, so arming one never affects
-        the other.
-        """
+        """Set the exception raised by matching writes."""
         key = (register_type, address)
         if error is None:
             self._write_failures.pop(key, None)
@@ -225,19 +166,7 @@ class MockModbusUnit:
         *,
         register_type: ReadRegisterType = "holding",
     ) -> None:
-        """Arm (or clear) a failure for reads covering ``address``.
-
-        A read whose requested block includes ``address`` raises ``error``
-        instead of returning values, mirroring a device that refuses a register
-        block it doesn't serve (e.g. an uninstalled module). Unlike a raising
-        callable in the store, this fails only reads that span ``address`` —
-        reads of other blocks are unaffected. The failure persists until cleared
-        with ``fail_read(address, None)``.
-
-        ``register_type`` selects the data table — ``"holding"`` (the default),
-        ``"input"``, ``"coil"`` or ``"discrete_input"``. The four tables are
-        independent, so arming one never affects reads of another.
-        """
+        """Set the exception raised by matching reads."""
         key = (register_type, address)
         if error is None:
             self._read_failures.pop(key, None)
@@ -245,19 +174,13 @@ class MockModbusUnit:
             self._read_failures[key] = error
 
     def set_response(self, method: str, value: object) -> None:
-        """Set the canned result for an exotic function code (e.g.
-        ``"report_server_id"``). ``value`` may be a plain value or a zero-arg
-        callable evaluated per call."""
+        """Set a canned response for an operation."""
         self._responses[method] = value
 
     def load_raw(self, raw: Mapping[str, Mapping[int, int | bool]]) -> None:
-        """Load an ``async_read_raw`` snapshot into the stores, for replay in tests.
+        """Load an ``async_read_raw`` snapshot into the stores.
 
-        The snapshot is keyed by the four Modbus spaces — ``holding``, ``input``,
-        ``coil``, ``discrete`` — which are mapped onto the matching stores (the
-        bit spaces to ``coils`` / ``discrete_inputs``), so a raw dump captured
-        from a real device backs the mock and exercises a component's decode with
-        no hardware. Entries are merged in; existing ones are left untouched.
+        Raises ``ValueError`` for an unknown address space.
         """
         registers = {"holding": self.holding, "input": self.input}
         bits = {"coil": self.coils, "discrete": self.discrete_inputs}

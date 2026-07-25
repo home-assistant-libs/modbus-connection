@@ -102,14 +102,14 @@ ranges all sit next to the attribute they describe.
 
 ## Caveats worth knowing
 
-A few Home Assistant options don't map to a single field factory. Handle them as
+A few Home Assistant options don't map to a single field helper. Handle them as
 you translate:
 
 - **`precision`** — Home Assistant rounds the *display* value to this many
   decimals. modbus-connection rounds by the decimals implied by `scale`, so apply
   `precision` in a `@property` if you need Home Assistant's exact rounding.
 - **`swap: byte` / `swap: word_byte`** — these swap *bytes within* a register.
-  The field factories model **word** order (`word_order`), not byte order, which
+  The field helpers model **word** order (`word_order`), not byte order, which
   is fixed big-endian. A byte-swapping device needs a custom
   [`RegisterField` subclass](/modbus-connection/modelling/fields/#field-classes).
 - **`data_type: float16`** — not a built-in codec; decode the raw word with a

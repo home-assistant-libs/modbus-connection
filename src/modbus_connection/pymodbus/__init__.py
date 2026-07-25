@@ -1,12 +1,4 @@
-"""pymodbus-backed implementation of the modbus_connection abstraction.
-
-Provides the connect functions (``connect_tcp`` / ``connect_udp`` /
-``connect_serial``) plus the concrete ``ModbusConnection`` / ``PymodbusUnit``
-classes. These are the only backend-specific touchpoints — swapping to tmodbus
-changes only the import.
-
-Requires the ``[pymodbus]`` extra.
-"""
+"""Implement Modbus connections with pymodbus."""
 
 from __future__ import annotations
 
@@ -63,13 +55,7 @@ __all__ = [
 def _map_errors[**P, R](
     func: Callable[Concatenate[PymodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[PymodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Ensure-connect, pace, and map pymodbus exceptions onto the neutral hierarchy.
-
-    Every request first establishes the link on demand via the owner's
-    ``connect()``, so a handle can be used without an explicit connect. Also
-    paces the request so a configured inter-request gap is honored across every
-    unit on the link.
-    """
+    """Connect, pace, and map errors around a unit operation."""
 
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -88,11 +74,7 @@ def _map_errors[**P, R](
 
 
 def _check(response: ModbusPDU) -> ModbusPDU:
-    """Raise the neutral error for a pymodbus error-response PDU; else pass it on.
-
-    pymodbus returns decoded error PDUs rather than raising on them, so every
-    request must inspect ``isError()`` itself.
-    """
+    """Raise a neutral exception for an error response."""
     if response.isError():
         if isinstance(response, ExceptionResponse):
             raise ModbusExceptionError(response.exception_code)
@@ -101,11 +83,7 @@ def _check(response: ModbusPDU) -> ModbusPDU:
 
 
 def _safe_close(client: ModbusBaseClient) -> None:
-    """Best-effort close used on the connect-failure path; never raises.
-
-    The connection attempt has already failed, so a teardown error here would
-    only mask the ``ModbusConnectionError`` we are about to raise.
-    """
+    """Close a client without raising."""
     try:
         client.close()
     except (ModbusException, OSError):
@@ -129,11 +107,7 @@ def _connect_error(
 
 
 class _GenericDiagnostic(DiagnosticBase):
-    """A diagnostics request (FC 0x08) with a caller-supplied sub-function.
-
-    pymodbus only ships fixed-sub-function diagnostic PDUs; this lets us issue an
-    arbitrary sub-function as the spec's generic ``diagnostics()`` requires.
-    """
+    """Represent a diagnostics request with a custom sub-function."""
 
     sub_function_code = 0
 
@@ -238,12 +212,7 @@ PymodbusConnection = ModbusConnection
 
 
 class PymodbusUnit:
-    """A stateless per-unit handle. Every method raises on failure.
-
-    The backend client is resolved through the owning connection on use, so
-    handles can be handed out before the connection is established; every request
-    establishes the link on demand.
-    """
+    """Represent a unit using pymodbus."""
 
     def __init__(self, connection: ModbusConnection, unit_id: int) -> None:
         self._conn = connection
@@ -456,17 +425,7 @@ async def connect_tcp(
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus TCP / RTU-over-TCP / ASCII-over-TCP connection.
-
-    ``framer`` selects the wire framing: ``"socket"`` for native Modbus TCP
-    (MBAP), ``"rtu"`` for RTU-over-TCP — what transparent serial-to-Ethernet
-    gateways speak (the bytes on the wire are plain Modbus RTU frames) — or
-    ``"ascii"`` for ASCII frames tunnelled over the TCP stream.
-
-    ``message_spacing`` is the minimum interval, in seconds, between consecutive
-    requests on this connection — applied across every unit sharing the link. Use
-    it for devices that need a pause between frames; ``0`` (the default) disables
-    pacing and leaves serialization entirely to pymodbus.
+    """Open a Modbus TCP connection.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
@@ -487,17 +446,7 @@ async def connect_udp(
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus UDP connection and return a live handle.
-
-    UDP carries the same wire framing as TCP — ``framer`` selects ``"socket"``
-    for native Modbus (MBAP), ``"rtu"`` for RTU framing, or ``"ascii"`` for ASCII
-    framing over UDP. UDP is connectionless, so ``connect()`` only binds the
-    local datagram endpoint; a dead peer surfaces as a timeout on the first
-    request.
-
-    ``message_spacing`` is the minimum interval, in seconds, between consecutive
-    requests on this connection (see ``connect_tcp``); ``0`` (the default)
-    disables pacing.
+    """Open a Modbus UDP connection.
 
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
@@ -523,33 +472,7 @@ async def connect_tls(
     timeout: float = 3,
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus/TLS (Modbus Security) connection and return a live handle.
-
-    The wire framing is always TLS. Two groups of arguments split the *server*
-    side from the *client* side.
-
-    Server verification — ``verify`` controls how the device's certificate is
-    checked (the ``httpx`` convention):
-
-    - ``True`` (default) — verify against the system trust store.
-    - ``False`` — do not verify, for a device with a self-signed certificate.
-    - a path (``str``) — verify against a CA bundle (a file) or a directory of
-      CAs, e.g. to pin a device's own self-signed certificate.
-
-    ``check_hostname`` (default ``True``) gates hostname matching while still
-    verifying the certificate — set it ``False`` for a device reached by an
-    address its certificate has no SAN for; ignored when ``verify`` is ``False``.
-
-    Client identity (mutual TLS) — ``client_cert`` / ``client_key`` /
-    ``client_key_password`` are this side's own certificate, presented to the
-    device; independent of the server-verification arguments.
-
-    Pass a fully-configured ``sslctx`` to take full control; it overrides every
-    argument above.
-
-    ``message_spacing`` is the minimum interval, in seconds, between consecutive
-    requests on this connection (see ``connect_tcp``); ``0`` (the default)
-    disables pacing.
+    """Open a Modbus/TLS connection.
 
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
@@ -582,14 +505,7 @@ async def connect_serial(
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
-    """Open a Modbus serial connection and return a live handle.
-
-    ``framer`` selects the serial framing: ``"rtu"`` for binary Modbus RTU
-    (the default) or ``"ascii"`` for the ASCII transmission mode.
-
-    ``message_spacing`` is the minimum interval, in seconds, between consecutive
-    requests on this connection (see ``connect_tcp``); ``0`` (the default)
-    disables pacing.
+    """Open a Modbus serial connection.
 
     Raises ``ModbusConnectionError`` if the port cannot be opened.
     """

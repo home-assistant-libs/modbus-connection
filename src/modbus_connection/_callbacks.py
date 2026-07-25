@@ -1,8 +1,4 @@
-"""A tiny subscribe/fire registry for connection-lost callbacks.
-
-Shared by the backends and the mock so the ``on_connection_lost`` boilerplate
-(a list, a subscribe that returns an unsubscribe, and a fire) lives in one place.
-"""
+"""Provide a callback registry."""
 
 from __future__ import annotations
 
@@ -28,7 +24,6 @@ class CallbackRegistry:
         return unsubscribe
 
     def fire(self) -> None:
-        """Invoke every registered callback (over a snapshot, so it is
-        re-entrant-safe against a callback that unsubscribes itself)."""
+        """Invoke every registered callback."""
         for callback in list(self._callbacks):
             callback()

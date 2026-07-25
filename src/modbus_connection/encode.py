@@ -1,9 +1,4 @@
-"""Encode Python values into Modbus register words.
-
-The inverse of :mod:`modbus_connection.decode`: pure, backend-neutral, and used
-by the model layer's writes. ``word_order`` selects the order of the registers
-themselves; it defaults to big-endian (the Modbus convention).
-"""
+"""Encode Python values into Modbus register words."""
 
 from __future__ import annotations
 
@@ -43,11 +38,9 @@ def encode_int(
     count: int,
     word_order: WordOrder = "big",
 ) -> list[int]:
-    """Encode an integer into ``count`` register words (two's complement).
+    """Encode an integer into ``count`` register words.
 
-    Raises ``OverflowError`` if ``value`` does not fit in ``count`` registers as
-    either a signed or unsigned integer, rather than silently truncating it onto
-    the wire.
+    Raises ``OverflowError`` if the value does not fit.
     """
     raw = int(value)
     bits = 16 * count

@@ -2,10 +2,10 @@
 
 A small, **backend-neutral** Modbus connection abstraction.
 
-The top-level `modbus_connection` package is a pure interface — the
-`ModbusConnection` / `ModbusUnit` [Protocols](https://typing.readthedocs.io/en/latest/spec/protocol.html)
-and a tiny exception hierarchy — so consumers can type against it without
-committing to a backend. Two interchangeable backends implement it
+The top-level `modbus_connection` package provides the abstract
+`ModbusConnection`, the `ModbusUnit`
+[Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html), and a
+tiny exception hierarchy. Two interchangeable backends implement them
 ([pymodbus](https://github.com/pymodbus-dev/pymodbus) and
 [tmodbus](https://github.com/wlcrs/tmodbus)); the bare install pulls neither.
 
@@ -32,7 +32,7 @@ import asyncio
 
 from modbus_connection import ModbusTcpParams
 from modbus_connection.model import Component, gauge, uint32, coil
-from modbus_connection.tmodbus import TmodbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 
 
 class Meter(Component):
@@ -50,7 +50,7 @@ class Meter(Component):
 
 
 async def main() -> None:
-    conn = TmodbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+    conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
         await conn.connect()
         meter = Meter(conn.for_unit(1))
@@ -70,8 +70,8 @@ asyncio.run(main())
 
 Everything else — the other transports (UDP, serial, TLS), the full field-type
 and read-planning reference, repeated sub-units, the SunSpec field types and
-model generator, the query helper, the in-memory mock backend for tests, and
-the exception hierarchy — lives on the website:
+model generator, the in-memory mock backend for tests, and the exception
+hierarchy — lives on the website:
 
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 

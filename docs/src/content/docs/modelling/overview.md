@@ -11,7 +11,7 @@ a `ModbusUnit`, so it runs over any backend (or the [mock](/modbus-connection/re
 ## A first component
 
 A `Component` is a device sub-system. Declare its registers and coils as class
-attributes using the [field factories](/modbus-connection/modelling/fields/):
+attributes using the [built-in fields](/modbus-connection/modelling/fields/):
 
 ```python
 from modbus_connection.model import Component, gauge, uint32, coil
@@ -115,7 +115,7 @@ default `None` for a device with a contiguous map (plain gap-based planning).
 
 A component's register fields default to the **holding** space (FC03). For a
 read-only sub-system whose data lives in **input** registers (FC04), set
-`register_space = "input"` — the fields and factories are unchanged:
+`register_space = "input"` — the field declarations are unchanged:
 
 ```python
 class Sensors(Component):

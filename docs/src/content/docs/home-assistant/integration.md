@@ -113,7 +113,7 @@ unit.set_message_spacing(0.05)  # ≥50 ms between requests to this unit
 
 The gap is keyed by unit id, so it holds across the shared connection no matter
 which handle issues the request. See
-[Per-unit spacing](/modbus-connection/getting-started/connections-and-units/#per-unit-spacing).
+[Per-unit spacing](/modbus-connection/getting-started/connection-parameters/#request-spacing).
 :::
 
 ## The coordinator
@@ -180,7 +180,7 @@ a raw dump attached to a bug report can back a regression test with no hardware.
 
 The library layer is fully testable with the shipped
 [mock backend](/modbus-connection/reference/testing/) — a pytest plugin that
-implements the same Protocols. Your device library's tests need no Home Assistant
+implements the same APIs. Your device library's tests need no Home Assistant
 and no device; the integration layer then only has to test the Home Assistant
 wiring.
 

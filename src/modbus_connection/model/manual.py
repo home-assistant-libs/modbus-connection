@@ -23,27 +23,7 @@ if TYPE_CHECKING:
 
 
 class ManualComponent(_ComponentBase):
-    """A register/bit read group assembled imperatively at runtime.
-
-    The imperative sibling of :class:`Component`: instead of declaring fields as
-    class attributes, you :meth:`add` them by key at runtime — for a consumer
-    that maps its layout from config (e.g. YAML) rather than a typed class. It
-    pools its targets into as few Modbus reads as possible just like a
-    ``Component``, and can mix all four tables in one update — holding (FC03) and
-    input (FC04) registers, coils (FC01) and discrete inputs (FC02).
-
-    Values come out via :meth:`get` (and the dict returned by
-    :meth:`async_update`); there is no typed attribute access, since there is no
-    class to hang descriptors on. Adding or removing a target invalidates the
-    cached read plan, which is rebuilt on the next update.
-
-    Pass a per-table ``*_ranges`` to constrain reads to a device's readable
-    address ranges, like ``Component.register_ranges`` / ``coil_ranges``::
-
-        ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
-
-    A table left ``None`` falls back to gap-based planning.
-    """
+    """Build a component from runtime-defined fields."""
 
     def __init__(
         self,
@@ -87,9 +67,8 @@ class ManualComponent(_ComponentBase):
     ) -> None:
         """Add a read target under ``key``, replacing any existing one.
 
-        ``space`` applies to a register field — ``"holding"`` (default) or
-        ``"input"``; a bit field fixes its own space. The field's ``address`` is
-        absolute.
+        Raises ``TypeError`` for an unsupported target and ``ValueError`` for an
+        incompatible address space.
         """
         self.remove(key)  # replace any existing target, and invalidate the plan
         if isinstance(target, RepeatingGroupField):
@@ -166,10 +145,9 @@ class ManualComponent(_ComponentBase):
         )
 
     async def async_update(self) -> dict[str, Any]:
-        """Read every target in pooled block reads; return the decoded values.
+        """Read every target and return the decoded values.
 
-        The read plan is built on the first call and reused until a target is
-        added or removed.
+        Raises ``BlockReadError`` if the device rejects a block.
         """
         await self._refresh(collect_raw=False)
         return dict(self._values)
@@ -177,11 +155,10 @@ class ManualComponent(_ComponentBase):
     # -- writes --------------------------------------------------------------
 
     async def write(self, key: str, value: Any) -> None:
-        """Write a writable register or coil by key (holding / coil only).
+        """Write a writable register or coil by key.
 
-        Shares :meth:`Component.write`'s behaviour (``writable`` validator, FC06 /
-        FC16 with ``force_fc16``) via the same write helpers. A discrete input is
-        read-only, so writing one raises.
+        Raises ``AttributeError`` for an unknown or read-only key and
+        ``ValueError`` if the value cannot be scaled.
         """
         if key in self._registers:
             field, register_space = self._registers[key]

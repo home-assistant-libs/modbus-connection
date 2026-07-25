@@ -1,6 +1,6 @@
 ---
 title: Built-in fields
-description: Every generic field factory — integers, gauges, floats, strings, enums, flags, coils and discrete inputs — with its options.
+description: Every generic field helper — integers, gauges, floats, strings, enums, flags, coils and discrete inputs — with its options.
 ---
 
 A **field** is a descriptor you place on a `Component`. It owns the codec (how raw
@@ -8,9 +8,9 @@ register words become a Python value) but holds no per-read state. Reading the
 attribute returns `T | None` — the decoded value, or `None` before the first read
 or when a sentinel decodes to "no value".
 
-Prefer the **factories** below over constructing field classes directly; they are
+Prefer the **helpers** below over constructing field classes directly; they are
 named presets (width, sign, sentinel, scale) over a small set of codecs. Every
-factory lives in `modbus_connection.model`:
+helper lives in `modbus_connection.model`:
 
 ```python
 from modbus_connection.model import (
@@ -33,14 +33,14 @@ from modbus_connection.model import (
 
 ## Options shared across register fields
 
-Most register factories accept these keyword arguments. Not every option applies
-to every factory (a `string` has no `scale`, for instance) — the tables per
-factory below list what each one takes.
+Most register helpers accept these keyword arguments. Not every option applies
+to every helper (a `string` has no `scale`, for instance) — the tables below list
+what each one takes.
 
 | Option | Meaning |
 | --- | --- |
 | `address` | Address of the value's first register word (before `stride`/`base_offset`). |
-| `count` | Number of 16-bit registers the value spans (fixed by most factories). |
+| `count` | Number of 16-bit registers the value spans (fixed by most helpers). |
 | `scale` | Affine multiplier: the value decodes as `raw * scale + offset`. |
 | `offset` | Affine addend, for a device that reports a shifted value. |
 | `nan` | A raw sentinel value that decodes to `None` (device "unimplemented"). |
@@ -97,7 +97,7 @@ shifted = integer(2, offset=-100)  # raw - 100
 ### `gauge`
 
 A scaled numeric register — a 0.1-scaled temperature, a voltage, and so on. The
-one factory where `scale` is a **required positional** argument.
+one helper where `scale` is a **required positional** argument.
 
 ```python
 gauge(address, scale, *, offset=0.0, signed=True, nan=None, stride=0,
@@ -203,7 +203,7 @@ class Device(Component):
 `signed` interprets the code as two's-complement for devices with negative enum
 codes (e.g. `-1` sent as `0xFFFF`); the default is unsigned.
 
-Under the hood both factories pass the enum class to `NumberField(convert=...)`,
+Under the hood both helpers pass the enum class to `NumberField(convert=...)`,
 which accepts any `Callable[[int], T]` — an enum class is just a callable that
 raises `ValueError` for unknown codes — or a `Mapping[int, T]`, where a missing
 key means the same. Either way an unknown value decodes to `None`, warned once
@@ -291,8 +291,8 @@ types built on this.
 
 ## Field classes
 
-The factories return instances of a small set of codec classes —
+The helpers return instances of a small set of codec classes —
 `NumberField`, `FloatField`, `StringField`, `RawField`, and the address types
 (`IPv4Field`, `IPv6Field`, `Eui48Field`) — plus `CoilField` / `DiscreteInputField`
-for bits. Reach for a subclass directly only for a codec the factories don't
-cover; almost everything is expressible with the factories above.
+for bits. Reach for a subclass directly only for a codec the helpers don't
+cover; almost everything is expressible with the helpers above.

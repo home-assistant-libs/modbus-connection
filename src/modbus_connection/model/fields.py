@@ -1,13 +1,4 @@
-"""Register / coil field descriptors and the typed factories that build them.
-
-A field is a descriptor placed on a :class:`~modbus_connection.model.Component`
-subclass; it owns the codec (how raw register words become a Python value) but
-holds no per-read state. ``RegisterField`` is the abstract base — one concrete
-subclass per codec (``NumberField``, ``FloatField``, ``StringField``,
-``RawField``, the address types). Prefer the factories
-(``gauge``, ``integer``, ...) over constructing a subclass directly; they are the
-named presets (width, sign, sentinel, scale) over that small set of codecs.
-"""
+"""Define typed register and bit fields."""
 
 from __future__ import annotations
 
@@ -83,21 +74,12 @@ _warned_unknown_value: set[tuple[Any, int]] = set()
 
 
 def _decimals(scale: float) -> int:
-    """Number of decimals implied by a scale factor (0.1 -> 1, 2.5 -> 1, 10 -> 0).
-
-    A fractional scale keeps its decimals, so a 2.5-scaled value rounds rather
-    than truncates.
-    """
+    """Return the decimal precision implied by a scale."""
     return max(0, len(f"{scale:.10f}".rstrip("0").split(".")[1]))
 
 
 class RegisterField[T](ABC):
-    """A holding register exposed as a typed attribute (returns ``T | None``).
-
-    Abstract base: it owns the descriptor protocol and the addressing every field
-    shares, and declares the codec contract (:meth:`decode` / :meth:`encode`).
-    The concrete subclasses below implement one codec each.
-    """
+    """Expose a register value as a typed component attribute."""
 
     # Set to the attribute name by __set_name__ when used as a class descriptor;
     # the default keeps decode()/logging working on an unbound field.
@@ -115,29 +97,9 @@ class RegisterField[T](ABC):
         scale_register_stride: int = 0,
         force_fc16: bool = False,
     ) -> None:
-        """Initialise the shared part of a field.
+        """Initialize a register field.
 
-        Args:
-            address: Holding-register address of the value's first word, before
-                ``stride`` is applied. The absolute address read is
-                ``address + stride * (index - 1)``.
-            count: Number of 16-bit registers the value spans.
-            writable: Whether :meth:`Component.write` may write this field.
-                ``True`` writes the value as-is; a :data:`WriteValidator` callable
-                also marks the field writable and is called with the value before
-                each write, returning the value to write (or raising to reject it).
-            stride: Per-index address increment for a repeated block of identical
-                sub-units; ``0`` means the field is at a fixed address.
-            unit: Unit-of-measure label carried as metadata; not used in decoding.
-            scale_register: Address of a scale-factor register - a signed
-                int16 power-of-ten exponent read alongside this field and
-                applied as ``value * 10**sf``; ``None`` for a static scale
-                only.
-            scale_register_stride: Per-index increment for ``scale_register``.
-            force_fc16: Write this field with FC16 (write-multiple-registers) even
-                when it is a single register, for a device that honours only FC16.
-                A multi-register field already uses FC16, so this only matters for
-                a one-word field. Requires ``writable``.
+        Raises ``ValueError`` if ``force_fc16`` is set on a read-only field.
         """
         if force_fc16 and not writable:
             raise ValueError("force_fc16 requires writable")
@@ -170,30 +132,18 @@ class RegisterField[T](ABC):
 
     @abstractmethod
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
-        """Decode this field's ``count`` register words into its Python value.
-
-        ``scale_exponent`` is the value of the field's scale-factor register,
-        if it has one; scaled fields then multiply the result by
-        ``10**scale_exponent``.
-        """
+        """Decode register words into this field's value."""
 
     def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
-        """Encode a Python value into register words. Read-only fields raise.
+        """Encode this field's value into register words.
 
-        ``scale_exponent`` is the value of the field's scale-factor register
-        for a dynamically-scaled field, read fresh for the write.
+        Raises ``NotImplementedError`` for a read-only field.
         """
         raise NotImplementedError(f"{type(self).__name__} is read-only")
 
 
 class _ScaledField[T](RegisterField[T]):
-    """An affine-scaled field with optional ``nan`` sentinel and rounding.
-
-    The decoded number is mapped as ``value * scale + offset``; ``offset`` is the
-    additive term real devices need on top of multiplication (e.g. a temperature
-    reported as ``raw * 0.1 - 100``). Writes invert it as ``(value - offset) /
-    scale``.
-    """
+    """Apply affine and dynamic scaling to a field."""
 
     def __init__(
         self,
@@ -205,12 +155,7 @@ class _ScaledField[T](RegisterField[T]):
         scale_exponent_range: tuple[int, int] | None = None,
         **kwargs: Any,
     ) -> None:
-        """``scale``/``offset`` map the number affinely; ``nan`` decodes to ``None``.
-
-        ``scale_exponent_range`` bounds (inclusive) the exponent a scale-factor
-        register may hold, for specs that constrain it (SunSpec's ``sunssf`` is
-        -10..10); an exponent outside it decodes the value to ``None``.
-        """
+        """Initialize scaling options."""
         super().__init__(address, **kwargs)
         self.scale = scale
         self.offset = offset
@@ -228,13 +173,9 @@ class _ScaledField[T](RegisterField[T]):
         return low <= scale_exponent <= high
 
     def _scale(self, value: float, scale_exponent: int | None) -> Any:
-        """Apply this field's scale (incl. optional 10**sf) and offset, then round.
+        """Scale and round a decoded value.
 
-        A dynamic ``scale_exponent`` comes from a device register, so it may be
-        anything. When it falls outside the field's declared spec range, or it
-        (or the scaled result) is too large or small to represent as a finite
-        number, the value cannot be scaled, so it decodes to None rather than
-        raising or returning a wrong number.
+        Returns ``None`` when the dynamic scale cannot produce a finite value.
         """
         factor = self.scale
         if scale_exponent is not None:
@@ -259,14 +200,9 @@ class _ScaledField[T](RegisterField[T]):
         return int(scaled) if decimals == 0 else round(scaled, decimals)
 
     def _encode_factor(self, scale_exponent: int | None) -> float:
-        """The full factor a write inverts; a scaled field requires its exponent.
+        """Return the scale factor for encoding.
 
-        ``scale_exponent`` comes from the field's scale register, read fresh
-        for the write; requiring it here keeps a dynamically-scaled field from
-        ever encoding with a guessed or stale scale. An exponent whose factor
-        cannot scale (too large or small to represent) raises ``ValueError``:
-        unlike a read, which decodes such a value to ``None``, a write must
-        never guess.
+        Raises ``ValueError`` if the dynamic scale is missing or unusable.
         """
         if self.scale_register is not None and scale_exponent is None:
             raise ValueError(
@@ -293,14 +229,7 @@ class _ScaledField[T](RegisterField[T]):
 
 
 class NumberField[T](_ScaledField[T]):
-    """A scaled integer, optionally signed, sentinel-checked or value-mapped.
-
-    ``convert`` maps the raw value through a callable — typically an ``IntEnum``
-    / ``IntFlag`` class — or looks it up in a mapping. An unknown value (the
-    callable raises ``ValueError``, or the key is missing) decodes to ``None``
-    (warned once per value); an ``IntFlag`` keeps any unknown bits.
-    ``enum_type`` is the former name of ``convert`` and is kept as an alias.
-    """
+    """Decode a scaled or mapped integer field."""
 
     def __init__(
         self,
@@ -459,10 +388,7 @@ class Eui48Field(RegisterField[str]):
 
 
 class _BitField:
-    """A single-bit field (coil or discrete input) exposed as ``bool | None``.
-
-    Concrete subclasses set :attr:`space`; only coils override ``writable``.
-    """
+    """Expose a bit as a component attribute."""
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
     space: ClassVar[BitSpace]  # which bit space this field's address lives in
@@ -511,16 +437,12 @@ class CoilField(_BitField):
 
 
 class DiscreteInputField(_BitField):
-    """A discrete input (FC02) exposed as a read-only ``bool | None`` attribute.
-
-    Discrete inputs are physically read-only, so this field has no ``writable``
-    option — use :class:`CoilField` for a writable bit.
-    """
+    """Expose a discrete input as a read-only attribute."""
 
     space: ClassVar[BitSpace] = "discrete"
 
 
-# -- typed field factories ----------------------------------------------------
+# -- typed field helpers ------------------------------------------------------
 
 
 def gauge(
@@ -537,15 +459,7 @@ def gauge(
     unit: str | None = None,
     force_fc16: bool = False,
 ) -> NumberField[float]:
-    """A scaled numeric register (e.g. a 0.1-scaled temperature or voltage).
-
-    Decodes as ``raw * scale + offset``; pass ``offset`` for a device that reports
-    an affine value (e.g. ``scale=0.1, offset=-100`` for a temperature). Writes
-    invert it as ``(value - offset) / scale``.
-
-    Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``).
-    """
+    """Create a scaled numeric register field."""
     return NumberField(
         address,
         scale=scale,
@@ -574,15 +488,7 @@ def integer(
     unit: str | None = None,
     force_fc16: bool = False,
 ) -> NumberField[int]:
-    """An unscaled integer register (counts, percentages, addresses).
-
-    Pass ``offset`` for a device that reports a value shifted by a constant (e.g.
-    ``offset=-100`` for a temperature stored as ``raw - 100``); it is added on
-    read and inverted on write.
-
-    Pass ``scale_register`` for a device whose scale factor lives in another
-    register (read as a signed int16 and applied as ``10**sf``).
-    """
+    """Create an integer register field."""
     return NumberField(
         address,
         offset=offset,
@@ -797,17 +703,7 @@ def enum[E: IntEnum](
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,
 ) -> NumberField[E]:
-    """An integer register mapped to an ``IntEnum`` member.
-
-    A code with no member decodes to ``None`` (warned once per value). ``nan`` is
-    an optional raw sentinel that also decodes to ``None``. ``signed`` interprets
-    the code as two's-complement for devices with negative enum codes (e.g. -1
-    sent as 0xFFFF); the default is unsigned.
-
-    For a mapping an enum class can't express (e.g. onto a ``StrEnum``), pass
-    any :data:`Converter` to ``NumberField(convert=...)`` directly — raising
-    ``ValueError`` decodes to ``None`` the same way.
-    """
+    """Create a register field mapped to an ``IntEnum``."""
     return NumberField(
         address,
         count=count,
@@ -833,10 +729,7 @@ def flags[F: IntFlag](
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,
 ) -> NumberField[F]:
-    """A bitfield register mapped to an ``IntFlag`` (unknown bits are kept).
-
-    ``signed`` interprets the raw word as two's-complement before mapping.
-    """
+    """Create a register field mapped to an ``IntFlag``."""
     return NumberField(
         address,
         count=count,

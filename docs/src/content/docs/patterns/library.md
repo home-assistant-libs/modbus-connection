@@ -92,12 +92,12 @@ The consumer then works entirely in Python objects:
 ```python
 import asyncio
 from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import TmodbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 from trovis_modbus import Trovis557x
 
 
 async def main() -> None:
-    connection = TmodbusConnection(
+    connection = ModbusConnection(
         ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
     )
     try:
@@ -196,8 +196,3 @@ finally:
   calls instead of one per field.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
-
-## Next
-
-- [Query helper](/modbus-connection/patterns/query-helper/) — a standalone CLI to
-  dump every value from a real device without any application around it.

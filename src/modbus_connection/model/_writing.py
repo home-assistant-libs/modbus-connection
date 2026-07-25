@@ -1,10 +1,4 @@
-"""Shared field-write helpers for Component and ManualComponent.
-
-The two differ only in how they resolve a field's address and space (a Component
-applies its ``index``/``stride``; a ManualComponent uses absolute addresses), so
-the actual write — read-only checks, the ``writable`` validator, and the
-FC06/FC16 choice — lives here once and both call into it.
-"""
+"""Write component fields."""
 
 from __future__ import annotations
 
@@ -30,15 +24,8 @@ async def write_register_field(
 ) -> None:
     """Write ``value`` to a register field at ``address``.
 
-    Raises if the field is read-only or in a non-holding (read-only) space. A
-    ``writable`` validator callable vets/coerces ``value`` first. The write uses
-    FC06 (single) / FC16 (multiple), or FC16 even for one register when the field
-    sets ``force_fc16``. ``label`` names the field in error messages.
-
-    For a dynamically-scaled field, ``scale_address`` is its resolved
-    ``scale_register`` address: the scale factor is read fresh in the same
-    write, so a factor the device shifted since the last update cannot
-    mis-scale the value. An unusable factor raises ``ValueError``.
+    Raises ``AttributeError`` if the field is read-only and ``ValueError`` if
+    the value cannot be scaled.
     """
     if not field.writable:
         raise AttributeError(f"{label} is read-only")
@@ -69,11 +56,9 @@ async def write_bit_field(
     *,
     label: str,
 ) -> None:
-    """Write ``value`` to a bit field at ``address`` (FC05).
+    """Write ``value`` to a bit field.
 
-    Raises if the bit is read-only (a discrete input always is — its ``writable``
-    is ``False``). A ``writable`` validator callable vets/coerces ``value`` first.
-    ``label`` names the field in error messages.
+    Raises ``AttributeError`` if the field is read-only.
     """
     if not field.writable:
         raise AttributeError(f"{label} is read-only")

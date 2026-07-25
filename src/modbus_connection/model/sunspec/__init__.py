@@ -1,40 +1,4 @@
-"""SunSpec point types as ready-made model fields.
-
-`SunSpec <https://sunspec.org>`_ defines a standard Modbus information model used
-by most PV inverters, meters and batteries. Each point has a fixed data type and
-a reserved *unimplemented* value the device sends when the point is absent. These
-factories build model field descriptors with the right width, sign and sentinel,
-so an unimplemented point decodes to ``None`` automatically — the same fields you
-would otherwise hand-roll with the generic factories, minus the boilerplate.
-
-Scaled points reference a scale-factor (``sunssf``) register: pass
-``scale_register=`` its address and the value is returned as ``raw * 10**sf``,
-with ``sf`` read alongside on each update::
-
-    from modbus_connection.model import Component
-    from modbus_connection.model.sunspec import acc32, int16, sunssf, uint16
-
-    class Inverter(Component):
-        a = uint16(2, scale_register=5)   # AC current, scaled by A_SF
-        a_sf = sunssf(5)
-        wh = acc32(8)                     # lifetime energy, Wh
-
-Word order is big-endian throughout, per the SunSpec spec. Enum and bitfield
-points decode to their raw integer by default; pass an ``IntEnum`` / ``IntFlag``
-to map them to members natively (a value with no member decodes to ``None``,
-warned once).
-
-A SunSpec device advertises which models it implements: :func:`scan`
-walks the model chain at the device's base address and returns where each model
-sits, and :class:`SunSpecComponent` is the base for a component placed at a
-discovered model, verifying the model header on every update.
-
-To get an integration started, :mod:`.generate` renders the published model
-definitions (`sunspec/models <https://github.com/sunspec/models>`_) into
-``SunSpecComponent`` base classes — ``python -m
-modbus_connection.model.sunspec.generate 1 103 160`` — to be adjusted to the
-manufacturer's actual implementation.
-"""
+"""Model SunSpec points and discovered models."""
 
 from __future__ import annotations
 
@@ -375,10 +339,7 @@ def enum16(
     stride: int = 0,
     writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
-    """A 16-bit enumeration (unimplemented 0xFFFF).
-
-    Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
-    """
+    """Create a 16-bit enumeration point."""
     return NumberField(
         address,
         count=1,
@@ -409,10 +370,7 @@ def enum32(
     stride: int = 0,
     writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
-    """A 32-bit enumeration over two registers (unimplemented 0xFFFFFFFF).
-
-    Pass an ``IntEnum`` to decode to its member; omit it for the raw code.
-    """
+    """Create a 32-bit enumeration point."""
     return NumberField(
         address,
         count=2,
@@ -443,10 +401,7 @@ def bitfield16(
     stride: int = 0,
     writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
-    """A 16-bit bitfield (unimplemented 0xFFFF).
-
-    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
-    """
+    """Create a 16-bit bitfield point."""
     return NumberField(
         address,
         count=1,
@@ -477,10 +432,7 @@ def bitfield32(
     stride: int = 0,
     writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
-    """A 32-bit bitfield over two registers (unimplemented 0xFFFFFFFF).
-
-    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
-    """
+    """Create a 32-bit bitfield point."""
     return NumberField(
         address,
         count=2,
@@ -511,10 +463,7 @@ def bitfield64(
     stride: int = 0,
     writable: bool | WriteValidator = False,
 ) -> NumberField[Any]:
-    """A 64-bit bitfield over four registers (unimplemented 0xFFFFFFFFFFFFFFFF).
-
-    Pass an ``IntFlag`` to decode to its flags; omit it for the raw word.
-    """
+    """Create a 64-bit bitfield point."""
     return NumberField(
         address,
         count=4,
@@ -592,15 +541,7 @@ def eui48(address: int, *, stride: int = 0) -> Eui48Field:
 
 
 class SunSpecComponent(Component):
-    """A discovered SunSpec model, placed at its address and header-checked.
-
-    Subclasses declare their fields relative to the model start: the
-    2-register header sits at 0/1, the data block starts at 2. The header is
-    verified against the discovered model on every update, own or pooled
-    through a ``ComponentGroup`` - devices shift the register map when a
-    configuration change resizes a model, and a mismatch raises
-    :class:`SunSpecMapShiftError` so the owner can re-scan.
-    """
+    """Represent a discovered SunSpec model."""
 
     model_id = uint16(0)
     model_length = uint16(1)
