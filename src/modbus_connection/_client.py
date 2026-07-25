@@ -181,7 +181,6 @@ class BaseModbusConnection(ABC):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        self._validate_params(params)
         self._params = params
         self._timeout = timeout
         self._pacer = Pacer(message_spacing)
@@ -220,10 +219,6 @@ class BaseModbusConnection(ABC):
         """Tear the connection down — owner only."""
 
     # -- backend hooks ----------------------------------------------------------
-
-    @abstractmethod
-    def _validate_params(self, params: ModbusParams) -> None:
-        """Reject unsupported (params type, framer) combinations at construction."""
 
     @abstractmethod
     async def _connect_client(self) -> Any:

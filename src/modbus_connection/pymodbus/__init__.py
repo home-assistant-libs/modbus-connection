@@ -161,9 +161,6 @@ class ModbusConnection(BaseModbusConnection):
 
     # -- internals ------------------------------------------------------------
 
-    def _validate_params(self, params: ModbusParams) -> None:
-        """pymodbus carries every params type and framing."""
-
     async def _connect_client(self) -> ModbusBaseClient:
         # Unlike tmodbus's create_* functions, pymodbus client constructors can
         # raise; map those failures like any other connect failure.

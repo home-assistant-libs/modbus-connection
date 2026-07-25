@@ -68,11 +68,6 @@ class ModbusConnection(BaseModbusConnection):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
-        self._closing = False
-        self._unit_clients: dict[int, AsyncModbusClient] = {}
-
-    def _validate_params(self, params: ModbusParams) -> None:
         if isinstance(params, ModbusUdpParams):
             raise TypeError(
                 "Modbus UDP is not supported by the tmodbus ModbusConnection; "
@@ -83,6 +78,9 @@ class ModbusConnection(BaseModbusConnection):
                 "ASCII-over-TCP is not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
+        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
+        self._closing = False
+        self._unit_clients: dict[int, AsyncModbusClient] = {}
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
         return TmodbusUnit(self, unit_id)
