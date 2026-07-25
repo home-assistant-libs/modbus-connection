@@ -24,7 +24,6 @@ connection = ModbusConnection(
     ModbusSerialParams(device="/dev/ttyUSB0", framer="ascii", baudrate=9600),
     timeout=5,
 )
-await connection.connect()
 ```
 
 ## TLS

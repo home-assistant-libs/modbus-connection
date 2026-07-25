@@ -101,7 +101,6 @@ async def main() -> None:
         ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
     )
     try:
-        await connection.connect()
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
         await device.async_update()

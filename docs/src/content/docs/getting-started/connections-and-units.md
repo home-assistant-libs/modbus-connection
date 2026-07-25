@@ -11,9 +11,9 @@ The top-level `modbus_connection` package defines the abstract
 A connection owns one physical link to a Modbus network. One link can serve many
 unit IDs, and all requests on it are serialized.
 
-Constructing a connection performs no I/O. `connect()` establishes the link
-eagerly; otherwise the first request connects on demand. If the link drops, the
-next request reconnects.
+Constructing a connection performs no I/O. The first request connects on demand.
+If the link drops, the next request reconnects. `connect()` remains available
+for callers that specifically need to establish the link eagerly.
 
 Only the connection owner should retain this object and call `close()`. Closing
 is permanent: later calls to `connect()` or unit operations raise
@@ -26,7 +26,6 @@ from modbus_connection.tmodbus import ModbusConnection
 connection = ModbusConnection(
     ModbusTcpParams(host="192.168.1.50", port=502)
 )
-await connection.connect()
 ```
 
 ## `ModbusUnit`

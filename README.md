@@ -24,7 +24,7 @@ pip install "modbus-connection[pymodbus]"   # pymodbus backend
 
 ## Example
 
-Model a device once, then connect, update, read, and write it. The optional
+Model a device once, then construct, update, read, and write it. The optional
 `modbus_connection.model` framework maps a device's registers and coils to typed
 attributes and reads the whole device in as few Modbus calls as possible.
 
@@ -53,7 +53,6 @@ class Meter(Component):
 async def main() -> None:
     conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
-        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()  # one pooled block read

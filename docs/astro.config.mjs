@@ -23,7 +23,7 @@ export default defineConfig({
             "Important notes for working with modbus-connection:",
             "",
             "- Install with `pip install \"modbus-connection[tmodbus]\"` or `[pymodbus]`; the bare install pulls neither backend.",
-            "- A connection is transient and owner-held. Import `ModbusConnection` from the selected backend, construct it with a shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclass, then call `await connection.connect()` before I/O.",
+            "- A connection is transient and owner-held. Import `ModbusConnection` from the selected backend and construct it with a shared `ModbusTcpParams` / `ModbusUdpParams` / `ModbusTlsParams` / `ModbusSerialParams` dataclass; the first unit operation connects on demand.",
             "- Consumers receive a `ModbusUnit` via `connection.for_unit(unit_id)` — a stateless per-unit handle. Every method raises on failure; it never returns `None`.",
             "- The `modbus_connection.model` framework maps registers/coils to typed attributes on a `Component`; `modbus_connection.model.sunspec` adds SunSpec point types with their unimplemented sentinels.",
             "- The library is not Home Assistant specific, but ships helpers and patterns that make it a good fit for Home Assistant integrations.",

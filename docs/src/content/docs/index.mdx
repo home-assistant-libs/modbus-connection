@@ -33,7 +33,7 @@ you can build a device library once and let the consumer choose the backend.
 
 ## Example
 
-Model a device once, then connect, update, read, and write it. The optional
+Model a device once, then construct, update, read, and write it. The optional
 `modbus_connection.model` framework maps a device's registers and coils to typed
 attributes and reads the whole device in as few Modbus calls as possible.
 
@@ -62,7 +62,6 @@ class Meter(Component):
 async def main() -> None:
     conn = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
     try:
-        await conn.connect()
         meter = Meter(conn.for_unit(1))
 
         await meter.async_update()        # one pooled block read
@@ -82,8 +81,8 @@ asyncio.run(main())
   <Card title="ModbusConnection" icon="random">
     The shared link to a Modbus network. One physical link addresses many units
     (1–247). It is **transient and owner-held**: construct a backend connection
-    from shared parameters, then connect it before I/O. Only the owner ever
-    holds it, and only the owner tears it down with `close()`.
+    from shared parameters; the first unit operation connects on demand. Only
+    the owner ever holds it, and only the owner tears it down with `close()`.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
