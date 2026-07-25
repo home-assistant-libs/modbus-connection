@@ -67,9 +67,7 @@ async def test_concurrent_connects_share_one_failure() -> None:
         with pytest.raises(ModbusConnectionError):
             await waiter
 
-    # One shared flight for all three callers; that flight retries the
-    # connection failure once (two _connect_client calls) before giving up.
-    assert conn.connect_calls == 2
+    assert conn.connect_calls == 1  # one shared attempt; the failure is not retried
     assert conn.connected is False
     # The failed flight was cleared, so a later connect() starts a fresh attempt.
     assert conn._connect_task is None

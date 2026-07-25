@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
 from ._tls import build_tls_context
-from .exceptions import ClientClosedError, ModbusConnectionError
+from .exceptions import ClientClosedError
 
 if TYPE_CHECKING:
     from ._protocol import ModbusUnit
@@ -186,13 +186,12 @@ class BaseModbusConnection(ABC):
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
     **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
-    factories do exactly that before returning). Every unit request also
-    establishes the link on demand through ``connect()``, so after a drop the
-    next request reconnects. Consumers NEVER receive this object — only a
+    factories do exactly that before returning). Every unit request also calls
+    ``connect()`` first, so the link is established on demand and, after a drop,
+    the next request reconnects. Consumers NEVER receive this object — only a
     ``ModbusUnit`` from ``for_unit``. It is held by the connection's OWNER, and
-    only the owner tears it down with ``close()`` — which is permanent:
-    reconnecting after a drop is automatic, but after ``close()`` every
-    ``connect()`` raises ``ClientClosedError``.
+    only the owner tears it down with ``close()`` — which is permanent: after
+    ``close()`` every ``connect()`` raises ``ClientClosedError``.
     """
 
     def __init__(
@@ -223,13 +222,11 @@ class BaseModbusConnection(ABC):
 
         Builds and connects a fresh backend client from the stored params —
         after a drop the dead client was cleared, so calling this again
-        reconnects. Every unit request does this on demand under a single-flight
-        guard: concurrent callers share one in-flight operation and its result.
-        That operation retries a connection error once before any request can be
-        dispatched; timeouts are not retried. Cancelling one caller leaves that
-        operation running for the others. Raises ``ModbusConnectionError`` (or
-        ``ModbusTimeoutError``) if the link cannot be established, and
-        ``ClientClosedError`` once the connection was ``close()``\\d.
+        reconnects. Concurrent callers share one in-flight attempt and its
+        result; cancelling one caller leaves that attempt running for the
+        others. Raises ``ModbusConnectionError`` (or ``ModbusTimeoutError``) if
+        the link cannot be established, and ``ClientClosedError`` once the
+        connection was ``close()``\\d.
         """
         if self._closed:
             raise ClientClosedError("connection is closed")
@@ -237,9 +234,7 @@ class BaseModbusConnection(ABC):
             return
         task = self._connect_task
         if task is None:
-            task = self._connect_task = asyncio.create_task(
-                self._do_connect_with_retry()
-            )
+            task = self._connect_task = asyncio.create_task(self._do_connect())
             task.add_done_callback(self._connect_done)
         await asyncio.shield(task)
 
@@ -261,15 +256,6 @@ class BaseModbusConnection(ABC):
                 pass
             raise ClientClosedError("connection is closed")
         self._client = client
-
-    async def _do_connect_with_retry(self) -> None:
-        """Establish before dispatch, retrying one connection failure."""
-        try:
-            await self._do_connect()
-        except ClientClosedError:
-            raise
-        except ModbusConnectionError:
-            await self._do_connect()
 
     @abstractmethod
     def for_unit(self, unit_id: int) -> ModbusUnit:
