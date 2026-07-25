@@ -1,4 +1,4 @@
-"""The pymodbus ModbusConnection talks Modbus over UDP (tmodbus has no UDP)."""
+"""ModbusUdpParams talks Modbus over UDP."""
 
 from __future__ import annotations
 

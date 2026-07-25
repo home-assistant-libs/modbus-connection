@@ -1,8 +1,4 @@
-"""ModbusTcpParams(framer="ascii") tunnels Modbus ASCII frames over TCP.
-
-The pymodbus ModbusConnection speaks this; tmodbus has no ASCII-over-TCP transport
-(its client rejects the framer at construction — see test_framer_guard).
-"""
+"""ModbusTcpParams(framer="ascii") tunnels Modbus ASCII frames over TCP."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""connect_tcp(framer="rtu") talks RTU-over-TCP (transparent gateways)."""
+"""ModbusTcpParams(framer="rtu") talks RTU-over-TCP (transparent gateways)."""
 
 from __future__ import annotations
 
