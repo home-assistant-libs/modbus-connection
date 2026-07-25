@@ -69,11 +69,6 @@ def _map_errors[**P, R](
     ``connect()``, so a handle can be used without an explicit connect. Also
     paces the request so a configured inter-request gap is honored across every
     unit on the link.
-
-    Every failure is raised — nothing is replayed here, and pymodbus is
-    configured not to replay either. A dropped link is reported by pymodbus's
-    disconnect trace hook, which clears the dead client so the *next* request
-    reconnects.
     """
 
     @functools.wraps(func)

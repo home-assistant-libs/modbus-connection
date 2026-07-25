@@ -57,12 +57,8 @@ __all__ = [
 # for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
 _PLACEHOLDER_UNIT_ID = 1
 
-# The strategy tmodbus applies to a device that answers busy. Supplying one
-# replaces tmodbus's default wholesale, so the stop and wait repeat its values;
-# ``retry_never`` adds no retry reason of ours (tmodbus unions this predicate
-# with its own). ``reraise`` is the reason we supply a strategy at all: once the
-# bound is reached it surfaces the device's busy response, so a permanently busy
-# device reads as busy rather than as tmodbus's retries-exhausted timeout.
+# Repeats tmodbus's own bounds; ``reraise`` is what we are after, so an
+# exhausted retry surfaces the device's busy response rather than a timeout.
 _RESPONSE_RETRIES = AsyncRetrying(
     retry=retry_never,
     stop=stop_after_delay(60),
@@ -199,11 +195,6 @@ def _map_errors[**P, R](
     Decorates ``TmodbusUnit`` methods so each body just calls the client
     directly. Every request first establishes the link on demand via the
     owner's ``connect()``, so a handle can be used without an explicit connect.
-
-    Every failure is raised — nothing is replayed here, and tmodbus only
-    retransmits a request the device answered busy. A dropped link is reported
-    by the transport's connection-lost hook, which clears the dead client so the
-    *next* request reconnects.
     """
 
     @functools.wraps(func)
