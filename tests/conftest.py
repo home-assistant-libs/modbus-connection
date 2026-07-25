@@ -93,14 +93,24 @@ async def drop_link(conn: ModbusConnection) -> None:
     await conn._close_client(client)
 
 
-def _free_port() -> int:
+@pytest.fixture
+def free_port() -> int:
+    """A port on localhost that nothing is listening on."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
 @pytest.fixture
-async def modbus_server() -> AsyncIterator[tuple[str, int]]:
+def free_udp_port() -> int:
+    """A UDP port on localhost that nothing is bound to."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+async def modbus_server(free_port: int) -> AsyncIterator[tuple[str, int]]:
     """Start a Modbus TCP server with the known datastore; yield (host, port)."""
     # Non-shared blocks, ordered (coils, discrete inputs, holding, input).
     # id=0 serves every unit id (incl. UNIT_ID).
@@ -113,7 +123,7 @@ async def modbus_server() -> AsyncIterator[tuple[str, int]]:
             _register_block(INPUT),
         ),
     )
-    host, port = "127.0.0.1", _free_port()
+    host, port = "127.0.0.1", free_port
     server = ModbusTcpServer(device, identity=_device_identity(), address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     # Wait until the listener is actually accepting connections.

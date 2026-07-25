@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 from collections.abc import AsyncIterator
 
 import pytest
@@ -19,19 +18,13 @@ from .conftest import sim_holding_device
 UNIT_ID = 1
 
 
-def _free_udp_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 @pytest.fixture
-async def udp_server() -> AsyncIterator[tuple[str, int]]:
+async def udp_server(free_udp_port: int) -> AsyncIterator[tuple[str, int]]:
     """A Modbus UDP server with one known holding register."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
     context = sim_holding_device(values)
-    host, port = "127.0.0.1", _free_udp_port()
+    host, port = "127.0.0.1", free_udp_port
     server = ModbusUdpServer(context, framer=FramerType.SOCKET, address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     await asyncio.sleep(0.2)

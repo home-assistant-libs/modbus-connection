@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import socket
 import ssl
 import subprocess
 from collections.abc import AsyncIterator
@@ -45,12 +44,6 @@ openssl = pytest.mark.skipif(
 )
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 def _make_cert(directory: Path) -> tuple[str, str]:
     certfile = directory / "cert.pem"
     keyfile = directory / "key.pem"
@@ -81,13 +74,15 @@ def _make_cert(directory: Path) -> tuple[str, str]:
 
 
 @pytest.fixture
-async def tls_server(tmp_path: Path) -> AsyncIterator[tuple[str, int, str]]:
+async def tls_server(
+    free_port: int, tmp_path: Path
+) -> AsyncIterator[tuple[str, int, str]]:
     """A Modbus/TLS server with a self-signed cert; yields (host, port, certfile)."""
     certfile, keyfile = _make_cert(tmp_path)
     values = [0] * 10
     values[0] = 5579
     context = sim_holding_device(values)
-    host, port = "127.0.0.1", _free_port()
+    host, port = "127.0.0.1", free_port
     server_sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     server_sslctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
     server = ModbusTlsServer(
