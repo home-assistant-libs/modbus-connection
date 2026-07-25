@@ -165,8 +165,7 @@ class BaseModbusConnection(ABC):
 
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
-    **no I/O**, but unsupported (params type, framer) combinations for the
-    backend fail here; ``connect()`` establishes the link (the backends'
+    **no I/O**; ``connect()`` establishes the link (the backends'
     ``connect_*`` factories do exactly that before returning). Consumers NEVER
     receive this object — only a ``ModbusUnit`` from ``for_unit``. It is held
     by the connection's OWNER, and only the owner tears it down with ``close()``;
