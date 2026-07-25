@@ -18,7 +18,6 @@ from tmodbus import (
 from tmodbus.exceptions import (
     InvalidResponseError,
     ModbusResponseError,
-    RequestRetryFailedError,
     TModbusError,
 )
 from tmodbus.exceptions import (
@@ -215,7 +214,7 @@ def _map_errors[**P, R](
                 return await func(self, *args, **kwargs)
         except TModbusConnectionError as err:
             raise ModbusConnectionError(str(err)) from err
-        except (TimeoutError, RequestRetryFailedError) as err:
+        except TimeoutError as err:
             raise ModbusTimeoutError(str(err)) from err
         except InvalidResponseError as err:
             raise ModbusProtocolError(str(err)) from err
