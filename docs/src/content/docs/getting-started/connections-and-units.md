@@ -24,7 +24,7 @@ across many consumers is strictly better than each opening a competing socket.
 - It is **transient and owner-held**. Construct a backend connection from shared
   connection parameters; construction does **no I/O**. Calling `connect()` is
   optional — the first request establishes the link on demand — but the owner
-  may call it to connect eagerly (the `connect_*` factories do exactly that).
+  may call it to connect eagerly.
 - Requests are serialized per connection **by the backend**, not by this wrapper:
   pymodbus's transaction manager and tmodbus's smart transport each hold a lock
   for the full request/response cycle, so concurrent unit calls on one connection
