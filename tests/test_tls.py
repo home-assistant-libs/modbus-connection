@@ -13,6 +13,7 @@ import ssl
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from pymodbus import FramerType
@@ -170,14 +171,12 @@ async def test_tls_explicit_sslctx_is_reusable_across_connections(
 @openssl
 @backend_modules
 async def test_connect_tls_accepts_sslctx(
-    backend: object, tls_server: tuple[str, int, str]
+    backend: ModuleType, tls_server: tuple[str, int, str]
 ) -> None:
     """The eager factory keeps its pre-existing sslctx keyword."""
     host, port, certfile = tls_server
     sslctx = ssl.create_default_context(cafile=certfile)
-    client = await backend.connect_tls(  # type: ignore[attr-defined]
-        host, port=port, sslctx=sslctx
-    )
+    client = await backend.connect_tls(host, port=port, sslctx=sslctx)
     try:
         assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

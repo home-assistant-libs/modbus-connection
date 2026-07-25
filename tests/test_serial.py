@@ -12,7 +12,7 @@ import asyncio
 import os
 import pty
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pymodbus import FramerType
@@ -100,11 +100,11 @@ async def serial_port() -> AsyncIterator[Callable[[FramerType], Any]]:
 async def test_serial_reads(
     serial_port: Callable[[FramerType], Any],
     backend: str,
-    framing: str,
+    framing: Literal["rtu", "ascii"],
     framer: FramerType,
 ) -> None:
     client_port = await serial_port(framer)
-    params = ModbusSerialParams(device=client_port, baudrate=9600, framer=framing)  # type: ignore[arg-type]
+    params = ModbusSerialParams(device=client_port, baudrate=9600, framer=framing)
     if backend == "pymodbus":
         conn = pymodbus_backend.ModbusConnection(params, timeout=2)
     else:

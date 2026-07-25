@@ -9,6 +9,7 @@ reconnect semantics afterwards are identical.
 from __future__ import annotations
 
 import socket
+from types import ModuleType
 
 import pytest
 
@@ -33,10 +34,10 @@ def _closed_port() -> int:
 
 @both_backends
 async def test_connect_tcp_connects_immediately(
-    modbus_server: tuple[str, int], backend: object
+    modbus_server: tuple[str, int], backend: ModuleType
 ) -> None:
     host, port = modbus_server
-    conn = await backend.connect_tcp(host, port=port)  # type: ignore[attr-defined]
+    conn = await backend.connect_tcp(host, port=port)
     try:
         assert conn.connected is True  # already live, no request needed
         assert isinstance(conn, ModbusConnection)
@@ -46,11 +47,11 @@ async def test_connect_tcp_connects_immediately(
 
 
 @both_backends
-async def test_connect_tcp_unreachable_raises_immediately(backend: object) -> None:
+async def test_connect_tcp_unreachable_raises_immediately(backend: ModuleType) -> None:
     # Nothing is listening on this port: the factory raises the neutral error
     # itself instead of returning a connection that fails later.
     with pytest.raises(ModbusConnectionError):
-        await backend.connect_tcp("127.0.0.1", port=_closed_port())  # type: ignore[attr-defined]
+        await backend.connect_tcp("127.0.0.1", port=_closed_port())
 
 
 async def test_tmodbus_connect_udp_rejected() -> None:
@@ -67,12 +68,12 @@ async def test_tmodbus_connect_tcp_ascii_rejected() -> None:
 
 @both_backends
 async def test_factory_connection_self_heals(
-    modbus_server: tuple[str, int], backend: object
+    modbus_server: tuple[str, int], backend: ModuleType
 ) -> None:
     # After the initial connect, factory users get the lazy semantics: a closed
     # link is re-established by the next request.
     host, port = modbus_server
-    conn = await backend.connect_tcp(host, port=port)  # type: ignore[attr-defined]
+    conn = await backend.connect_tcp(host, port=port)
     try:
         await drop_link(conn)
         assert conn.connected is False
