@@ -10,8 +10,9 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusTcpServer
 
-from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
-from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
+import modbus_connection.pymodbus as pymodbus_backend
+import modbus_connection.tmodbus as tmodbus_backend
+from modbus_connection import ModbusTcpParams
 
 from .conftest import sim_holding_device
 
@@ -47,7 +48,9 @@ async def rtu_server() -> AsyncIterator[tuple[str, int]]:
 
 async def test_pymodbus_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
     host, port = rtu_server
-    conn = await pymodbus_connect_tcp(host, port=port, framer="rtu")
+    conn = pymodbus_backend.ModbusConnection(
+        ModbusTcpParams(host=host, port=port, framer="rtu")
+    )
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
@@ -56,7 +59,9 @@ async def test_pymodbus_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
 
 async def test_tmodbus_rtu_over_tcp_reads(rtu_server: tuple[str, int]) -> None:
     host, port = rtu_server
-    conn = await tmodbus_connect_tcp(host, port=port, framer="rtu")
+    conn = tmodbus_backend.ModbusConnection(
+        ModbusTcpParams(host=host, port=port, framer="rtu")
+    )
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:

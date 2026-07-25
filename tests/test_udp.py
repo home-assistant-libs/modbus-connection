@@ -1,4 +1,4 @@
-"""connect_udp talks Modbus over UDP (pymodbus only; tmodbus has no UDP)."""
+"""The pymodbus ModbusConnection talks Modbus over UDP (tmodbus has no UDP)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusUdpServer
 
-from modbus_connection.pymodbus import connect_udp as pymodbus_connect_udp
+from modbus_connection import ModbusUdpParams
+from modbus_connection.pymodbus import ModbusConnection, connect_udp
 from modbus_connection.tmodbus import connect_udp as tmodbus_connect_udp
 
 from .conftest import sim_holding_device
@@ -45,23 +46,37 @@ async def udp_server() -> AsyncIterator[tuple[str, int]]:
             pass
 
 
-async def test_pymodbus_udp_reads(udp_server: tuple[str, int]) -> None:
+async def test_udp_reads(udp_server: tuple[str, int]) -> None:
+    # The client is lazy: no I/O until the first request.
     host, port = udp_server
-    conn = await pymodbus_connect_udp(host, port=port)
+    client = ModbusConnection(ModbusUdpParams(host=host, port=port))
+    try:
+        assert client.connected is False
+        assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert client.connected is True
+    finally:
+        await client.close()
+    assert client.connected is False
+
+
+async def test_udp_write_roundtrip(udp_server: tuple[str, int]) -> None:
+    host, port = udp_server
+    client = ModbusConnection(ModbusUdpParams(host=host, port=port))
+    try:
+        unit = client.for_unit(UNIT_ID)
+        await unit.write_register(0, 4242)
+        assert await unit.read_holding_registers(0, 1) == [4242]
+    finally:
+        await client.close()
+
+
+async def test_connect_udp_factory_reads(udp_server: tuple[str, int]) -> None:
+    # The eager factory binds the endpoint up front and returns a live handle.
+    host, port = udp_server
+    conn = await connect_udp(host, port=port)
     try:
         assert conn.connected is True
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
-    finally:
-        await conn.close()
-
-
-async def test_pymodbus_udp_write_roundtrip(udp_server: tuple[str, int]) -> None:
-    host, port = udp_server
-    conn = await pymodbus_connect_udp(host, port=port)
-    try:
-        unit = conn.for_unit(UNIT_ID)
-        await unit.write_register(0, 4242)
-        assert await unit.read_holding_registers(0, 1) == [4242]
     finally:
         await conn.close()
 

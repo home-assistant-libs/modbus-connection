@@ -1,6 +1,7 @@
-"""connect_tcp(framer="ascii") tunnels Modbus ASCII frames over TCP.
+"""ModbusTcpParams(framer="ascii") tunnels Modbus ASCII frames over TCP.
 
-pymodbus speaks this; tmodbus has no ASCII-over-TCP transport and raises.
+The pymodbus ModbusConnection speaks this; tmodbus has no ASCII-over-TCP transport
+(its client rejects the framer at construction — see test_framer_guard).
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ import pytest
 from pymodbus import FramerType
 from pymodbus.server import ModbusTcpServer
 
-from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
+from modbus_connection import ModbusTcpParams
+from modbus_connection.pymodbus import ModbusConnection
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import sim_holding_device
@@ -50,7 +52,7 @@ async def ascii_tcp_server() -> AsyncIterator[tuple[str, int]]:
 
 async def test_pymodbus_ascii_over_tcp_reads(ascii_tcp_server: tuple[str, int]) -> None:
     host, port = ascii_tcp_server
-    conn = await pymodbus_connect_tcp(host, port=port, framer="ascii")
+    conn = ModbusConnection(ModbusTcpParams(host=host, port=port, framer="ascii"))
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
     finally:
