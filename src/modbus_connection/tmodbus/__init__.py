@@ -175,13 +175,16 @@ TmodbusConnection = ModbusConnection
 def _map_errors[**P, R](
     func: Callable[Concatenate[TmodbusUnit, P], Awaitable[R]],
 ) -> Callable[Concatenate[TmodbusUnit, P], Coroutine[Any, Any, R]]:
-    """Map tmodbus exceptions onto the neutral hierarchy.
+    """Ensure-connect, pace, and map tmodbus exceptions onto the neutral hierarchy.
 
-    Decorates ``TmodbusUnit`` methods so each body just calls the client directly.
+    Decorates ``TmodbusUnit`` methods so each body just calls the client
+    directly. Every request first establishes the link on demand via the
+    owner's ``connect()``, so a handle can be used without an explicit connect.
     """
 
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
+        await self._conn.connect()
         try:
             async with self._conn._pacer.paced(self._unit_id):
                 return await func(self, *args, **kwargs)
@@ -203,8 +206,8 @@ class TmodbusUnit:
     """A stateless per-unit handle over a unit-bound tmodbus client.
 
     The unit-bound client is resolved through the owning connection on use, so
-    handles can be handed out before the connection is established; a request
-    on an unestablished connection raises ``ModbusConnectionError``.
+    handles can be handed out before the connection is established; every request
+    establishes the link on demand.
     """
 
     def __init__(self, connection: ModbusConnection, unit_id: int) -> None:

@@ -22,13 +22,16 @@ One physical link addresses many units (1–247), and sharing a single connectio
 across many consumers is strictly better than each opening a competing socket.
 
 - It is **transient and owner-held**. Construct a backend connection from shared
-  connection parameters, then call `connect()` to establish the link.
+  connection parameters; construction does **no I/O**. Calling `connect()` is
+  optional — the first request establishes the link on demand — but the owner
+  may call it to connect eagerly.
 - Requests are serialized per connection **by the backend**, not by this wrapper:
   pymodbus's transaction manager and tmodbus's smart transport each hold a lock
   for the full request/response cycle, so concurrent unit calls on one connection
   can't interleave.
-- It does **not** self-reconnect. On a drop it fires `on_connection_lost`
-  and stops; recreating it is the owner's job.
+- It runs **no background reconnect loop**. On a drop it fires
+  `on_connection_lost` and clears the dead client; the next request
+  re-establishes the link.
 - **Only the owner holds it, and only the owner tears it down** with `close()`.
 
 ```python

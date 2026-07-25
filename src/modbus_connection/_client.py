@@ -167,12 +167,12 @@ class BaseModbusConnection(ABC):
     The concrete classes are the backends' connection types. Construction takes
     only the params dataclass — the credentials for every connect — and does
     **no I/O**; ``connect()`` establishes the link (the backends' ``connect_*``
-    factories do exactly that before returning). Consumers NEVER receive this
-    object — only a ``ModbusUnit`` from ``for_unit``. It is held by the
-    connection's OWNER, and only the owner tears it down with ``close()`` —
-    which is permanent: reconnecting after a drop is the owner's job (by
-    calling ``connect()`` again), but after ``close()`` every ``connect()``
-    raises ``ClientClosedError``.
+    factories do exactly that before returning). Every unit request also calls
+    ``connect()`` first, so the link is established on demand and, after a drop,
+    the next request reconnects. Consumers NEVER receive this object — only a
+    ``ModbusUnit`` from ``for_unit``. It is held by the connection's OWNER, and
+    only the owner tears it down with ``close()`` — which is permanent: after
+    ``close()`` every ``connect()`` raises ``ClientClosedError``.
     """
 
     def __init__(

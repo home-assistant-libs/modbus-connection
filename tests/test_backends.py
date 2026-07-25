@@ -10,7 +10,6 @@ import pytest
 from modbus_connection import (
     ClientClosedError,
     ModbusConnection,
-    ModbusConnectionError,
     ModbusExceptionError,
     ModbusTcpParams,
     ModbusUnit,
@@ -173,11 +172,12 @@ async def test_connection_stores_its_params(
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-async def test_direct_construction_and_explicit_connect(
+async def test_direct_construction_first_request_connects(
     modbus_server: tuple[str, int], backend: str
 ) -> None:
-    # A connection constructs from params alone with no I/O; connect()
-    # establishes it (exactly what the factories do before returning).
+    # A connection constructs from params alone with no I/O; calling connect()
+    # explicitly is optional because the first request establishes the link on
+    # demand.
     host, port = modbus_server
     params = ModbusTcpParams(host=host, port=port)
     conn: ModbusConnection = (
@@ -187,14 +187,11 @@ async def test_direct_construction_and_explicit_connect(
     )
     try:
         assert conn.connected is False
-        # Unit handles are handed out regardless of connection state; a request
-        # before connect() surfaces the not-established error at request time.
+        # Unit handles are handed out regardless of connection state; the first
+        # request connects without an explicit connect() call.
         unit = conn.for_unit(UNIT_ID)
-        with pytest.raises(ModbusConnectionError):
-            await unit.read_holding_registers(0, 1)
-        await conn.connect()
-        assert conn.connected is True
         assert await unit.read_holding_registers(0, 1) == [1234]
+        assert conn.connected is True
     finally:
         await conn.close()
 
@@ -237,6 +234,29 @@ async def test_connect_reestablishes_a_downed_link(
         await conn.connect()
         assert conn.connected is True
         assert await unit.read_holding_registers(0, 1) == [1234]
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_next_request_reconnects_after_drop(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # The transport's connection-lost hook clears the dead client; with
+    # per-request connect the next request re-establishes the link on its own —
+    # no explicit connect() — and a handle obtained before the drop keeps working.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        unit = conn.for_unit(UNIT_ID)
+        assert await unit.read_holding_registers(0, 1) == [1234]
+        if backend == "pymodbus":
+            conn._on_trace_connect(False)  # type: ignore[attr-defined]
+        else:
+            conn._on_connection_lost(None)  # type: ignore[attr-defined]
+        assert conn.connected is False
+        assert await unit.read_holding_registers(0, 1) == [1234]
+        assert conn.connected is True
     finally:
         await conn.close()
 
