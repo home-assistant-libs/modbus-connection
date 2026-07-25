@@ -28,6 +28,7 @@ from ._protocol import ModbusUnit
 from ._types import WordOrder
 from .exceptions import (
     BlockReadError,
+    ClientClosedError,
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
@@ -37,6 +38,7 @@ from .exceptions import (
 
 __all__ = [
     "BlockReadError",
+    "ClientClosedError",
     "ModbusConnection",
     "ModbusConnectionError",
     "ModbusError",

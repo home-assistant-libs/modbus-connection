@@ -10,6 +10,7 @@ Every `ModbusUnit` method raises on failure — it never returns `None`.
 ```text
 ModbusError
 ├── ModbusConnectionError
+│   └── ClientClosedError     (request on a close()d connection)
 ├── ModbusTimeoutError        (also a builtin TimeoutError)
 ├── ModbusProtocolError
 └── ModbusExceptionError      (.exception_code)
@@ -22,6 +23,7 @@ Import them from the top-level package:
 from modbus_connection import (
     ModbusError,
     ModbusConnectionError,
+    ClientClosedError,
     ModbusTimeoutError,
     ModbusExceptionError,
     ModbusProtocolError,
@@ -46,6 +48,13 @@ except ModbusError as err:
 
 The link is down, not connected, or the transport failed. Recreating the
 connection is the owner's job — the abstraction never self-reconnects.
+
+### `ClientClosedError`
+
+A request or `connect()` was attempted on a connection after its owner called
+`close()`. A closed connection never reconnects; the owner must construct a new
+one. It subclasses `ModbusConnectionError`, so existing handlers keep catching
+it.
 
 ### `ModbusTimeoutError`
 
