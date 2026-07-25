@@ -17,12 +17,17 @@ from modbus_connection import (
 from modbus_connection.tmodbus import ModbusConnection
 
 
-class _FakeClientBase:
-    """A minimal stand-in for the tmodbus base client, always 'connected'."""
+class _FakeClient:
+    """A stand-in tmodbus client: always 'connected', records file-record calls."""
 
     connected = True
 
-    def for_unit_id(self, unit_id: int) -> _FakeClientBase:
+    def __init__(self, read_data: bytes = b"") -> None:
+        self._read_data = read_data
+        self.read_calls: list[tuple[int, int, int]] = []
+        self.write_calls: list[tuple[int, int, bytes]] = []
+
+    def for_unit_id(self, unit_id: int) -> _FakeClient:
         return self
 
     async def connect(self) -> None:
@@ -30,30 +35,6 @@ class _FakeClientBase:
 
     async def disconnect(self) -> None:
         pass
-
-
-@pytest.fixture
-def connection_to(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[_FakeClientBase], ModbusConnection]:
-    """Build a ModbusConnection that connects to a fake client, not a device."""
-
-    def build(client: _FakeClientBase) -> ModbusConnection:
-        monkeypatch.setattr(
-            tmodbus_backend, "create_async_tcp_client", lambda *a, **k: client
-        )
-        return ModbusConnection(ModbusTcpParams(host="test"))
-
-    return build
-
-
-class _FakeFileClient(_FakeClientBase):
-    """A stand-in tmodbus client that records file-record calls."""
-
-    def __init__(self, read_data: bytes = b"") -> None:
-        self._read_data = read_data
-        self.read_calls: list[tuple[int, int, int]] = []
-        self.write_calls: list[tuple[int, int, bytes]] = []
 
     async def read_file_record(
         self, file_number: int, record_number: int, record_length: int
@@ -68,10 +49,25 @@ class _FakeFileClient(_FakeClientBase):
         return object()
 
 
+@pytest.fixture
+def connection_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[_FakeClient], ModbusConnection]:
+    """Build a ModbusConnection that connects to a fake client, not a device."""
+
+    def build(client: _FakeClient) -> ModbusConnection:
+        monkeypatch.setattr(
+            tmodbus_backend, "create_async_tcp_client", lambda *a, **k: client
+        )
+        return ModbusConnection(ModbusTcpParams(host="test"))
+
+    return build
+
+
 async def test_read_file_record_decodes_to_words(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
-    client = _FakeFileClient(b"\x00\x2a\x01\x00")  # words 42 and 256
+    client = _FakeClient(b"\x00\x2a\x01\x00")  # words 42 and 256
     unit = connection_to(client).for_unit(1)
 
     words = await unit.read_file_record(file=4, record=1, length=2)
@@ -81,9 +77,9 @@ async def test_read_file_record_decodes_to_words(
 
 
 async def test_write_file_record_encodes_words_to_payload(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
-    client = _FakeFileClient()
+    client = _FakeClient()
     unit = connection_to(client).for_unit(1)
 
     await unit.write_file_record(file=7, record=9, values=[42, 256])
@@ -91,7 +87,7 @@ async def test_write_file_record_encodes_words_to_payload(
     assert client.write_calls == [(7, 9, b"\x00\x2a\x01\x00")]
 
 
-class _InvalidResponseClient(_FakeClientBase):
+class _InvalidResponseClient(_FakeClient):
     """A unit client whose reads always fail with an invalid response."""
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
@@ -99,7 +95,7 @@ class _InvalidResponseClient(_FakeClientBase):
 
 
 async def test_invalid_response_maps_to_protocol_error(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
     unit = connection_to(_InvalidResponseClient()).for_unit(1)
 
@@ -107,7 +103,7 @@ async def test_invalid_response_maps_to_protocol_error(
         await unit.read_holding_registers(0, 1)
 
 
-class _DroppingClient(_FakeClientBase):
+class _DroppingClient(_FakeClient):
     """A unit client whose reads always fail as a lost connection."""
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
@@ -115,7 +111,7 @@ class _DroppingClient(_FakeClientBase):
 
 
 async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
     # Loss is reported by the transport's on_connection_lost hook, not by a failed
     # request, so a request that hits a dropped link only translates the error.
@@ -132,9 +128,9 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
 
 
 async def test_transport_hook_fires_registered_callbacks(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
-    conn = connection_to(_FakeClientBase())
+    conn = connection_to(_FakeClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -144,11 +140,11 @@ async def test_transport_hook_fires_registered_callbacks(
 
 
 async def test_close_suppresses_on_connection_lost_hook(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
     # A deliberate close() also triggers tmodbus's on_connection_lost hook (with a
     # None cause); that is not a lost connection, so it must not fire callbacks.
-    conn = connection_to(_FakeClientBase())
+    conn = connection_to(_FakeClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -159,12 +155,12 @@ async def test_close_suppresses_on_connection_lost_hook(
 
 
 async def test_transport_hook_clears_the_client_and_unit_cache(
-    connection_to: Callable[[_FakeClientBase], ModbusConnection],
+    connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
     # A transport drop downs the connection: the dead client (and the unit-bound
     # clients cached against it) are cleared, so the next request reconnects
     # against a fresh client.
-    fake = _FakeFileClient()
+    fake = _FakeClient()
     unit = connection_to(fake).for_unit(1)
     conn = unit._conn
     await unit.read_file_record(file=4, record=1, length=2)  # connect + cache
