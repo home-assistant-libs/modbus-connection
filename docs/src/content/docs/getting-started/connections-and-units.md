@@ -129,10 +129,9 @@ connection = PymodbusConnection(
 await connection.connect()
 ```
 
-tmodbus has no UDP or ASCII-over-TCP transport, so those parameter combinations
-are rejected when a `tmodbus.ModbusConnection` is constructed — `TypeError` for
-UDP, `ValueError` for ASCII-over-TCP — while the compatibility factories raise
-`NotImplementedError`. Use the pymodbus backend for them.
+A backend rejects params it doesn't carry when the connection is constructed.
+tmodbus has no UDP or ASCII-over-TCP transport — use the pymodbus backend for
+them.
 
 :::note[Compatibility factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and

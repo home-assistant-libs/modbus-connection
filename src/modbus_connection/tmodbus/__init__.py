@@ -78,23 +78,10 @@ class ModbusConnection(BaseModbusConnection):
                 "Modbus UDP is not supported by the tmodbus ModbusConnection; "
                 "use modbus_connection.pymodbus.ModbusConnection"
             )
-        if isinstance(params, ModbusTcpParams):
-            if params.framer == "ascii":
-                raise ValueError(
-                    "ASCII-over-TCP is not supported by the tmodbus "
-                    "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
-                )
-            if params.framer not in ("socket", "rtu"):
-                raise ValueError(
-                    f"unknown framer {params.framer!r}; "
-                    "expected 'socket', 'rtu', or 'ascii'"
-                )
-        elif isinstance(params, ModbusSerialParams) and params.framer not in (
-            "rtu",
-            "ascii",
-        ):
+        if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
             raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
+                "ASCII-over-TCP is not supported by the tmodbus "
+                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
@@ -140,12 +127,11 @@ class ModbusConnection(BaseModbusConnection):
     async def _create_client(self) -> AsyncModbusClient:
         params = self._params
         if isinstance(params, ModbusTcpParams):
+            # ascii was rejected at construction.
             if params.framer == "socket":
                 create = create_async_tcp_client
-            elif params.framer == "rtu":
-                create = create_async_rtu_over_tcp_client
             else:
-                raise NotImplementedError("tmodbus has no ASCII-over-TCP transport")
+                create = create_async_rtu_over_tcp_client
             return create(
                 params.host,
                 params.port,
@@ -154,8 +140,7 @@ class ModbusConnection(BaseModbusConnection):
                 auto_reconnect=False,
                 on_connection_lost=self._on_connection_lost,
             )
-        if isinstance(params, ModbusUdpParams):
-            raise NotImplementedError("tmodbus has no UDP transport")
+        assert not isinstance(params, ModbusUdpParams)  # rejected at construction
         if isinstance(params, ModbusTlsParams):
             return create_async_tcp_client(
                 params.host,

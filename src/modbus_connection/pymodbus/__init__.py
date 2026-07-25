@@ -162,15 +162,7 @@ class ModbusConnection(BaseModbusConnection):
     # -- internals ------------------------------------------------------------
 
     def _validate_params(self, params: ModbusParams) -> None:
-        if isinstance(params, (ModbusTcpParams, ModbusUdpParams)):
-            FramerType(params.framer)
-        elif isinstance(params, ModbusSerialParams) and params.framer not in (
-            "rtu",
-            "ascii",
-        ):
-            raise ValueError(
-                f"unknown serial framer {params.framer!r}; expected 'rtu' or 'ascii'"
-            )
+        """pymodbus carries every params type and framing."""
 
     async def _connect_client(self) -> ModbusBaseClient:
         # Unlike tmodbus's create_* functions, pymodbus client constructors can
