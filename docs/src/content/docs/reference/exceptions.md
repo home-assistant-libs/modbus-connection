@@ -45,8 +45,8 @@ except ModbusError as err:
 
 ### `ModbusConnectionError`
 
-The link is down, not connected, or the transport failed. Recreating the
-connection is the owner's job — the abstraction never self-reconnects.
+The link is down, not connected, or the transport failed. The connection is not
+discarded: the next request attempts to establish it again.
 
 ### `ClientClosedError`
 
