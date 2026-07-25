@@ -12,7 +12,7 @@ from modbus_connection import (
     ModbusProtocolError,
     ModbusTcpParams,
 )
-from modbus_connection.tmodbus import ModbusConnection, TmodbusUnit
+from modbus_connection.tmodbus import ModbusConnection
 
 
 class _FakeClientBase:
@@ -30,21 +30,14 @@ class _FakeClientBase:
         pass
 
 
-def _client_over(
-    monkeypatch: pytest.MonkeyPatch, fake_client: _FakeClientBase
+def _connection(
+    monkeypatch: pytest.MonkeyPatch, client: _FakeClientBase
 ) -> ModbusConnection:
-    """A ModbusConnection whose tmodbus base client is ``fake_client``."""
+    """A ModbusConnection that connects to ``client`` instead of a device."""
     monkeypatch.setattr(
-        tmodbus_backend, "create_async_tcp_client", lambda *a, **k: fake_client
+        tmodbus_backend, "create_async_tcp_client", lambda *a, **k: client
     )
     return ModbusConnection(ModbusTcpParams(host="test"))
-
-
-def _unit_over(
-    monkeypatch: pytest.MonkeyPatch, fake_client: _FakeClientBase
-) -> TmodbusUnit:
-    """A TmodbusUnit whose owning ModbusConnection wraps ``fake_client``."""
-    return _client_over(monkeypatch, fake_client).for_unit(1)
 
 
 class _FakeFileClient(_FakeClientBase):
@@ -72,7 +65,7 @@ async def test_read_file_record_decodes_to_words(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _FakeFileClient(b"\x00\x2a\x01\x00")  # words 42 and 256
-    unit = _unit_over(monkeypatch, client)
+    unit = _connection(monkeypatch, client).for_unit(1)
 
     words = await unit.read_file_record(file=4, record=1, length=2)
 
@@ -84,7 +77,7 @@ async def test_write_file_record_encodes_words_to_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _FakeFileClient()
-    unit = _unit_over(monkeypatch, client)
+    unit = _connection(monkeypatch, client).for_unit(1)
 
     await unit.write_file_record(file=7, record=9, values=[42, 256])
 
@@ -101,7 +94,7 @@ class _InvalidResponseClient(_FakeClientBase):
 async def test_invalid_response_maps_to_protocol_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unit = _unit_over(monkeypatch, _InvalidResponseClient())
+    unit = _connection(monkeypatch, _InvalidResponseClient()).for_unit(1)
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
@@ -119,7 +112,7 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
 ) -> None:
     # Loss is reported by the transport's on_connection_lost hook, not by a failed
     # request, so a request that hits a dropped link only translates the error.
-    conn = _client_over(monkeypatch, _DroppingClient())
+    conn = _connection(monkeypatch, _DroppingClient())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
     unit = conn.for_unit(1)
@@ -134,7 +127,7 @@ async def test_request_failure_maps_but_does_not_fire_on_connection_lost(
 async def test_transport_hook_fires_registered_callbacks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    conn = _client_over(monkeypatch, _FakeClientBase())
+    conn = _connection(monkeypatch, _FakeClientBase())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -148,7 +141,7 @@ async def test_close_suppresses_on_connection_lost_hook(
 ) -> None:
     # A deliberate close() also triggers tmodbus's on_connection_lost hook (with a
     # None cause); that is not a lost connection, so it must not fire callbacks.
-    conn = _client_over(monkeypatch, _FakeClientBase())
+    conn = _connection(monkeypatch, _FakeClientBase())
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 
@@ -165,7 +158,7 @@ async def test_transport_hook_clears_the_client_and_unit_cache(
     # clients cached against it) are cleared, so the next request reconnects
     # against a fresh client.
     fake = _FakeFileClient()
-    unit = _unit_over(monkeypatch, fake)
+    unit = _connection(monkeypatch, fake).for_unit(1)
     conn = unit._conn
     await unit.read_file_record(file=4, record=1, length=2)  # connect + cache
 
