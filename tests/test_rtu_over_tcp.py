@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 from collections.abc import AsyncIterator
 
 import pytest
@@ -19,19 +18,13 @@ from .conftest import sim_holding_device
 UNIT_ID = 246
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 @pytest.fixture
-async def rtu_server() -> AsyncIterator[tuple[str, int]]:
+async def rtu_server(free_port: int) -> AsyncIterator[tuple[str, int]]:
     """A server that frames RTU-over-TCP, like a serial-to-Ethernet gateway."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
     context = sim_holding_device(values)
-    host, port = "127.0.0.1", _free_port()
+    host, port = "127.0.0.1", free_port
     server = ModbusTcpServer(context, framer=FramerType.RTU, address=(host, port))
     task = asyncio.create_task(server.serve_forever())
     await asyncio.sleep(0.2)

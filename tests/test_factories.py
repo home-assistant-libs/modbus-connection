@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 from types import ModuleType
 
 import pytest
@@ -20,12 +19,6 @@ both_backends = pytest.mark.parametrize(
 )
 
 
-def _closed_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 @both_backends
 async def test_connect_tcp_connects_immediately(
     modbus_server: tuple[str, int], backend: ModuleType
@@ -41,11 +34,13 @@ async def test_connect_tcp_connects_immediately(
 
 
 @both_backends
-async def test_connect_tcp_unreachable_raises_immediately(backend: ModuleType) -> None:
+async def test_connect_tcp_unreachable_raises_immediately(
+    backend: ModuleType, free_port: int
+) -> None:
     # Nothing is listening on this port: the factory raises the neutral error
     # itself instead of returning a connection that fails later.
     with pytest.raises(ModbusConnectionError):
-        await backend.connect_tcp("127.0.0.1", port=_closed_port())
+        await backend.connect_tcp("127.0.0.1", port=free_port)
 
 
 async def test_tmodbus_connect_udp_rejected() -> None:
