@@ -7,7 +7,7 @@ description: SunSpec point types as ready-made model fields, pre-wired with thei
 most PV inverters, meters and batteries. Each point has a fixed data type and a
 reserved *unimplemented* value the device sends when the point is absent.
 
-`modbus_connection.model.sunspec` provides functions that build model fields
+`modbus_connection.model.sunspec` provides helpers that build model fields
 with the right width, sign and sentinel — so an unimplemented point decodes to
 `None` automatically. They are the same fields you'd otherwise hand-roll with the
 [generic fields](/modbus-connection/modelling/fields/), minus the boilerplate.
