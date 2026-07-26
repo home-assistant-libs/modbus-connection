@@ -87,6 +87,11 @@ class Trovis557x:
         await self._group.async_update()
 ```
 
+Assigning one device-wide map to every sub-system works here because the
+sub-systems sit at the addresses they declare. A sub-system placed elsewhere with
+[`base_offset`](/modbus-connection/modelling/repeats/) instead declares its ranges
+relative to its own block, and the group merges the resolved maps.
+
 The consumer then works entirely in Python objects:
 
 ```python

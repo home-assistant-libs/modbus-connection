@@ -1212,6 +1212,88 @@ async def test_base_offset_composes_with_scale_register_stride() -> None:
     assert block.w == pytest.approx(50.0)  # 500 * 10**-1
 
 
+class _RangedBlock(Component):
+    """A layout declared relative to its block start, gap included."""
+
+    register_ranges = ((0, 5), (50, 50))  # 6-49 unreadable
+    error_number = integer(0)
+    state = integer(1)
+    actual = gauge(2, 0.1)
+    target = gauge(50, 0.1)
+
+
+async def test_base_offset_shifts_register_ranges() -> None:
+    # The ranges are part of the placed layout, so they move with it and the
+    # pooled reads survive: without the shift they match nothing and the plan
+    # collapses to one read per field.
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({2000: 0, 2001: 1, 2002: 480, 2050: 520})
+    unit = _SpyUnit(inner)
+    block = _RangedBlock(unit, base_offset=2000)  # type: ignore[arg-type]
+    await block.async_update()
+    assert unit.reads == [("holding", 2000, 3), ("holding", 2050, 1)]
+    assert block.actual == pytest.approx(48.0)
+    assert block.target == pytest.approx(52.0)
+
+
+async def test_base_offset_shifts_coil_and_discrete_ranges() -> None:
+    class Block(Component):
+        coil_ranges = ((0, 6), (9, 40))  # 7-8 unreadable
+        discrete_ranges = ((0, 6), (9, 40))
+        near = coil(5)
+        far = coil(9)
+        flag = discrete_input(5)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils.update({105: True, 109: True})
+    inner.discrete_inputs[105] = True
+    unit = _SpyUnit(inner)
+    block = Block(unit, base_offset=100)  # type: ignore[arg-type]
+    await block.async_update()
+    read = {
+        (space, start + i) for space, start, count in unit.reads for i in range(count)
+    }
+    # The gap moved with the block: 107-108 unread, 7-8 no longer protected.
+    assert ("coil", 107) not in read and ("coil", 108) not in read
+    assert block.near and block.far and block.flag
+
+
+async def test_group_merges_ranges_of_blocks_at_different_offsets() -> None:
+    # Same layout placed twice: each block contributes its own part of the
+    # device's map, and the pooled plan keeps them apart.
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({2000: 0, 2002: 480, 2050: 520, 3000: 7, 3002: 490})
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(  # type: ignore[list-item]
+        unit,
+        [_RangedBlock(unit, base_offset=2000), _RangedBlock(unit, base_offset=3000)],
+    )
+    await group.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 2000, 3),
+        ("holding", 2050, 1),
+        ("holding", 3000, 3),
+        ("holding", 3050, 1),
+    ]
+
+
+async def test_group_rejects_ranges_that_overlap_without_agreeing() -> None:
+    # Blocks close enough for their maps to overlap describe the same addresses
+    # two ways, which is the disagreement the group guards against.
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="register_ranges"):
+        ComponentGroup(unit, [_RangedBlock(unit), _RangedBlock(unit, base_offset=3)])
+
+
+async def test_group_rejects_mixing_declared_and_unset_ranges() -> None:
+    class Unconstrained(Component):
+        value = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="register_ranges"):
+        ComponentGroup(unit, [_RangedBlock(unit), Unconstrained(unit)])
+
+
 # -- diagnostics: raw registers keyed by address ------------------------------
 
 

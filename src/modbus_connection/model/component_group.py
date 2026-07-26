@@ -14,11 +14,55 @@ from ._planning import (
     Space,
     _merge_raw,
     _Readable,
+    _validate_ranges,
 )
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from .component import Component
+
+
+# The attribute a space's readable ranges are declared under, for error messages.
+_RANGE_ATTR: dict[Space, str] = {
+    "holding": "register_ranges",
+    "input": "register_ranges",
+    "coil": "coil_ranges",
+    "discrete": "discrete_ranges",
+}
+
+
+def _merge_ranges(
+    space: Space, declared: list[tuple[Range, ...] | None]
+) -> tuple[Range, ...] | None:
+    """Merge one space's readable ranges over a group's components.
+
+    Members describe one device, so their maps must fit together: components at
+    different offsets contribute different parts of it and are merged, but two
+    that overlap without agreeing describe the device differently, and a member
+    that constrains a space cannot be pooled with one that leaves it open.
+
+    Raises ``ValueError`` if the maps conflict.
+    """
+    attr = _RANGE_ATTR[space]
+    distinct = set(declared)
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    constrained = {ranges for ranges in distinct if ranges is not None}
+    if len(constrained) != len(distinct):
+        raise ValueError(
+            f"every {space}-space component in a ComponentGroup must declare "
+            f"{attr} if any does, but some left it unset"
+        )
+    merged = tuple(sorted({r for ranges in constrained for r in ranges}))
+    try:
+        _validate_ranges(merged)
+    except ValueError as err:
+        raise ValueError(
+            f"every {space}-space component in a ComponentGroup must agree on "
+            f"{attr} where their maps overlap, but got conflicting values: "
+            f"{sorted(constrained)}"
+        ) from err
+    return merged
 
 
 class ComponentGroup(_Readable):
@@ -36,22 +80,15 @@ class ComponentGroup(_Readable):
         self._max_span: int = self._shared("max_span", _MAX_SPAN)
 
     def _ranges_by_space(self) -> dict[Space, tuple[Range, ...] | None]:
-        """The readable ranges per space; components sharing a space must agree."""
-        by_space: dict[Space, list[Component]] = {}
+        """The readable ranges per space, merged over the member components."""
+        by_space: dict[Space, list[tuple[Range, ...] | None]] = {}
         for component in self._components:
-            by_space.setdefault(component.register_space, []).append(component)
-        ranges: dict[Space, tuple[Range, ...] | None] = {}
-        for space, components in by_space.items():
-            distinct = {c.register_ranges for c in components}
-            if len(distinct) > 1:
-                raise ValueError(
-                    f"every {space}-space component in a ComponentGroup must share "
-                    f"register_ranges, but got differing values: {distinct}"
-                )
-            ranges[space] = next(iter(distinct), None)
-        ranges["coil"] = self._shared("coil_ranges", None)
-        ranges["discrete"] = self._shared("discrete_ranges", None)
-        return ranges
+            for space, ranges in component._resolved_ranges().items():
+                by_space.setdefault(space, []).append(ranges)
+        return {
+            space: _merge_ranges(space, declared)
+            for space, declared in by_space.items()
+        }
 
     def _shared[V](self, attr: str, default: V) -> V:
         """The value of ``attr`` shared by every component, or raise if they differ."""
