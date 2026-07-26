@@ -66,19 +66,12 @@ own library: it keeps the register map testable without Home Assistant, and it i
 what you would need anyway to submit the integration to Core later.
 :::
 
-## Your integration owns the connection
-
-There is no shared connection integration in Home Assistant: **each integration
-opens and owns its own link**. Your config flow therefore collects everything
-needed to build one, your `async_setup_entry` constructs it, and unloading the
-entry closes it.
-
 Because the integration imports a concrete backend
 ([tmodbus or pymodbus](/modbus-connection/getting-started/backends/)), make sure
 that backend's extra is actually installed — either as your device library's own
 dependency (`modbus-connection[tmodbus]`) or as a `manifest.json` requirement.
 
-### The config flow
+## The config flow
 
 Collect the transport details for the params object your integration builds —
 `CONF_HOST` / `CONF_PORT` for TCP, the serial device and baud rate for RTU — plus
@@ -133,7 +126,7 @@ case. A [setup probe](/modbus-connection/patterns/library/#a-setup-probe) is als
 where you read a stable identifier — a serial number or MAC — to use as the
 entry's unique id.
 
-### Setting up the entry
+## Setting up the entry
 
 Build the connection from the entry data, hand a unit to the device library, and
 let the coordinator do the first read:
