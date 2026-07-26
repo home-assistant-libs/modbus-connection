@@ -1,6 +1,6 @@
 ---
 title: Integration structure
-description: How modbus-connection fits a Home Assistant integration — the integration owns its connection, and its device logic must live in a separate PyPI library.
+description: How modbus-connection fits a Home Assistant integration.
 ---
 
 modbus-connection is a clean foundation for a **built-in Home Assistant
