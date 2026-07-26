@@ -43,12 +43,12 @@ what the integration will `import` and list in its `manifest.json` requirements.
 
 An integration built this way has three clear layers:
 
-1. **A device library** (its own PyPI package) — the
+1. **modbus-connection** — the connection + modelling foundation the library is
+   built on.
+2. **A device library** (its own PyPI package) — the
    [entrypoint pattern](/modbus-connection/patterns/library/): a top-level device
    object over `Component`s, backend-neutral, consuming a `ModbusUnit`. This has
    **no Home Assistant dependency** and is released and tested on its own.
-2. **modbus-connection** — the connection + modelling foundation the library is
-   built on.
 3. **Your device integration** (in `homeassistant/components/<domain>/`) — owns
    the `ModbusConnection`, gathers its connection details in its own config flow,
    hands a `ModbusUnit` to the library, and polls it from a
@@ -58,6 +58,13 @@ Keeping the device library separate is not just good practice here — it is a
 condition for merging into Core, and it means the hard part (the register map)
 gets tested against the [mock](/modbus-connection/reference/testing/) with no Home
 Assistant in the loop.
+
+:::note[Custom integrations]
+A custom integration is not bound by the separate-library rule — you can ship the
+device code inside the integration itself. We still recommend modelling it as its
+own library: it keeps the register map testable without Home Assistant, and it is
+what you would need anyway to submit the integration to Core later.
+:::
 
 ## Your integration owns the connection
 
