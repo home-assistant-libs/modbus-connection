@@ -9,6 +9,16 @@ connection owned at the top, stateless units handed down, typed components over
 them — lines up exactly with how Home Assistant wants a device integration
 structured.
 
+:::caution[Shared connections are coming]
+Home Assistant is building a system that lets integrations **share one Modbus
+connection** rather than each opening its own. It is not finished, so it is not
+what this page shows — the example below has your integration own its connection.
+The structure is deliberately chosen so that migrating is straightforward: the
+device library only ever sees a `ModbusUnit`, and the connection is built in one
+place (`async_setup_entry`) from values your config flow collected. When sharing
+lands, that one place changes; the library, coordinator and entities do not.
+:::
+
 :::note[Read the official guide first]
 Home Assistant maintains a dedicated guide for Modbus-based integrations. Read it
 alongside this page — it covers the coordinator pattern, entity setup, and config
