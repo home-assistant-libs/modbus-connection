@@ -93,18 +93,28 @@ def _plan_blocks(
 ) -> list[tuple[int, int]]:
     """Group address spans into read blocks.
 
-    Raises ``ValueError`` for invalid ranges or a span wider than ``max_span``.
+    Raises ``ValueError`` for invalid ranges, a span wider than ``max_span``, or
+    a span crossing a readable-range boundary.
     """
     if ranges is not None:
         _validate_ranges(ranges)
     ordered = sorted(set(spans))
     if not ordered:
         return []
-    for _, width in ordered:
+    for address, width in ordered:
         if width > max_span:
             raise ValueError(
                 f"a field spanning {width} registers exceeds the "
                 f"{max_span}-register read limit"
+            )
+        end = address + width - 1
+        # A field that starts inside a readable range and ends outside it (or in
+        # the next one) cannot be read at all: the layout says the device answers
+        # up to the range's high and also puts a field past it.
+        if ranges is not None and _range_of(address, ranges) != _range_of(end, ranges):
+            raise ValueError(
+                f"a field at address {address} spanning {width} registers "
+                f"({address}-{end}) crosses a readable range boundary"
             )
     blocks: list[tuple[int, int]] = []
     block_start, width = ordered[0]
