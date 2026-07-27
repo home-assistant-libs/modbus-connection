@@ -721,6 +721,29 @@ def test_plan_blocks_range_aware_never_crosses_gap() -> None:
     assert (9, 4) in blocks
 
 
+def test_plan_blocks_rejects_span_running_past_a_range_end() -> None:
+    # A 2-register field at 5 covers 5..6, but the device answers 0-5: the layout
+    # contradicts itself, so it is rejected instead of planned as if it fit.
+    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+        plan_blocks([(0, 1), (5, 2)], ((0, 5),))
+
+
+def test_plan_blocks_rejects_span_starting_before_a_range() -> None:
+    # The mirror image: the field ends inside a range but starts below its low.
+    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+        plan_blocks([(4, 2)], ((5, 10),))
+
+
+def test_plan_blocks_rejects_span_bridging_two_ranges() -> None:
+    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+        plan_blocks([(6, 4)], ((0, 6), (9, 40)))  # 6..9 spans the 7-8 gap
+
+
+def test_plan_blocks_allows_span_ending_on_a_range_end() -> None:
+    # Fitting exactly is fine; only running past the high is an error.
+    assert plan_blocks([(0, 1), (4, 2)], ((0, 5),)) == [(0, 6)]
+
+
 def test_plan_blocks_rejects_overlapping_ranges() -> None:
     with pytest.raises(ValueError, match="overlap"):
         plan_blocks([(5, 1)], ((0, 40), (30, 60)))  # 30-40 in both ranges
@@ -757,6 +780,19 @@ async def test_component_max_gap_override_changes_plan() -> None:
     # With max_gap=20 the two fields merge into one block read (0..10).
     assert comp._plan is not None and comp._plan.blocks["holding"] == [(0, 11)]
     assert comp.a == 1 and comp.b == 2
+
+
+async def test_component_rejects_field_past_its_readable_range() -> None:
+    # A 32-bit field starting at the last readable address ends one past it; the
+    # component looks constrained but cannot be read, so planning says so.
+    class Wide(Component):
+        register_ranges = ((0, 5),)  # the device answers 0-5 and nothing above
+        first = integer(0)
+        energy = uint32(5)  # spans 5..6
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+        await Wide(unit).async_update()
 
 
 async def test_group_rejects_mismatched_max_gap() -> None:
