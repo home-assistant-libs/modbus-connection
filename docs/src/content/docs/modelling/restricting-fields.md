@@ -34,9 +34,7 @@ class Boiler(Component):
 
 
 boiler = Boiler(unit)
-boiler.restrict_fields(
-    ["flow_temperature", "return_temperature", "pressure", "mode"]
-)
+boiler.restrict_fields(["flow_temperature", "return_temperature", "pressure", "mode"])
 await boiler.async_update()  # reads only the kept fields' registers
 ```
 
