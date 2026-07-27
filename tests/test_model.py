@@ -1213,6 +1213,88 @@ async def test_base_offset_composes_with_scale_register_stride() -> None:
     assert block.w == pytest.approx(50.0)  # 500 * 10**-1
 
 
+class _RangedBlock(Component):
+    """A layout declared relative to its block start, gap included."""
+
+    register_ranges = ((0, 5), (50, 50))  # 6-49 unreadable
+    error_number = integer(0)
+    state = integer(1)
+    actual = gauge(2, 0.1)
+    target = gauge(50, 0.1)
+
+
+async def test_base_offset_shifts_register_ranges() -> None:
+    # The ranges are part of the placed layout, so they move with it and the
+    # pooled reads survive: without the shift they match nothing and the plan
+    # collapses to one read per field.
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({2000: 0, 2001: 1, 2002: 480, 2050: 520})
+    unit = _SpyUnit(inner)
+    block = _RangedBlock(unit, base_offset=2000)  # type: ignore[arg-type]
+    await block.async_update()
+    assert unit.reads == [("holding", 2000, 3), ("holding", 2050, 1)]
+    assert block.actual == pytest.approx(48.0)
+    assert block.target == pytest.approx(52.0)
+
+
+async def test_base_offset_shifts_coil_and_discrete_ranges() -> None:
+    class Block(Component):
+        coil_ranges = ((0, 6), (9, 40))  # 7-8 unreadable
+        discrete_ranges = ((0, 6), (9, 40))
+        near = coil(5)
+        far = coil(9)
+        flag = discrete_input(5)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.coils.update({105: True, 109: True})
+    inner.discrete_inputs[105] = True
+    unit = _SpyUnit(inner)
+    block = Block(unit, base_offset=100)  # type: ignore[arg-type]
+    await block.async_update()
+    read = {
+        (space, start + i) for space, start, count in unit.reads for i in range(count)
+    }
+    # The gap moved with the block: 107-108 unread, 7-8 no longer protected.
+    assert ("coil", 107) not in read and ("coil", 108) not in read
+    assert block.near and block.far and block.flag
+
+
+async def test_group_merges_ranges_of_blocks_at_different_offsets() -> None:
+    # Same layout placed twice: each block contributes its own part of the
+    # device's map, and the pooled plan keeps them apart.
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({2000: 0, 2002: 480, 2050: 520, 3000: 7, 3002: 490})
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(  # type: ignore[list-item]
+        unit,
+        [_RangedBlock(unit, base_offset=2000), _RangedBlock(unit, base_offset=3000)],
+    )
+    await group.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 2000, 3),
+        ("holding", 2050, 1),
+        ("holding", 3000, 3),
+        ("holding", 3050, 1),
+    ]
+
+
+async def test_group_rejects_ranges_that_overlap_without_agreeing() -> None:
+    # Blocks close enough for their maps to overlap describe the same addresses
+    # two ways, which is the disagreement the group guards against.
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="register_ranges"):
+        ComponentGroup(unit, [_RangedBlock(unit), _RangedBlock(unit, base_offset=3)])
+
+
+async def test_group_rejects_mixing_declared_and_unset_ranges() -> None:
+    class Unconstrained(Component):
+        value = integer(0)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="register_ranges"):
+        ComponentGroup(unit, [_RangedBlock(unit), Unconstrained(unit)])
+
+
 # -- diagnostics: raw registers keyed by address ------------------------------
 
 
@@ -1389,7 +1471,9 @@ async def test_load_raw_rejects_an_unknown_space() -> None:
 class _Boiler(Component):
     """The issue #80 shape: a declared range with a hole a device may refuse."""
 
-    register_ranges = ((2000, 2005), (2050, 2050))
+    # Declared relative to the block start; resolves to (2000..2005), (2050) at
+    # base_offset=2000 (see "Readable address ranges").
+    register_ranges = ((0, 5), (50, 50))
 
     t0 = integer(0)
     t1 = integer(1)
@@ -1427,8 +1511,9 @@ async def test_restrict_fields_splits_declared_range_around_dropped_register() -
 
     read = {addr + i for addr, count in unit.reads for i in range(count)}
     assert 2002 not in read
-    # The declared range is split at 2002; the (2050, 2050) isolation survives.
-    assert boiler.register_ranges == ((2000, 2001), (2003, 2005), (2050, 2050))
+    # The declared range is split at register 2 (abs 2002); the (50, 50)
+    # isolation survives. Ranges stay in declared coordinates.
+    assert boiler.register_ranges == ((0, 1), (3, 5), (50, 50))
     assert boiler.t0 == 0 and boiler.t5 == 0 and boiler.mode == 0
     assert boiler.actual_high is None  # dropped -> reads as None
 

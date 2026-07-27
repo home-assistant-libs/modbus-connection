@@ -111,6 +111,30 @@ class Thermostat(Component):
 With `register_ranges` declared, `max_gap` is ignored. Leave the ranges as the
 default `None` for a device with a contiguous map (plain gap-based planning).
 
+Ranges are part of the **declared layout**, so they are written in the same
+coordinates as the field addresses beside them and move with the component:
+placing the layout somewhere else with
+[`base_offset`](/modbus-connection/modelling/repeats/#base_offset--the-whole-layout-at-another-address)
+shifts the ranges by the same amount. Declaring a layout relative to its block
+start therefore keeps working when the block sits elsewhere on the device:
+
+```python
+class Boiler(Component):
+    register_ranges = ((0, 5), (50, 50))  # relative to the block start
+    state = integer(1)
+    target = gauge(50, 0.1)
+
+
+# The ranges resolve to (2000, 2005) and (2050, 2050) along with the fields.
+boiler = Boiler(unit, base_offset=2000)
+```
+
+A component at the default `base_offset=0` is unaffected — declared and resolved
+addresses are the same — so a device-wide map applied to unplaced components stays
+correct. A layout addressed by `index` and a per-field `stride` is the exception:
+that shift is per field rather than the whole block, so state the ranges of an
+indexed layout at the addresses it actually reads.
+
 ## Firmware-dependent register subsets
 
 Some devices serve only a **subset** of a known layout, and which registers they

@@ -17,6 +17,7 @@ from ._planning import (
     Space,
     _plan_blocks,
     _ranges_excluding,
+    _shift_ranges,
 )
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
@@ -41,7 +42,9 @@ class Component(_ComponentBase):
     # addresses the device actually answers. Each applies within its own address
     # space — ``register_ranges`` to this component's register space, ``coil_ranges``
     # to coils (FC01) and ``discrete_ranges`` to discrete inputs (FC02), which are
-    # distinct spaces with their own readable maps.
+    # distinct spaces with their own readable maps. They are part of the declared
+    # layout, so they are stated in the same coordinates as the field addresses and
+    # move with the component (see ``_resolved_ranges``).
     register_ranges: tuple[Range, ...] | None = None
     coil_ranges: tuple[Range, ...] | None = None
     discrete_ranges: tuple[Range, ...] | None = None
@@ -158,14 +161,27 @@ class Component(_ComponentBase):
         )
         return items + self._count_items + self._static_items
 
-    def _build_plan(self) -> ReadPlan:
-        ranges: dict[Space, tuple[Range, ...] | None] = {
-            self.register_space: self.register_ranges,
-            "coil": self.coil_ranges,
-            "discrete": self.discrete_ranges,
+    def _resolved_ranges(self) -> dict[Space, tuple[Range, ...] | None]:
+        """This component's readable ranges at the addresses it actually reads.
+
+        The declared ranges share the coordinate system of the declared field
+        addresses, so they take the same shift ``_address`` applies — everything
+        that moves the whole block. A per-field ``stride`` is not part of that
+        shift, so a layout addressed by ``index`` states its ranges absolutely.
+        """
+        offset = self._base_offset + self._instance_offset
+        return {
+            self.register_space: _shift_ranges(self.register_ranges, offset),
+            "coil": _shift_ranges(self.coil_ranges, offset),
+            "discrete": _shift_ranges(self.discrete_ranges, offset),
         }
+
+    def _build_plan(self) -> ReadPlan:
         return ReadPlan.build(
-            self._read_items, ranges, max_gap=self.max_gap, max_span=self.max_span
+            self._read_items,
+            self._resolved_ranges(),
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
 
     def restrict_fields(self, names: Iterable[str]) -> None:
@@ -225,16 +241,24 @@ class Component(_ComponentBase):
         kept_fields: Iterable[RegisterField[Any] | _BitField],
         dropped_fields: Iterable[RegisterField[Any] | _BitField],
     ) -> tuple[Range, ...] | None:
-        """Reshape one space's ranges to exclude the dropped fields' addresses."""
+        """Reshape one space's ranges to exclude the dropped fields' addresses.
+
+        Ranges are stated (and stored) in the declared coordinate system, the
+        same one ``_resolved_ranges`` shifts by ``base_offset`` at plan time, so
+        the field addresses are taken in those coordinates too — ``_address``
+        minus that shift — never the resolved addresses, which would be shifted
+        a second time when the plan is built.
+        """
+        offset = self._base_offset + self._instance_offset
         excluded: set[int] = set()
         for field in dropped_fields:
-            address = self._address(field)
+            address = self._address(field) - offset
             excluded.update(range(address, address + field.count))
         if not excluded:
             return declared  # nothing dropped from this space — leave it as declared
         if declared is not None:
             return _ranges_excluding(declared, excluded)
-        spans = [(self._address(f), f.count) for f in kept_fields]
+        spans = [(self._address(f) - offset, f.count) for f in kept_fields]
         if not spans:
             return declared  # every field in this space dropped — ranges unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)

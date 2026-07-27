@@ -45,14 +45,18 @@ is planned and read on its own.
 The readable address ranges and planning limits come from the **components** —
 they describe one device's address map — so components in a group must agree:
 
-- `register_ranges` applies **per register space**, so components sharing a space
-  must declare the same `register_ranges` (a device's input and holding ranges may
-  legitimately differ).
-- Every component must share `coil_ranges`, `discrete_ranges`, `max_gap`, and
-  `max_span`.
+- Readable ranges apply **per address space**, and the group merges what its
+  members declare for each one — resolved to the addresses they actually read, so
+  a member placed with
+  [`base_offset`](/modbus-connection/modelling/repeats/) contributes its shifted
+  map. Members at different offsets each describe their own part of the device.
+- Two members whose resolved ranges **overlap without matching** describe the same
+  addresses two different ways, and a member that constrains a space cannot be
+  pooled with one that leaves it unset. Either raises `ValueError`.
+- Every component must share `max_gap` and `max_span`.
 
-A mismatch raises `ValueError`. This is a guard: a group is one device, so its
-members can't disagree about that device's map.
+The range rules are a guard: a group is one device, so its members can't disagree
+about that device's map.
 
 ```python
 class Base(Component):

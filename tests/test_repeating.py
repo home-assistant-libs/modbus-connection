@@ -308,6 +308,32 @@ async def test_static_group_at_base_offset() -> None:
     assert [(m.v, m.w) for m in inv.modules] == [(1, 11), (2, 22)]
 
 
+async def test_instance_ranges_shift_with_the_instance() -> None:
+    # A sub-unit's ranges are declared like its fields — relative to instance 0 —
+    # so each instance's map moves with its own shift. The instances are pooled,
+    # and their merged map keeps one block per channel instead of the single
+    # gap-merged read unconstrained planning would produce.
+    class Channel(Component):
+        register_ranges = ((0, 1),)  # the rest of the channel's stride is unreadable
+        a = integer(0)
+        b = integer(1)
+
+    class Meter(Component):
+        channels = repeating_group(uint16(8), Channel, stride=10)
+
+    inner = _unit()
+    inner.holding.update({108: 2, 100: 1, 101: 2, 110: 3, 111: 4})
+    unit = _Spy(inner)
+    meter = Meter(unit, base_offset=100)  # type: ignore[arg-type]
+    await meter.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 100, 2),
+        ("holding", 108, 1),  # the count, read from the parent's own plan
+        ("holding", 110, 2),
+    ]
+    assert [(c.a, c.b) for c in meter.channels] == [(1, 2), (3, 4)]
+
+
 async def test_write_through_instance_at_base_offset() -> None:
     # a write through an instance lands at block + instance shift
     class WModule(Component):
