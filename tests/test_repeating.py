@@ -334,6 +334,116 @@ async def test_instance_ranges_shift_with_the_instance() -> None:
     assert [(c.a, c.b) for c in meter.channels] == [(1, 2), (3, 4)]
 
 
+async def test_static_instance_ranges_reach_the_parent_plan() -> None:
+    # A fixed-count group's instances are read from the parent's own plan, so
+    # their declared maps are merged into it — the same blocks a register count
+    # gets from pooling the instances in a ComponentGroup.
+    class Channel(Component):
+        register_ranges = ((0, 1), (4, 5))  # 2-3 unreadable inside a channel
+        a = integer(0)
+        b = integer(4)
+
+    class Meter(Component):
+        channels = repeating_group(2, Channel, stride=10)
+
+    inner = _unit()
+    inner.holding.update({100: 1, 104: 2, 110: 3, 114: 4})
+    unit = _Spy(inner)
+    meter = Meter(unit, base_offset=100)  # type: ignore[arg-type]
+    await meter.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 100, 1),
+        ("holding", 104, 1),
+        ("holding", 110, 1),
+        ("holding", 114, 1),
+    ]
+    assert [(c.a, c.b) for c in meter.channels] == [(1, 2), (3, 4)]
+
+
+async def test_static_instance_ranges_merge_with_the_parent_map() -> None:
+    # The parent's own map and its instances' cover different parts of the
+    # device, so the plan honours both.
+    class Channel(Component):
+        register_ranges = ((0, 1),)
+        a = integer(0)
+
+    class Meter(Component):
+        register_ranges = ((50, 51),)  # the parent's own block, past the channels
+        total = integer(50)
+        channels = repeating_group(2, Channel, stride=10)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 10: 2, 50: 3})
+    unit = _Spy(inner)
+    meter = Meter(unit)  # type: ignore[arg-type]
+    await meter.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 0, 1),
+        ("holding", 10, 1),
+        ("holding", 50, 1),
+    ]
+    assert meter.total == 3
+    assert [c.a for c in meter.channels] == [1, 2]
+
+
+async def test_nested_static_instance_ranges_reach_the_outer_plan() -> None:
+    # Nested fixed-count groups fold into one plan, so the innermost map has to
+    # travel up every level.
+    class Cell(Component):
+        register_ranges = ((0, 0),)  # only the first register of each cell block
+        voltage = integer(0)
+
+    class String(Component):
+        cells = repeating_group(2, Cell, stride=2)
+
+    class Battery(Component):
+        strings = repeating_group(2, String, stride=10)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 2: 2, 10: 3, 12: 4})
+    unit = _Spy(inner)
+    battery = Battery(unit)  # type: ignore[arg-type]
+    await battery.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 0, 1),
+        ("holding", 2, 1),
+        ("holding", 10, 1),
+        ("holding", 12, 1),
+    ]
+    assert [[c.voltage for c in s.cells] for s in battery.strings] == [[1, 2], [3, 4]]
+
+
+async def test_static_instance_ranges_conflicting_with_the_parent_raise() -> None:
+    # A parent map spanning the repeated area contradicts the channel's own map:
+    # the two describe the same addresses differently.
+    class Channel(Component):
+        register_ranges = ((0, 1),)
+        a = integer(0)
+
+    class Meter(Component):
+        register_ranges = ((0, 30),)
+        channels = repeating_group(2, Channel, stride=10)
+
+    with pytest.raises(ValueError, match="must agree on register_ranges"):
+        Meter(_unit())._build_plan()
+
+
+async def test_static_group_without_ranges_follows_the_parent_map() -> None:
+    # An instance that declares nothing adds no constraint, so the parent's map
+    # still plans its registers.
+    class Meter(Component):
+        register_ranges = ((10, 40),)
+        modules = repeating_group(2, Module, stride=20)
+
+    inner = _unit()
+    inner.holding.update({10: 1, 11: 2, 30: 3, 31: 4})
+    unit = _Spy(inner)
+    meter = Meter(unit)  # type: ignore[arg-type]
+    await meter.async_update()
+    assert sorted(unit.reads) == [("holding", 10, 22)]
+    assert [(m.v, m.w) for m in meter.modules] == [(1, 2), (3, 4)]
+
+
 async def test_write_through_instance_at_base_offset() -> None:
     # a write through an instance lands at block + instance shift
     class WModule(Component):

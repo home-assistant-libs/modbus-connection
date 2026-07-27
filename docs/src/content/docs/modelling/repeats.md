@@ -119,6 +119,28 @@ An unimplemented or unreadable count yields no instances. A component with a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/) — the group
 reads the counts in its pooled read, then refreshes each member's groups.
 
+### The sub-unit's readable ranges
+
+A sub-unit that declares
+[readable ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+constrains the reads of every instance. Each instance's map resolves like its
+fields — shifted by its own place in the repeat — and the maps are merged into
+the plan its instances are read from.
+
+```python
+class Channel(Component):
+    register_ranges = ((0, 1), (4, 5))  # 2-3 unreadable inside a channel
+    a = integer(0)
+    b = integer(4)
+
+
+class Meter(Component):
+    channels = repeating_group(2, Channel, stride=10)
+
+
+# Reads 0, 4, 10 and 14 — never across the gaps the channel declares unreadable.
+```
+
 ### Nesting
 
 A `repeating_group`'s `component_class` is itself a `Component`, so it may

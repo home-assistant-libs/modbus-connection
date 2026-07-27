@@ -362,6 +362,23 @@ async def test_repeating_group_fixed_count_folds_into_read() -> None:
     assert unit.reads == [("holding", 11, 3)]
 
 
+async def test_repeating_group_fixed_count_contributes_its_ranges() -> None:
+    class _Channel(Component):
+        register_ranges = ((0, 0),)  # only the first register of each block
+        a = integer(0)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 10: 2})
+    unit = _Spy(inner)
+    mc = ManualComponent(unit)  # type: ignore[arg-type]
+    mc.add("channels", repeating_group(2, _Channel, stride=10))
+    await mc.async_update()
+    # Without the instances' map, max_gap would merge the two channels into one
+    # 11-register read across addresses the channel declares unreadable.
+    assert sorted(unit.reads) == [("holding", 0, 1), ("holding", 10, 1)]
+    assert [c.a for c in mc.get("channels")] == [1, 2]
+
+
 async def test_repeating_group_mixed_with_plain_targets() -> None:
     unit = _unit()
     unit.holding.update({0: 7, 8: 2, 11: 100, 31: 95})
