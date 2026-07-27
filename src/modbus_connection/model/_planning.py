@@ -59,6 +59,15 @@ def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
     return None
 
 
+def _shift_ranges(
+    ranges: tuple[Range, ...] | None, offset: int
+) -> tuple[Range, ...] | None:
+    """Move readable ranges by ``offset``, like the addresses they constrain."""
+    if ranges is None or offset == 0:
+        return ranges
+    return tuple((low + offset, high + offset) for low, high in ranges)
+
+
 def _validate_ranges(ranges: tuple[Range, ...]) -> None:
     """Validate readable ranges.
 

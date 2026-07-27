@@ -42,9 +42,11 @@ A field with the default `stride=0` is at a fixed address shared by every index.
 ## `base_offset` — the whole layout at another address
 
 `base_offset` places the **whole declared layout** at another base address: it
-is added to every address the component touches — fields, bits, group counts
-and `scale_register` addresses — on reads and writes alike. Declare the layout
-once and instantiate it where the block actually sits:
+is added to every address the component touches — fields, bits, group counts,
+`scale_register` addresses and the
+[readable ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+— on reads and writes alike. Declare the layout once and instantiate it where the
+block actually sits:
 
 ```python
 class Cell(Component):

@@ -14,6 +14,7 @@ from ._planning import (
     ReadPlan,
     RegisterSpace,
     Space,
+    _shift_ranges,
 )
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
@@ -38,7 +39,9 @@ class Component(_ComponentBase):
     # addresses the device actually answers. Each applies within its own address
     # space — ``register_ranges`` to this component's register space, ``coil_ranges``
     # to coils (FC01) and ``discrete_ranges`` to discrete inputs (FC02), which are
-    # distinct spaces with their own readable maps.
+    # distinct spaces with their own readable maps. They are part of the declared
+    # layout, so they are stated in the same coordinates as the field addresses and
+    # move with the component (see ``_resolved_ranges``).
     register_ranges: tuple[Range, ...] | None = None
     coil_ranges: tuple[Range, ...] | None = None
     discrete_ranges: tuple[Range, ...] | None = None
@@ -155,14 +158,27 @@ class Component(_ComponentBase):
         )
         return items + self._count_items + self._static_items
 
-    def _build_plan(self) -> ReadPlan:
-        ranges: dict[Space, tuple[Range, ...] | None] = {
-            self.register_space: self.register_ranges,
-            "coil": self.coil_ranges,
-            "discrete": self.discrete_ranges,
+    def _resolved_ranges(self) -> dict[Space, tuple[Range, ...] | None]:
+        """This component's readable ranges at the addresses it actually reads.
+
+        The declared ranges share the coordinate system of the declared field
+        addresses, so they take the same shift ``_address`` applies — everything
+        that moves the whole block. A per-field ``stride`` is not part of that
+        shift, so a layout addressed by ``index`` states its ranges absolutely.
+        """
+        offset = self._base_offset + self._instance_offset
+        return {
+            self.register_space: _shift_ranges(self.register_ranges, offset),
+            "coil": _shift_ranges(self.coil_ranges, offset),
+            "discrete": _shift_ranges(self.discrete_ranges, offset),
         }
+
+    def _build_plan(self) -> ReadPlan:
         return ReadPlan.build(
-            self._read_items, ranges, max_gap=self.max_gap, max_span=self.max_span
+            self._read_items,
+            self._resolved_ranges(),
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
 
     async def async_update(self) -> None:
