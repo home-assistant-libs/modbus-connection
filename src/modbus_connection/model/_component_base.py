@@ -6,7 +6,16 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import Raw, ReadItem, RegisterSpace, _merge_raw, _Readable
+from ._planning import (
+    Range,
+    Raw,
+    ReadItem,
+    RegisterSpace,
+    Space,
+    _merge_range_maps,
+    _merge_raw,
+    _Readable,
+)
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
@@ -109,6 +118,35 @@ class _ComponentBase(_Readable):
             for instance in self._groups[name]
             for item in instance._read_items
         ]
+
+    def _with_static_ranges(
+        self, own: dict[Space, tuple[Range, ...] | None]
+    ) -> dict[Space, tuple[Range, ...] | None]:
+        """Merge every fixed-count instance's readable ranges into ``own``.
+
+        A fixed-count group's instances are read from this component's own plan
+        (see ``_static_items``), so their declared maps only mean something if
+        they reach it. A register-count group gets this from the ``ComponentGroup``
+        its instances are pooled in, which merges its members' maps the same way.
+
+        Raises ``ValueError`` if the maps conflict.
+        """
+        if not self._static_groups:
+            return own
+        by_space: dict[Space, list[tuple[Range, ...] | None]] = {
+            space: [ranges] for space, ranges in own.items()
+        }
+        for name in self._static_groups:
+            for instance in self._groups[name]:
+                # an instance's own fixed-count groups are merged into its map
+                for space, ranges in instance._resolved_ranges().items():
+                    by_space.setdefault(space, []).append(ranges)
+        return {
+            space: _merge_range_maps(
+                space, declared, whose="a component and its fixed-count instances"
+            )
+            for space, declared in by_space.items()
+        }
 
     def _invalidate_group_cache(self) -> None:
         """Drop the cached group read targets after group membership changes."""

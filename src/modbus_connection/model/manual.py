@@ -141,7 +141,10 @@ class ManualComponent(_ComponentBase):
         # the normal read fetches the counts and static instances in one pass.
         items += self._count_items + self._static_items
         return ReadPlan.build(
-            items, self._ranges, max_gap=self._max_gap, max_span=self._max_span
+            items,
+            self._with_static_ranges(self._ranges),
+            max_gap=self._max_gap,
+            max_span=self._max_span,
         )
 
     async def async_update(self) -> dict[str, Any]:

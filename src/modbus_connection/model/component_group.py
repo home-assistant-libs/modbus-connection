@@ -3,32 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from ._planning import (
     _MAX_GAP,
     _MAX_SPAN,
+    _RANGE_ATTR,
     Range,
     Raw,
     ReadPlan,
     Space,
+    _merge_range_maps,
     _merge_raw,
     _Readable,
-    _validate_ranges,
 )
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from .component import Component
-
-
-# The attribute a space's readable ranges are declared under, for error messages.
-_RANGE_ATTR: dict[Space, str] = {
-    "holding": "register_ranges",
-    "input": "register_ranges",
-    "coil": "coil_ranges",
-    "discrete": "discrete_ranges",
-}
 
 
 def _merge_ranges(
@@ -43,26 +35,15 @@ def _merge_ranges(
 
     Raises ``ValueError`` if the maps conflict.
     """
-    attr = _RANGE_ATTR[space]
     distinct = set(declared)
-    if len(distinct) == 1:
-        return next(iter(distinct))
-    if None in distinct:
+    if len(distinct) > 1 and None in distinct:
         raise ValueError(
             f"every {space}-space component in a ComponentGroup must declare "
-            f"{attr} if any does, but some left it unset"
+            f"{_RANGE_ATTR[space]} if any does, but some left it unset"
         )
-    constrained = cast("set[tuple[Range, ...]]", distinct)  # no None left
-    merged = tuple(sorted({r for ranges in constrained for r in ranges}))
-    try:
-        _validate_ranges(merged)
-    except ValueError as err:
-        raise ValueError(
-            f"every {space}-space component in a ComponentGroup must agree on "
-            f"{attr} where their maps overlap, but got conflicting values: "
-            f"{sorted(constrained)}"
-        ) from err
-    return merged
+    return _merge_range_maps(
+        space, distinct, whose=f"every {space}-space component in a ComponentGroup"
+    )
 
 
 class ComponentGroup(_Readable):

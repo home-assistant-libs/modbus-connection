@@ -33,6 +33,14 @@ Space = RegisterSpace | BitSpace
 # register spaces, booleans for the bit spaces.
 Raw = dict[str, dict[int, int | bool]]
 
+# The attribute a space's readable ranges are declared under, for error messages.
+_RANGE_ATTR: dict[Space, str] = {
+    "holding": "register_ranges",
+    "input": "register_ranges",
+    "coil": "coil_ranges",
+    "discrete": "discrete_ranges",
+}
+
 
 class ReadItem(NamedTuple):
     """One read target: where to read, what field, and where to store the value."""
@@ -82,6 +90,34 @@ def _validate_ranges(ranges: tuple[Range, ...]) -> None:
             raise ValueError(
                 f"readable ranges overlap: ({a_low}, {a_high}) and ({b_low}, {b_high})"
             )
+
+
+def _merge_range_maps(
+    space: Space, declared: Iterable[tuple[Range, ...] | None], *, whose: str
+) -> tuple[Range, ...] | None:
+    """Merge one space's readable maps into the map they jointly describe.
+
+    The maps come from parts of one device — components at different offsets each
+    describe their own part — so they are merged, and an unset one adds no
+    constraint. Two that cover the same addresses differently describe the device
+    two ways, which is a conflict.
+
+    Raises ``ValueError`` if the maps conflict.
+    """
+    constrained = {ranges for ranges in declared if ranges is not None}
+    if not constrained:
+        return None
+    if len(constrained) == 1:
+        return next(iter(constrained))
+    merged = tuple(sorted({r for ranges in constrained for r in ranges}))
+    try:
+        _validate_ranges(merged)
+    except ValueError as err:
+        raise ValueError(
+            f"{whose} must agree on {_RANGE_ATTR[space]} where their maps overlap, "
+            f"but got conflicting values: {sorted(constrained)}"
+        ) from err
+    return merged
 
 
 def _plan_blocks(

@@ -135,6 +135,12 @@ correct. A layout addressed by `index` and a per-field `stride` is the exception
 that shift is per field rather than the whole block, so state the ranges of an
 indexed layout at the addresses it actually reads.
 
+A [`repeating_group`](/modbus-connection/modelling/repeats/#the-sub-units-readable-ranges)'s
+sub-unit declares its ranges the same way, and every instance's resolved map is
+merged into the plan its registers are read from. Maps that describe the same
+addresses differently raise `ValueError` — as they do between the members of a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/).
+
 ## Register spaces: holding vs input
 
 A component's register fields default to the **holding** space (FC03). For a
