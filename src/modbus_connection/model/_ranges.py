@@ -18,15 +18,6 @@ def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
     return None
 
 
-def _shift_ranges(
-    ranges: tuple[Range, ...] | None, offset: int
-) -> tuple[Range, ...] | None:
-    """Move readable ranges by ``offset``, like the addresses they constrain."""
-    if ranges is None or offset == 0:
-        return ranges
-    return tuple((low + offset, high + offset) for low, high in ranges)
-
-
 def _validate_ranges(ranges: tuple[Range, ...]) -> None:
     """Validate readable ranges.
 
@@ -65,34 +56,6 @@ def _ranges_excluding(
     return tuple(result)
 
 
-def _merge_space(
-    space: Space, declared: set[tuple[Range, ...] | None], *, whose: str
-) -> tuple[Range, ...] | None:
-    """Merge one space's readable maps into the map they jointly describe.
-
-    The maps come from parts of one device — components at different offsets each
-    describe their own part — so they are merged, and an unset one adds no
-    constraint. Two that cover the same addresses differently describe the device
-    two ways, which is a conflict.
-
-    Raises ``ValueError`` if the maps conflict.
-    """
-    constrained = {ranges for ranges in declared if ranges is not None}
-    if not constrained:
-        return None
-    if len(constrained) == 1:
-        return next(iter(constrained))
-    merged = tuple(sorted({r for ranges in constrained for r in ranges}))
-    try:
-        _validate_ranges(merged)
-    except ValueError as err:
-        raise ValueError(
-            f"{whose} must agree on {_RANGE_ATTR[space]} where their maps overlap, "
-            f"but got conflicting values: {sorted(constrained)}"
-        ) from err
-    return merged
-
-
 @dataclass(frozen=True)
 class DeviceRanges:
     """A device's readable ranges per address space.
@@ -112,12 +75,14 @@ class DeviceRanges:
         """Move every space's ranges, like the addresses they constrain."""
         if offset == 0:
             return self
-        return DeviceRanges(
-            {
-                space: _shift_ranges(ranges, offset)
-                for space, ranges in self.maps.items()
-            }
-        )
+        shifted: dict[Space, tuple[Range, ...] | None] = {}
+        for space, ranges in self.maps.items():
+            shifted[space] = (
+                None
+                if ranges is None
+                else tuple((low + offset, high + offset) for low, high in ranges)
+            )
+        return DeviceRanges(shifted)
 
     @classmethod
     def merged(
@@ -152,5 +117,18 @@ class DeviceRanges:
                     f"{describe(space)} must declare {_RANGE_ATTR[space]} "
                     f"if any does, but some left it unset"
                 )
-            merged[space] = _merge_space(space, declared, whose=describe(space))
+            constrained = {ranges for ranges in declared if ranges is not None}
+            if len(constrained) <= 1:
+                merged[space] = next(iter(constrained), None)
+                continue
+            joint = tuple(sorted({r for ranges in constrained for r in ranges}))
+            try:
+                _validate_ranges(joint)
+            except ValueError as err:
+                raise ValueError(
+                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
+                    f"their maps overlap, but got conflicting values: "
+                    f"{sorted(constrained)}"
+                ) from err
+            merged[space] = joint
         return cls(merged)
