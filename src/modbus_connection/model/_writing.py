@@ -8,7 +8,7 @@ from ..decode import decode_int
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
-    from ._planning import RegisterSpace
+    from ._const import RegisterSpace
     from .fields import RegisterField, _BitField
 
 

@@ -6,16 +6,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
-from ._planning import (
-    _MAX_GAP,
-    _MAX_SPAN,
-    Range,
-    ReadItem,
-    ReadPlan,
-    RegisterSpace,
-    Space,
-    _shift_ranges,
-)
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._planning import ReadItem, ReadPlan, _shift_ranges
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
@@ -165,13 +157,21 @@ class Component(_ComponentBase):
         addresses, so they take the same shift ``_address`` applies — everything
         that moves the whole block. A per-field ``stride`` is not part of that
         shift, so a layout addressed by ``index`` states its ranges absolutely.
+
+        A fixed-count ``repeating_group``'s instances are read from this
+        component's plan, so their maps are merged in (see
+        ``_with_static_ranges``).
+
+        Raises ``ValueError`` if this component's map conflicts with an instance's.
         """
         offset = self._base_offset + self._instance_offset
-        return {
-            self.register_space: _shift_ranges(self.register_ranges, offset),
-            "coil": _shift_ranges(self.coil_ranges, offset),
-            "discrete": _shift_ranges(self.discrete_ranges, offset),
-        }
+        return self._with_static_ranges(
+            {
+                self.register_space: _shift_ranges(self.register_ranges, offset),
+                "coil": _shift_ranges(self.coil_ranges, offset),
+                "discrete": _shift_ranges(self.discrete_ranges, offset),
+            }
+        )
 
     def _build_plan(self) -> ReadPlan:
         return ReadPlan.build(

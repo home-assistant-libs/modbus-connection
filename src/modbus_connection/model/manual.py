@@ -5,15 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
-from ._planning import (
-    _MAX_GAP,
-    _MAX_SPAN,
-    Range,
-    ReadItem,
-    ReadPlan,
-    RegisterSpace,
-    Space,
-)
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._planning import ReadItem, ReadPlan
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
 from .fields import RegisterField, _BitField
@@ -141,7 +134,10 @@ class ManualComponent(_ComponentBase):
         # the normal read fetches the counts and static instances in one pass.
         items += self._count_items + self._static_items
         return ReadPlan.build(
-            items, self._ranges, max_gap=self._max_gap, max_span=self._max_span
+            items,
+            self._with_static_ranges(self._ranges),
+            max_gap=self._max_gap,
+            max_span=self._max_span,
         )
 
     async def async_update(self) -> dict[str, Any]:
