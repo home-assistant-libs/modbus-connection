@@ -8,13 +8,8 @@ from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
-from ._planning import (
-    ReadItem,
-    ReadPlan,
-    _plan_blocks,
-    _ranges_excluding,
-    _shift_ranges,
-)
+from ._planning import ReadItem, ReadPlan, _plan_blocks
+from ._ranges import _ranges_excluding, _shift_ranges
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 

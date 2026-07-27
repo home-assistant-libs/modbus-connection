@@ -7,7 +7,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from ._const import Range, Raw, RegisterSpace, Space
-from ._planning import ReadItem, _merge_range_maps, _merge_raw, _Readable
+from ._planning import ReadItem, _merge_raw, _Readable
+from ._ranges import _merge_range_maps
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
