@@ -6,16 +6,8 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._planning import (
-    Range,
-    Raw,
-    ReadItem,
-    RegisterSpace,
-    Space,
-    _merge_range_maps,
-    _merge_raw,
-    _Readable,
-)
+from ._const import Range, Raw, RegisterSpace, Space
+from ._planning import ReadItem, _merge_range_maps, _merge_raw, _Readable
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:

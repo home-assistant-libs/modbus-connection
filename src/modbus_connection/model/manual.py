@@ -5,15 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
-from ._planning import (
-    _MAX_GAP,
-    _MAX_SPAN,
-    Range,
-    ReadItem,
-    ReadPlan,
-    RegisterSpace,
-    Space,
-)
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._planning import ReadItem, ReadPlan
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
 from .fields import RegisterField, _BitField

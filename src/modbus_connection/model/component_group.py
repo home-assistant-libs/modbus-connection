@@ -5,18 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._planning import (
-    _MAX_GAP,
-    _MAX_SPAN,
-    _RANGE_ATTR,
-    Range,
-    Raw,
-    ReadPlan,
-    Space,
-    _merge_range_maps,
-    _merge_raw,
-    _Readable,
-)
+from ._const import _MAX_GAP, _MAX_SPAN, _RANGE_ATTR, Range, Raw, Space
+from ._planning import ReadPlan, _merge_range_maps, _merge_raw, _Readable
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit

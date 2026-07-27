@@ -88,10 +88,6 @@ left unset falls back to gap-based planning:
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
 ```
 
-A [`repeating_group`](/modbus-connection/modelling/repeats/#the-sub-units-readable-ranges)
-added to the component contributes its sub-unit's ranges to these, and a map that
-covers the same addresses differently raises `ValueError`.
-
 ## A worked example: config-driven fields
 
 This is exactly the shape you want when mapping a user's configuration onto a
