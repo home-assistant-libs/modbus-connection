@@ -141,10 +141,11 @@ class _ComponentBase(_Readable):
             for space, declared in by_space.items()
         }
 
-    def _invalidate_group_cache(self) -> None:
-        """Drop the cached group read targets after group membership changes."""
+    def _invalidate_caches(self) -> None:
+        # Owns the group read-target caches; the plan is the base's.
         for attr in ("_count_items", "_static_items"):
             self.__dict__.pop(attr, None)
+        super()._invalidate_caches()
 
     async def async_update_repeating_groups(self) -> None:
         """Resize and update register-count groups."""

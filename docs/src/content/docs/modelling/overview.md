@@ -264,3 +264,5 @@ class Controller(Component):
   several components in one pooled read.
 - [Manual components](/modbus-connection/modelling/manual-component/) — build the
   layout at runtime from config.
+- [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
+  component to the subset of a layout a device actually serves.

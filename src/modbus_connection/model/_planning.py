@@ -198,8 +198,8 @@ class _Readable:
         """The register-count ``repeating_group`` second pass; subclass-provided."""
         raise NotImplementedError
 
-    def _invalidate_plan(self) -> None:
-        """Drop the cached plan so the next refresh rebuilds it."""
+    def _invalidate_caches(self) -> None:
+        """Drop the caches this object owns; subclasses add theirs via ``super()``."""
         self._plan = None
 
     async def _refresh(self, *, collect_raw: bool, notify: bool = True) -> Raw:

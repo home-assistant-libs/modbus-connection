@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
-from ._planning import ReadItem, ReadPlan
-from ._ranges import _shift_ranges
+from ._planning import ReadItem, ReadPlan, _plan_blocks
+from ._ranges import _ranges_excluding, _shift_ranges
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+
+
+def _partition[F](
+    fields: dict[str, F], keep: set[str]
+) -> tuple[dict[str, F], dict[str, F]]:
+    """Split ``fields`` into ``(kept, dropped)`` by name membership in ``keep``."""
+    kept: dict[str, F] = {}
+    dropped: dict[str, F] = {}
+    for name, field in fields.items():
+        (kept if name in keep else dropped)[name] = field
+    return kept, dropped
 
 
 class Component(_ComponentBase):
@@ -119,12 +131,15 @@ class Component(_ComponentBase):
         return address
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
-        return (
-            field.address
-            + field.stride * (self._index - 1)
-            + self._base_offset
-            + self._instance_offset
-        )
+        return self._declared_address(field) + self._base_offset + self._instance_offset
+
+    def _declared_address(self, field: RegisterField[Any] | _BitField) -> int:
+        """A field's address in declared coordinates (before ``base_offset``).
+
+        This is the coordinate system readable ranges are stated in; ``_address``
+        adds ``base_offset`` and the instance shift on top.
+        """
+        return field.address + field.stride * (self._index - 1)
 
     # -- update --------------------------------------------------------------
 
@@ -150,6 +165,11 @@ class Component(_ComponentBase):
             for field in self._bit_fields.values()
         )
         return items + self._count_items + self._static_items
+
+    def _invalidate_caches(self) -> None:
+        # _read_items composes the base's group targets, so it goes when they do
+        self.__dict__.pop("_read_items", None)
+        super()._invalidate_caches()
 
     def _resolved_ranges(self) -> dict[Space, tuple[Range, ...] | None]:
         """This component's readable ranges at the addresses it actually reads.
@@ -180,6 +200,77 @@ class Component(_ComponentBase):
             self._resolved_ranges(),
             max_gap=self.max_gap,
             max_span=self.max_span,
+        )
+
+    def restrict_fields(self, names: Iterable[str]) -> None:
+        """Narrow this component to ``names`` and reshape its read plan.
+
+        Only the fields in ``names`` are kept; excluded fields read as ``None``
+        and can no longer be written.
+        """
+        if self._static_groups or self._repeating_fields:
+            raise ValueError(
+                "restrict_fields is not supported on a component with "
+                "repeating_group fields"
+            )
+        keep = set(names)
+        unknown = keep - set(self._register_fields) - set(self._bit_fields)
+        if unknown:
+            raise ValueError(f"unknown field(s): {', '.join(sorted(unknown))}")
+
+        kept_registers, dropped_registers = _partition(self._register_fields, keep)
+        kept_bits, dropped_bits = _partition(self._bit_fields, keep)
+
+        self.register_ranges = self._reshaped_ranges(
+            self.register_ranges, kept_registers.values(), dropped_registers.values()
+        )
+        for space, attr in (("coil", "coil_ranges"), ("discrete", "discrete_ranges")):
+            setattr(
+                self,
+                attr,
+                self._reshaped_ranges(
+                    getattr(self, attr),
+                    [f for f in kept_bits.values() if f.space == space],
+                    [f for f in dropped_bits.values() if f.space == space],
+                ),
+            )
+
+        self._register_fields = kept_registers
+        self._bit_fields = kept_bits
+        # Drop any already-read value for a removed field so it reads as None,
+        # whether restrict_fields runs before or after the first update.
+        for name in [*dropped_registers]:
+            self._values.pop(name, None)
+        for name in [*dropped_bits]:
+            self._bits.pop(name, None)
+        self._invalidate_caches()
+
+    def _reshaped_ranges(
+        self,
+        declared: tuple[Range, ...] | None,
+        kept_fields: Iterable[RegisterField[Any] | _BitField],
+        dropped_fields: Iterable[RegisterField[Any] | _BitField],
+    ) -> tuple[Range, ...] | None:
+        """Reshape one space's ranges to exclude the dropped fields' addresses.
+
+        Everything works in declared coordinates (see ``_declared_address``),
+        the same system the stored ranges live in, so ``_resolved_ranges`` shifts
+        them by ``base_offset`` exactly once when the plan is built.
+        """
+        excluded: set[int] = set()
+        for field in dropped_fields:
+            address = self._declared_address(field)
+            excluded.update(range(address, address + field.count))
+        if not excluded:
+            return declared  # nothing dropped from this space — leave it as declared
+        if declared is not None:
+            return _ranges_excluding(declared, excluded)
+        spans = [(self._declared_address(f), f.count) for f in kept_fields]
+        if not spans:
+            return declared  # every field in this space dropped — ranges unused
+        blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
+        return _ranges_excluding(
+            [(start, start + count - 1) for start, count in blocks], excluded
         )
 
     async def async_update(self) -> None:
