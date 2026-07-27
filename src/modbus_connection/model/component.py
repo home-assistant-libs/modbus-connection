@@ -145,9 +145,8 @@ class Component(_ComponentBase):
     def _declared_address(self, field: RegisterField[Any] | _BitField) -> int:
         """A field's address in declared coordinates (before ``base_offset``).
 
-        Per-index ``stride`` is part of the declared layout; ``base_offset`` and
-        the instance shift are not — they are what ``_resolved_ranges`` adds
-        back. This is the coordinate system readable ranges are stated in.
+        This is the coordinate system readable ranges are stated in; ``_address``
+        adds ``base_offset`` and the instance shift on top.
         """
         return field.address + field.stride * (self._index - 1)
 

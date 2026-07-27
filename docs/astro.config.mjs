@@ -81,6 +81,10 @@ export default defineConfig({
             { label: "Repeated sub-units", slug: "modelling/repeats" },
             { label: "Component groups", slug: "modelling/component-group" },
             { label: "Manual components", slug: "modelling/manual-component" },
+            {
+              label: "Restricting fields",
+              slug: "modelling/restricting-fields",
+            },
           ],
         },
         {

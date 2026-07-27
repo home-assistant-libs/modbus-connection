@@ -135,25 +135,6 @@ correct. A layout addressed by `index` and a per-field `stride` is the exception
 that shift is per field rather than the whole block, so state the ranges of an
 indexed layout at the addresses it actually reads.
 
-## Firmware-dependent register subsets
-
-Some devices serve only a **subset** of a known layout, and which registers they
-answer depends on the firmware — with no model or version register to key off. The
-layout is otherwise perfectly typed; only the served subset varies per device. A
-block read is atomic, so a single unserved register *inside* a block fails the whole
-read (see [above](#when-a-block-read-fails)) — and separating blocks onto their own
-components doesn't help when the served and unserved registers are interleaved.
-
-`Component.restrict_fields(names)` narrows a component to the fields the device
-actually serves. Probe the device once at setup to learn which fields answer, then
-keep those:
-
-```python
-boiler = Boiler(unit, base_offset=2000)
-boiler.restrict_fields(served_field_names)  # keep just these
-await boiler.async_update()  # stock update, reads only served registers
-```
-
 ## Register spaces: holding vs input
 
 A component's register fields default to the **holding** space (FC03). For a
@@ -283,3 +264,5 @@ class Controller(Component):
   several components in one pooled read.
 - [Manual components](/modbus-connection/modelling/manual-component/) — build the
   layout at runtime from config.
+- [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
+  component to the subset of a layout a device actually serves.
