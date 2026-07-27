@@ -17,9 +17,8 @@ The entrypoint class:
    owns the connection and hands you a unit.
 2. constructs its sub-systems as [`Component`](/modbus-connection/modelling/overview/)
    instances,
-3. applies the device's readable ranges to them,
-4. pools them into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
-5. exposes `async_update()` plus typed access to each sub-system.
+3. pools them into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
+4. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
 from __future__ import annotations
@@ -34,7 +33,6 @@ from .sensors import Sensors
 from .controller import Controller
 from .heating_circuit import HeatingCircuit
 from .hot_water import HotWater
-from .ranges import ranges_for_model, heating_circuit_count
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
@@ -61,13 +59,6 @@ class Trovis557x:
         self.heating_circuit_2 = HeatingCircuit(unit, index=2)
         self.hot_water = HotWater(unit)
 
-        # Apply the model's readable ranges to every sub-system, so the group's
-        # pooled reads never cross an unreadable gap.
-        register_ranges, coil_ranges = ranges_for_model(model)
-        for component in self.components:
-            component.register_ranges = register_ranges
-            component.coil_ranges = coil_ranges
-
         # One pooled reader for the whole device.
         self._group = ComponentGroup(unit, self.components)
 
@@ -86,11 +77,6 @@ class Trovis557x:
         """Refresh all sub-systems in pooled Modbus reads."""
         await self._group.async_update()
 ```
-
-Assigning one device-wide map to every sub-system works here because the
-sub-systems sit at the addresses they declare. A sub-system placed elsewhere with
-[`base_offset`](/modbus-connection/modelling/repeats/) instead declares its ranges
-relative to its own block, and the group merges the resolved maps.
 
 The consumer then works entirely in Python objects:
 
@@ -138,10 +124,7 @@ class Trovis557x:
         """Read only the safe identity + sensor data needed for setup."""
         model = (await unit.read_holding_registers(0, 1))[0]
 
-        register_ranges, coil_ranges = ranges_for_model(model)
         sensors = Sensors(unit)
-        sensors.register_ranges = register_ranges
-        sensors.coil_ranges = coil_ranges
         await sensors.async_update()
 
         return TrovisProbe(model=model, detected_sensors=sensors.detected_sensor_names)
