@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ._planning import (
     _MAX_GAP,
@@ -47,12 +47,12 @@ def _merge_ranges(
     distinct = set(declared)
     if len(distinct) == 1:
         return next(iter(distinct))
-    constrained = {ranges for ranges in distinct if ranges is not None}
-    if len(constrained) != len(distinct):
+    if None in distinct:
         raise ValueError(
             f"every {space}-space component in a ComponentGroup must declare "
             f"{attr} if any does, but some left it unset"
         )
+    constrained = cast("set[tuple[Range, ...]]", distinct)  # no None left
     merged = tuple(sorted({r for ranges in constrained for r in ranges}))
     try:
         _validate_ranges(merged)
