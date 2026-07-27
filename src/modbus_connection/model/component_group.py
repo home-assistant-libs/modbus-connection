@@ -6,7 +6,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from ._const import _MAX_GAP, _MAX_SPAN, _RANGE_ATTR, Range, Raw, Space
-from ._planning import ReadPlan, _merge_range_maps, _merge_raw, _Readable
+from ._planning import ReadPlan, _merge_raw, _Readable
+from ._ranges import _merge_range_maps
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
