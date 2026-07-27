@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from ..decode import decode_int16
 from ..exceptions import BlockReadError, ModbusExceptionError
 from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
-from ._ranges import _range_of, _validate_ranges
+from ._ranges import DeviceRanges, _range_of, _validate_ranges
 from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ class ReadPlan(NamedTuple):
     def build(
         cls,
         items: Iterable[ReadItem],
-        ranges: Mapping[Space, tuple[Range, ...] | None],
+        ranges: DeviceRanges,
         *,
         max_gap: int = _MAX_GAP,
         max_span: int = _MAX_SPAN,
@@ -126,7 +126,10 @@ class ReadPlan(NamedTuple):
             items,
             {
                 space: _plan_blocks(
-                    space_spans, ranges.get(space), max_gap=max_gap, max_span=max_span
+                    space_spans,
+                    ranges.for_space(space),
+                    max_gap=max_gap,
+                    max_span=max_span,
                 )
                 for space, space_spans in spans.items()
             },

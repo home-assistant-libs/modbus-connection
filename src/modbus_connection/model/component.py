@@ -7,9 +7,9 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
 from ._planning import ReadItem, ReadPlan, _plan_blocks
-from ._ranges import _ranges_excluding, _shift_ranges
+from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
 from .fields import RegisterField, _BitField
 
@@ -171,7 +171,7 @@ class Component(_ComponentBase):
         self.__dict__.pop("_read_items", None)
         super()._invalidate_caches()
 
-    def _resolved_ranges(self) -> dict[Space, tuple[Range, ...] | None]:
+    def _resolved_ranges(self) -> DeviceRanges:
         """This component's readable ranges at the addresses it actually reads.
 
         The declared ranges share the coordinate system of the declared field
@@ -185,13 +185,15 @@ class Component(_ComponentBase):
 
         Raises ``ValueError`` if this component's map conflicts with an instance's.
         """
-        offset = self._base_offset + self._instance_offset
-        return self._with_static_ranges(
+        declared = DeviceRanges(
             {
-                self.register_space: _shift_ranges(self.register_ranges, offset),
-                "coil": _shift_ranges(self.coil_ranges, offset),
-                "discrete": _shift_ranges(self.discrete_ranges, offset),
+                self.register_space: self.register_ranges,
+                "coil": self.coil_ranges,
+                "discrete": self.discrete_ranges,
             }
+        )
+        return self._with_static_ranges(
+            declared.shift(self._base_offset + self._instance_offset)
         )
 
     def _build_plan(self) -> ReadPlan:

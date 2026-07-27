@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
 from ._planning import ReadItem, ReadPlan
+from ._ranges import DeviceRanges
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
 from .fields import RegisterField, _BitField
@@ -34,12 +35,14 @@ class ManualComponent(_ComponentBase):
         self._max_span = max_span
         # Readable address ranges per table; a table left None falls back to
         # gap-based planning, like Component does.
-        self._ranges: dict[Space, tuple[Range, ...] | None] = {
-            "holding": holding_ranges,
-            "input": input_ranges,
-            "coil": coil_ranges,
-            "discrete": discrete_ranges,
-        }
+        self._ranges = DeviceRanges(
+            {
+                "holding": holding_ranges,
+                "input": input_ranges,
+                "coil": coil_ranges,
+                "discrete": discrete_ranges,
+            }
+        )
         self._registers: dict[str, tuple[RegisterField[Any], RegisterSpace]] = {}
         self._bits: dict[str, _BitField] = {}
         self._values: dict[str, Any] = {}

@@ -6,9 +6,9 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._const import Range, Raw, RegisterSpace, Space
+from ._const import Raw, RegisterSpace
 from ._planning import ReadItem, _merge_raw, _Readable
-from ._ranges import _merge_range_maps
+from ._ranges import DeviceRanges
 from .component_group import ComponentGroup
 
 if TYPE_CHECKING:
@@ -112,9 +112,7 @@ class _ComponentBase(_Readable):
             for item in instance._read_items
         ]
 
-    def _with_static_ranges(
-        self, own: dict[Space, tuple[Range, ...] | None]
-    ) -> dict[Space, tuple[Range, ...] | None]:
+    def _with_static_ranges(self, own: DeviceRanges) -> DeviceRanges:
         """Merge every fixed-count instance's readable ranges into ``own``.
 
         A fixed-count group's instances are read from this component's own plan
@@ -126,20 +124,18 @@ class _ComponentBase(_Readable):
         """
         if not self._static_groups:
             return own
-        by_space: dict[Space, list[tuple[Range, ...] | None]] = {
-            space: [ranges] for space, ranges in own.items()
-        }
-        for name in self._static_groups:
-            for instance in self._groups[name]:
+        return DeviceRanges.merged(
+            [
+                own,
                 # an instance's own fixed-count groups are merged into its map
-                for space, ranges in instance._resolved_ranges().items():
-                    by_space.setdefault(space, []).append(ranges)
-        return {
-            space: _merge_range_maps(
-                space, declared, whose="a component and its fixed-count instances"
-            )
-            for space, declared in by_space.items()
-        }
+                *(
+                    instance._resolved_ranges()
+                    for name in self._static_groups
+                    for instance in self._groups[name]
+                ),
+            ],
+            whose="a component and its fixed-count instances",
+        )
 
     def _invalidate_caches(self) -> None:
         # Owns the group read-target caches; the plan is the base's.
