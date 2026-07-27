@@ -26,6 +26,17 @@ if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
 
+def _partition[F](
+    fields: dict[str, F], keep: set[str]
+) -> tuple[dict[str, F], dict[str, F]]:
+    """Split ``fields`` into ``(kept, dropped)`` by name membership in ``keep``."""
+    kept: dict[str, F] = {}
+    dropped: dict[str, F] = {}
+    for name, field in fields.items():
+        (kept if name in keep else dropped)[name] = field
+    return kept, dropped
+
+
 class Component(_ComponentBase):
     """Map a device subsystem to typed register and bit attributes."""
 
@@ -129,12 +140,16 @@ class Component(_ComponentBase):
         return address
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
-        return (
-            field.address
-            + field.stride * (self._index - 1)
-            + self._base_offset
-            + self._instance_offset
-        )
+        return self._declared_address(field) + self._base_offset + self._instance_offset
+
+    def _declared_address(self, field: RegisterField[Any] | _BitField) -> int:
+        """A field's address in declared coordinates (before ``base_offset``).
+
+        Per-index ``stride`` is part of the declared layout; ``base_offset`` and
+        the instance shift are not — they are what ``_resolved_ranges`` adds
+        back. This is the coordinate system readable ranges are stated in.
+        """
+        return field.address + field.stride * (self._index - 1)
 
     # -- update --------------------------------------------------------------
 
@@ -200,13 +215,11 @@ class Component(_ComponentBase):
         if unknown:
             raise ValueError(f"unknown field(s): {', '.join(sorted(unknown))}")
 
-        kept_registers = {n: f for n, f in self._register_fields.items() if n in keep}
-        kept_bits = {n: f for n, f in self._bit_fields.items() if n in keep}
+        kept_registers, dropped_registers = _partition(self._register_fields, keep)
+        kept_bits, dropped_bits = _partition(self._bit_fields, keep)
 
         self.register_ranges = self._reshaped_ranges(
-            self.register_ranges,
-            kept_registers.values(),
-            [f for n, f in self._register_fields.items() if n not in keep],
+            self.register_ranges, kept_registers.values(), dropped_registers.values()
         )
         for space, attr in (("coil", "coil_ranges"), ("discrete", "discrete_ranges")):
             setattr(
@@ -215,11 +228,7 @@ class Component(_ComponentBase):
                 self._reshaped_ranges(
                     getattr(self, attr),
                     [f for f in kept_bits.values() if f.space == space],
-                    [
-                        f
-                        for n, f in self._bit_fields.items()
-                        if f.space == space and n not in keep
-                    ],
+                    [f for f in dropped_bits.values() if f.space == space],
                 ),
             )
 
@@ -227,10 +236,10 @@ class Component(_ComponentBase):
         self._bit_fields = kept_bits
         # Drop any already-read value for a removed field so it reads as None,
         # whether restrict_fields runs before or after the first update.
-        for name in [n for n in self._values if n not in keep]:
-            del self._values[name]
-        for name in [n for n in self._bits if n not in keep]:
-            del self._bits[name]
+        for name in [*dropped_registers]:
+            self._values.pop(name, None)
+        for name in [*dropped_bits]:
+            self._bits.pop(name, None)
         self.__dict__.pop("_read_items", None)
         self._invalidate_group_cache()
         self._invalidate_plan()
@@ -243,22 +252,19 @@ class Component(_ComponentBase):
     ) -> tuple[Range, ...] | None:
         """Reshape one space's ranges to exclude the dropped fields' addresses.
 
-        Ranges are stated (and stored) in the declared coordinate system, the
-        same one ``_resolved_ranges`` shifts by ``base_offset`` at plan time, so
-        the field addresses are taken in those coordinates too — ``_address``
-        minus that shift — never the resolved addresses, which would be shifted
-        a second time when the plan is built.
+        Everything works in declared coordinates (see ``_declared_address``),
+        the same system the stored ranges live in, so ``_resolved_ranges`` shifts
+        them by ``base_offset`` exactly once when the plan is built.
         """
-        offset = self._base_offset + self._instance_offset
         excluded: set[int] = set()
         for field in dropped_fields:
-            address = self._address(field) - offset
+            address = self._declared_address(field)
             excluded.update(range(address, address + field.count))
         if not excluded:
             return declared  # nothing dropped from this space — leave it as declared
         if declared is not None:
             return _ranges_excluding(declared, excluded)
-        spans = [(self._address(f) - offset, f.count) for f in kept_fields]
+        spans = [(self._declared_address(f), f.count) for f in kept_fields]
         if not spans:
             return declared  # every field in this space dropped — ranges unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
