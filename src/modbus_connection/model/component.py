@@ -167,8 +167,7 @@ class Component(_ComponentBase):
         return items + self._count_items + self._static_items
 
     def _invalidate_caches(self) -> None:
-        # _read_items composes the base's group targets, so this component's own
-        # cache must go whenever they do; the base drops the caches it owns.
+        # _read_items composes the base's group targets, so it goes when they do
         self.__dict__.pop("_read_items", None)
         super()._invalidate_caches()
 
