@@ -53,7 +53,7 @@ class _IllegalAddress(ModbusResponseError):
     error_code = 2
 
     def __init__(self) -> None:
-        super().__init__(error_code=2, function_code=3)
+        super().__init__(function_code=3)
 
 
 async def test_tmodbus_transport_propagates_response_without_retry() -> None:
@@ -87,7 +87,7 @@ _FAST_RETRIES = AsyncRetrying(
 
 
 async def _busy(unit_id: int, pdu: object) -> object:
-    raise ServerDeviceBusyError(error_code=6, function_code=3)
+    raise ServerDeviceBusyError(function_code=3)
 
 
 async def _busy_connection(
