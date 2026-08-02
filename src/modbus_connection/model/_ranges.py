@@ -1,8 +1,9 @@
-"""Operations on readable address-range maps."""
+"""Readable address-range maps and the operations on them."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 
 from ._const import _RANGE_ATTR, Range, Space
 
@@ -15,15 +16,6 @@ def _range_of(address: int, ranges: tuple[Range, ...] | None) -> Range | None:
         if low <= address <= high:
             return (low, high)
     return None
-
-
-def _shift_ranges(
-    ranges: tuple[Range, ...] | None, offset: int
-) -> tuple[Range, ...] | None:
-    """Move readable ranges by ``offset``, like the addresses they constrain."""
-    if ranges is None or offset == 0:
-        return ranges
-    return tuple((low + offset, high + offset) for low, high in ranges)
 
 
 def _validate_ranges(ranges: tuple[Range, ...]) -> None:
@@ -64,29 +56,79 @@ def _ranges_excluding(
     return tuple(result)
 
 
-def _merge_range_maps(
-    space: Space, declared: Iterable[tuple[Range, ...] | None], *, whose: str
-) -> tuple[Range, ...] | None:
-    """Merge one space's readable maps into the map they jointly describe.
+@dataclass(frozen=True)
+class DeviceRanges:
+    """A device's readable ranges per address space.
 
-    The maps come from parts of one device — components at different offsets each
-    describe their own part — so they are merged, and an unset one adds no
-    constraint. Two that cover the same addresses differently describe the device
-    two ways, which is a conflict.
-
-    Raises ``ValueError`` if the maps conflict.
+    A space mapped to ``None`` — or absent entirely — is unconstrained (planned
+    gap-based). The maps live in whatever coordinate system their owner resolves
+    them in; ``shift`` moves the whole device's map between systems.
     """
-    constrained = {ranges for ranges in declared if ranges is not None}
-    if not constrained:
-        return None
-    if len(constrained) == 1:
-        return next(iter(constrained))
-    merged = tuple(sorted({r for ranges in constrained for r in ranges}))
-    try:
-        _validate_ranges(merged)
-    except ValueError as err:
-        raise ValueError(
-            f"{whose} must agree on {_RANGE_ATTR[space]} where their maps overlap, "
-            f"but got conflicting values: {sorted(constrained)}"
-        ) from err
-    return merged
+
+    maps: Mapping[Space, tuple[Range, ...] | None]
+
+    def for_space(self, space: Space) -> tuple[Range, ...] | None:
+        """The readable ranges of one space, or ``None`` if unconstrained."""
+        return self.maps.get(space)
+
+    def shift(self, offset: int) -> DeviceRanges:
+        """Move every space's ranges, like the addresses they constrain."""
+        if offset == 0:
+            return self
+        shifted: dict[Space, tuple[Range, ...] | None] = {}
+        for space, ranges in self.maps.items():
+            shifted[space] = (
+                None
+                if ranges is None
+                else tuple((low + offset, high + offset) for low, high in ranges)
+            )
+        return DeviceRanges(shifted)
+
+    @classmethod
+    def merged(
+        cls,
+        maps: Iterable[DeviceRanges],
+        *,
+        whose: str | Callable[[Space], str],
+        require_declared: bool = False,
+    ) -> DeviceRanges:
+        """Merge several devices' maps into the map they jointly describe.
+
+        Per space, unset maps add no constraint and the rest merge — parts of
+        one device at different offsets fit together — but maps covering the
+        same addresses differently conflict. With ``require_declared``, a space
+        one map constrains and another leaves unset is also a conflict (used by
+        ``ComponentGroup``, whose members must agree on what the device serves).
+
+        Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
+        are being merged in the error — a callable receives the conflicting
+        space, so the message can say which one (``register_ranges`` alone is
+        ambiguous between holding and input).
+        """
+        describe = whose if callable(whose) else lambda _space: whose
+        by_space: dict[Space, set[tuple[Range, ...] | None]] = {}
+        for device in maps:
+            for space, ranges in device.maps.items():
+                by_space.setdefault(space, set()).add(ranges)
+        merged: dict[Space, tuple[Range, ...] | None] = {}
+        for space, declared in by_space.items():
+            if require_declared and len(declared) > 1 and None in declared:
+                raise ValueError(
+                    f"{describe(space)} must declare {_RANGE_ATTR[space]} "
+                    f"if any does, but some left it unset"
+                )
+            constrained = {ranges for ranges in declared if ranges is not None}
+            if len(constrained) <= 1:
+                merged[space] = next(iter(constrained), None)
+                continue
+            joint = tuple(sorted({r for ranges in constrained for r in ranges}))
+            try:
+                _validate_ranges(joint)
+            except ValueError as err:
+                raise ValueError(
+                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
+                    f"their maps overlap, but got conflicting values: "
+                    f"{sorted(constrained)}"
+                ) from err
+            merged[space] = joint
+        return cls(merged)
