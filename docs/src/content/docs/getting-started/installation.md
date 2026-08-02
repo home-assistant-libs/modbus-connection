@@ -13,6 +13,12 @@ pip install "modbus-connection[tmodbus]"    # tmodbus backend
 pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
+The recommended version, **4.0.0a1**, is an alpha, so add `--pre` to install it:
+
+```bash
+pip install --pre "modbus-connection[tmodbus]"
+```
+
 You can install both extras if you want to choose the backend at runtime — the
 `ModbusConnection` and `ModbusUnit` APIs are identical across them.
 
