@@ -79,6 +79,54 @@ async def test_nan_sentinel() -> None:
     assert meter.temperature is None
 
 
+@pytest.mark.parametrize("raw", [0x8000, 0xF448])
+async def test_several_nan_sentinels_all_decode_to_none(raw: int) -> None:
+    """A device may define distinct 'no value' codes for the same register."""
+
+    class Lambda(Component):
+        # 0x8000: register not present. 0xF448 (-3000 signed): sensor unplugged.
+        temperature = gauge(0, 0.1, nan=(0x8000, 0xF448), unit="°C")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = raw
+    dev = Lambda(unit)
+    await dev.async_update()
+    assert dev.temperature is None
+
+
+async def test_several_nan_sentinels_leave_real_values_alone() -> None:
+    class Lambda(Component):
+        temperature = gauge(0, 0.1, nan=(0x8000, 0xF448), unit="°C")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 225
+    dev = Lambda(unit)
+    await dev.async_update()
+    assert dev.temperature == pytest.approx(22.5)
+
+
+async def test_nan_sentinels_apply_to_integer_fields() -> None:
+    class Dev(Component):
+        code = integer(0, signed=False, nan=(0xFFFF, 0x8000))
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 0xFFFF
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.code is None
+
+
+async def test_an_empty_nan_iterable_means_no_sentinel() -> None:
+    class Dev(Component):
+        value = integer(0, signed=False, nan=())
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 0x8000
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.value == 0x8000
+
+
 async def test_fractional_scale_above_one_rounds_not_truncates() -> None:
     class Dev(Component):
         value = gauge(0, 2.5)  # 3 * 2.5 = 7.5, must not truncate to 7
