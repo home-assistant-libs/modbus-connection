@@ -107,6 +107,15 @@ async def test_write_rejected(mock_modbus_unit):
     await mock_modbus_unit.write_register(40, 99)  # now succeeds
 ```
 
+The error you arm is the condition you're simulating:
+
+```python
+mock_modbus_unit.fail_write(40, ModbusExceptionError(3))  # device rejects the value
+mock_modbus_unit.fail_write(40, ModbusTimeoutError())  # device doesn't answer
+mock_modbus_unit.fail_write(40, ModbusConnectionError())  # device unreachable
+mock_modbus_unit.fail_write(40, ModbusProtocolError())  # corrupt reply
+```
+
 ## Simulating a read failure
 
 Arm `fail_read` and any read whose block covers that address raises the given

@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from modbus_connection import (
+    ClientClosedError,
     ModbusConnection,
     ModbusConnectionError,
     ModbusExceptionError,
@@ -253,8 +254,25 @@ async def test_close_marks_disconnected_and_io_raises(
     await mock_modbus_connection.close()
     assert mock_modbus_connection.connected is False
     assert mock_modbus_unit.connected is False
-    with pytest.raises(ModbusConnectionError):
+    with pytest.raises(ClientClosedError):
         await mock_modbus_unit.read_holding_registers(0, 1)
+
+
+async def test_close_is_permanent(
+    mock_modbus_connection: MockModbusConnection,
+) -> None:
+    await mock_modbus_connection.close()
+    await mock_modbus_connection.close()  # idempotent
+    with pytest.raises(ClientClosedError):
+        await mock_modbus_connection.connect()
+
+
+async def test_connect_is_a_noop_on_an_open_connection(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    await mock_modbus_connection.connect()
+    assert mock_modbus_connection.connected is True
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
 
 
 async def test_simulate_connection_lost_fires_callbacks(
@@ -266,6 +284,36 @@ async def test_simulate_connection_lost_fires_callbacks(
     assert calls == [1]
     assert mock_modbus_connection.connected is False
     unsub()  # must not raise
+
+
+async def test_a_dropped_link_heals_on_the_next_request(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    mock_modbus_connection.simulate_connection_lost()
+    assert mock_modbus_connection.connected is False
+
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
+    assert mock_modbus_connection.connected is True
+
+
+async def test_a_dropped_link_stays_dead_once_closed(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    mock_modbus_connection.simulate_connection_lost()
+    await mock_modbus_connection.close()
+    with pytest.raises(ClientClosedError):
+        await mock_modbus_unit.read_holding_registers(0, 1)
+
+
+async def test_an_absent_device_is_simulated_with_fail_read(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    mock_modbus_unit.fail_read(0, ModbusConnectionError("no route"))
+    with pytest.raises(ModbusConnectionError):
+        await mock_modbus_unit.read_holding_registers(0, 1)
+
+    mock_modbus_unit.fail_read(0, None)
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
 
 
 async def test_for_unit_returns_same_instance(

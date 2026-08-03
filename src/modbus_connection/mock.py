@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from ._callbacks import CallbackRegistry
 from ._client import BaseModbusConnection
-from .exceptions import ModbusConnectionError
+from .exceptions import ClientClosedError
 
 __all__ = [
     "CoilSpec",
@@ -69,12 +69,13 @@ class MockModbusConnection:
 
     def __init__(self) -> None:
         self._units: dict[int, MockModbusUnit] = {}
-        self._connected = True
+        self._link_up = True
+        self._closed = False
         self._lost_callbacks = CallbackRegistry()
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        return self._link_up and not self._closed
 
     def for_unit(self, unit_id: int) -> MockModbusUnit:
         if unit_id not in self._units:
@@ -84,13 +85,29 @@ class MockModbusConnection:
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._lost_callbacks.subscribe(callback)
 
+    async def connect(self) -> None:
+        """Establish the link, as a real connection's eager ``connect()`` does.
+
+        Raises ``ClientClosedError`` if the connection was closed.
+        """
+        self._establish()
+
     async def close(self) -> None:
-        self._connected = False
+        self._closed = True
 
     def simulate_connection_lost(self) -> None:
-        """Flip the link down and fire every ``on_connection_lost`` callback."""
-        self._connected = False
+        """Drop the link and fire every ``on_connection_lost`` callback.
+
+        The drop is transient, as it is on a real connection: the next request
+        establishes the link again.
+        """
+        self._link_up = False
         self._lost_callbacks.fire()
+
+    def _establish(self) -> None:
+        if self._closed:
+            raise ClientClosedError("connection is closed")
+        self._link_up = True
 
 
 # The mock stands in for a real connection without subclassing the base;
@@ -128,8 +145,8 @@ class MockModbusUnit:
         self.message_spacing = seconds
 
     def _ensure_connected(self) -> None:
-        if not self._conn.connected:
-            raise ModbusConnectionError("connection is not established")
+        # Connect on demand, so a dropped link heals on the next request.
+        self._conn._establish()
 
     # -- test configuration helpers -------------------------------------------
 
