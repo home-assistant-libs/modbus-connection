@@ -58,6 +58,10 @@ because how a device reveals its layout is device-specific. Two common approache
   that to a known field set.
 
 Either way you end up with the list of field names to pass to `restrict_fields`.
+Both approaches start from the names the component declares: `Component.declared_fields`
+is a read-only mapping of attribute name to field object, in declaration order, on
+the class as well as on an instance. `restrict_fields` never narrows it, so it keeps
+describing the full declared layout afterwards.
 
 ## Limitations
 

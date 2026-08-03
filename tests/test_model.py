@@ -1646,3 +1646,56 @@ def test_restrict_fields_rejects_repeating_group() -> None:
     parent = Parent(MockModbusConnection().for_unit(1))
     with pytest.raises(ValueError, match="repeating_group"):
         parent.restrict_fields([])
+
+
+# -- declared_fields ----------------------------------------------------------
+
+
+class _Mixed(Component):
+    """Registers and bits interleaved, to pin declaration order."""
+
+    voltage = gauge(0, 0.1, unit="V")
+    relay = coil(0, writable=True)
+    energy = uint32(1, unit="Wh")
+    fault = discrete_input(0)
+
+
+def test_declared_fields_names_every_field_in_declaration_order() -> None:
+    assert list(_Mixed.declared_fields) == ["voltage", "relay", "energy", "fault"]
+    assert isinstance(_Mixed.declared_fields["relay"], CoilField)
+    assert isinstance(_Mixed.declared_fields["fault"], DiscreteInputField)
+
+
+def test_declared_fields_is_reachable_from_the_class_and_an_instance() -> None:
+    component = _Mixed(MockModbusConnection().for_unit(1))
+    assert component.declared_fields == _Mixed.declared_fields
+
+
+def test_declared_fields_exposes_the_field_for_its_converter() -> None:
+    assert _Mixed.declared_fields["voltage"] is _Mixed.__dict__["voltage"]
+
+
+def test_declared_fields_survives_restrict_fields() -> None:
+    boiler = _Boiler(MockModbusConnection().for_unit(1), base_offset=2000)
+    before = list(boiler.declared_fields)
+    boiler.restrict_fields(_SERVED)
+
+    assert "actual_high" not in boiler._register_fields
+    assert list(boiler.declared_fields) == before
+    assert list(_Boiler.declared_fields) == before
+
+
+def test_declared_fields_is_read_only() -> None:
+    with pytest.raises(TypeError):
+        _Mixed.declared_fields["voltage"] = None  # type: ignore[index]
+
+
+def test_declared_fields_excludes_repeating_groups() -> None:
+    class Sub(Component):
+        v = integer(0)
+
+    class Parent(Component):
+        own = integer(0)
+        subs = repeating_group(2, Sub, stride=1)
+
+    assert list(Parent.declared_fields) == ["own"]
