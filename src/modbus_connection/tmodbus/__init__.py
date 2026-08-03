@@ -83,6 +83,11 @@ class ModbusConnection(BaseModbusConnection):
                 "ASCII-over-TCP is not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
+        if isinstance(params, ModbusUdpParams) and params.framer != "socket":
+            raise ValueError(
+                "RTU- and ASCII-over-UDP are not supported by the tmodbus "
+                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
+            )
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
         self._unit_clients: dict[int, AsyncModbusClient] = {}
 
@@ -139,6 +144,7 @@ class ModbusConnection(BaseModbusConnection):
                 on_connection_lost=self._on_connection_lost,
             )
         if isinstance(params, ModbusUdpParams):
+            # rtu and ascii framing were rejected at construction.
             return create_async_udp_client(
                 params.host,
                 params.port,
@@ -371,7 +377,7 @@ async def connect_udp(
 ) -> ModbusConnection:
     """Open a Modbus UDP connection.
 
-    Raises ``TypeError`` for invalid connection parameters.
+    Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
     connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),

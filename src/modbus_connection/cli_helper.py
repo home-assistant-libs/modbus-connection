@@ -62,8 +62,8 @@ def _load_backend(transport: str, framer: str | None) -> ModuleType:
 
     Raises ``ModbusError`` if no installed backend supports the request.
     """
-    tmodbus_supported = transport != "udp" and not (
-        transport == "tcp" and framer == "ascii"
+    tmodbus_supported = not (transport == "tcp" and framer == "ascii") and not (
+        transport == "udp" and framer in ("rtu", "ascii")
     )
     if tmodbus_supported and (backend := _import_backend("tmodbus")) is not None:
         return backend

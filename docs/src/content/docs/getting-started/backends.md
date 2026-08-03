@@ -18,7 +18,8 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Native Modbus TCP | ✅ | ✅ |
 | RTU-over-TCP | ✅ | ✅ |
 | ASCII-over-TCP | ❌ | ✅ |
-| UDP | ❌ | ✅ |
+| Native Modbus UDP | ✅ | ✅ |
+| RTU-/ASCII-over-UDP | ❌ | ✅ |
 | Serial RTU and ASCII | ✅ | ✅ |
 | Modbus/TLS | ✅ | ✅ |
 | ESPHome `serial_proxy` target | ✅ | ❌ |

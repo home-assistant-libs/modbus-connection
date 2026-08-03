@@ -14,7 +14,9 @@ Connection parameter objects are frozen and keyword-only. Import them from
 | `ModbusTlsParams` | Modbus/TLS | `host`, `port=802`, certificate options |
 
 `framer` selects the wire framing. TCP and UDP accept `socket`, `rtu`, or
-`ascii`; serial accepts `rtu` or `ascii`; TLS framing is fixed.
+`ascii`; serial accepts `rtu` or `ascii`; TLS framing is fixed. Not every backend
+carries every framing — see
+[Choosing a backend](/modbus-connection/getting-started/backends/).
 
 ```python
 from modbus_connection import ModbusSerialParams

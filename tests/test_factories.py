@@ -43,10 +43,10 @@ async def test_connect_tcp_unreachable_raises_immediately(
         await backend.connect_tcp("127.0.0.1", port=free_port)
 
 
-async def test_tmodbus_connect_udp_rejected() -> None:
-    """connect_udp surfaces the constructor error."""
+async def test_tmodbus_connect_udp_rejects_non_socket_framing() -> None:
+    """connect_udp surfaces the constructor error for a rejected framer."""
     with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
-        await tmodbus_backend.connect_udp("127.0.0.1", port=502)
+        await tmodbus_backend.connect_udp("127.0.0.1", port=502, framer="rtu")
 
 
 async def test_tmodbus_connect_tcp_ascii_rejected() -> None:
