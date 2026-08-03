@@ -22,7 +22,7 @@ import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusError, ModbusTlsParams
 from modbus_connection._client import BaseModbusConnection
 
-from .conftest import holding_store, serve_tcp
+from .modbus_server import holding_store, serve_tcp
 
 UNIT_ID = 1
 

@@ -24,7 +24,8 @@ from modbus_connection import (
 from modbus_connection.pymodbus import ModbusConnection as PymodbusConnection
 from modbus_connection.tmodbus import ModbusConnection as TmodbusConnection
 
-from .conftest import UNIT_ID, holding_store, serve_tcp
+from .conftest import UNIT_ID
+from .modbus_server import holding_store, serve_tcp
 
 BACKENDS: dict[str, Callable[[ModbusTcpParams], ModbusConnection]] = {
     "pymodbus": lambda params: PymodbusConnection(params, timeout=1),

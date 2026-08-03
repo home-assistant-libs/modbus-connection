@@ -12,7 +12,7 @@ import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusUdpParams
 from modbus_connection._client import BaseModbusConnection
 
-from .conftest import holding_store, serve_udp
+from .modbus_server import holding_store, serve_udp
 
 UNIT_ID = 1
 

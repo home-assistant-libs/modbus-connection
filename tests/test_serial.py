@@ -21,7 +21,7 @@ import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusSerialParams
 
-from .conftest import holding_store, serve_serial
+from .modbus_server import holding_store, serve_serial
 
 UNIT_ID = 1
 

@@ -23,7 +23,8 @@ import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusConnection, ModbusExceptionError, ModbusTcpParams
 
-from .conftest import HOLDING, UNIT_ID, serve_router
+from .conftest import HOLDING, UNIT_ID
+from .modbus_server import serve_router
 
 
 async def test_pymodbus_transport_sends_timed_out_request_once() -> None:
@@ -88,14 +89,10 @@ _FAST_RETRIES = AsyncRetrying(
 
 @dataclass
 class _BusyDevice:
-    """A device that answers busy ``busy_answers`` times, then serves the read.
-
-    A negative count never stops being busy. ``reads`` counts every request the
-    device saw, so a backend that does not retransmit is visible as a single one.
-    """
+    """Answers busy ``busy_answers`` times then serves; a negative count never stops."""
 
     busy_answers: int
-    reads: int = 0
+    reads: int = 0  # every request the device saw, retransmissions included
 
     def router(self) -> ModbusRequestRouter:
         router = ModbusRequestRouter()
@@ -121,12 +118,7 @@ async def _busy_connection(
     free_port: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[ModbusConnection]:
-    """A live connection to a device that answers busy.
-
-    The busy responses come off the wire from a real server, so whatever the
-    backend does with them — retransmit or raise — is its own doing, under the
-    retry strategy this library hands it.
-    """
+    """A live connection to a device that answers busy off the wire."""
     monkeypatch.setattr(tmodbus_backend, "_RESPONSE_RETRIES", _FAST_RETRIES)
     host = "127.0.0.1"
     async with serve_router(device.router(), host, free_port):

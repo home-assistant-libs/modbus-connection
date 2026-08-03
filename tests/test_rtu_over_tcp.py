@@ -10,7 +10,7 @@ import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusTcpParams
 
-from .conftest import holding_store, serve_rtu_over_tcp
+from .modbus_server import holding_store, serve_rtu_over_tcp
 
 UNIT_ID = 246
 
