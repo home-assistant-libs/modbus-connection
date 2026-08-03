@@ -13,7 +13,7 @@ pip install "modbus-connection[tmodbus]"    # tmodbus backend
 pip install "modbus-connection[pymodbus]"   # pymodbus backend
 ```
 
-The recommended version, **4.0.0a2**, is an alpha, so add `--pre` to install it:
+The recommended version is the current **alpha**, so add `--pre` to install it:
 
 ```bash
 pip install --pre "modbus-connection[tmodbus]"
