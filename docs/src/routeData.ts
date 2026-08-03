@@ -9,8 +9,8 @@ import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 export const onRequest = defineRouteMiddleware((context) => {
   context.locals.starlightRoute.entry.data.banner = {
     content:
-      'These docs describe <strong>4.0.0a2</strong>, the recommended version. ' +
-      'It is an alpha, so install it with ' +
+      'These docs describe the current <strong>alpha</strong>, which is the ' +
+      'recommended version. Install it with ' +
       '<a href="/modbus-connection/getting-started/installation/"><code>pip install --pre</code></a>.',
   };
 });
