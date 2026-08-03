@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from enum import Enum, IntEnum, IntFlag
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
@@ -142,6 +142,14 @@ class RegisterField[T](ABC):
         raise NotImplementedError(f"{type(self).__name__} is read-only")
 
 
+def _nan_values(nan: int | Iterable[int] | None) -> frozenset[int] | None:
+    """Normalize a field's sentinel raw value(s); None means the field has none."""
+    if nan is None:
+        return None
+    values = frozenset((nan,)) if isinstance(nan, int) else frozenset(nan)
+    return values or None
+
+
 class _ScaledField[T](RegisterField[T]):
     """Apply affine and dynamic scaling to a field."""
 
@@ -151,7 +159,7 @@ class _ScaledField[T](RegisterField[T]):
         *,
         scale: float = 1.0,
         offset: float = 0.0,
-        nan: int | None = None,
+        nan: int | Iterable[int] | None = None,
         scale_exponent_range: tuple[int, int] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -159,7 +167,7 @@ class _ScaledField[T](RegisterField[T]):
         super().__init__(address, **kwargs)
         self.scale = scale
         self.offset = offset
-        self.nan = nan
+        self.nan = _nan_values(nan)
         self.scale_exponent_range = scale_exponent_range
         # Rounding precision: the finer of what scale and offset each imply, so an
         # integer offset on a 0.1 scale still keeps the scale's decimal.
@@ -254,7 +262,7 @@ class NumberField[T](_ScaledField[T]):
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         raw = combine_words(words, word_order=self.word_order)
-        if self.nan is not None and raw == self.nan:
+        if self.nan is not None and raw in self.nan:
             return None
         if self.convert is not None:
             # Map the signed or unsigned code, per the field's `signed` flag; the
@@ -451,7 +459,7 @@ def gauge(
     *,
     offset: float = 0.0,
     signed: bool = True,
-    nan: int | None = None,
+    nan: int | Iterable[int] | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
     scale_register: int | None = None,
@@ -480,7 +488,7 @@ def integer(
     *,
     offset: float = 0.0,
     signed: bool = True,
-    nan: int | None = None,
+    nan: int | Iterable[int] | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
     scale_register: int | None = None,
@@ -698,7 +706,7 @@ def enum[E: IntEnum](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
-    nan: int | None = None,
+    nan: int | Iterable[int] | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,
@@ -724,7 +732,7 @@ def flags[F: IntFlag](
     count: int = 1,
     signed: bool = False,
     word_order: WordOrder = "big",
-    nan: int | None = None,
+    nan: int | Iterable[int] | None = None,
     stride: int = 0,
     writable: bool | WriteValidator = False,
     force_fc16: bool = False,

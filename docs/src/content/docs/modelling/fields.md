@@ -43,7 +43,7 @@ what each one takes.
 | `count` | Number of 16-bit registers the value spans (fixed by most helpers). |
 | `scale` | Affine multiplier: the value decodes as `raw * scale + offset`. |
 | `offset` | Affine addend, for a device that reports a shifted value. |
-| `nan` | A raw sentinel value that decodes to `None` (device "unimplemented"). |
+| `nan` | Raw sentinel value — or several — that decode to `None` (device "unimplemented"). |
 | `signed` | Interpret the raw integer as two's-complement. |
 | `word_order` | `"big"` (default, ABCD) or `"little"` (CDAB) for multi-register values. |
 | `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
@@ -67,6 +67,16 @@ Many devices send a reserved value to mean "this point is not implemented". Pass
 ```python
 temperature = gauge(5, 0.1, nan=0x8000)  # 0x8000 -> None
 ```
+
+A device may define several distinct "no value" codes for the same register — one
+for an absent register, another for an unplugged probe. Pass all of them:
+
+```python
+temperature = gauge(5, 0.1, nan=(0x8000, 0xF448))  # either -> None
+```
+
+The values are matched against the **raw** register word, before `signed` is
+applied, so state them as they appear on the wire (`0xF448`, not `-3000`).
 
 ### Word order
 
