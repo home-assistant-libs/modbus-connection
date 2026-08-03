@@ -14,6 +14,7 @@ from tmodbus import (
     create_async_rtu_client,
     create_async_rtu_over_tcp_client,
     create_async_tcp_client,
+    create_async_udp_client,
 )
 from tmodbus.exceptions import (
     InvalidResponseError,
@@ -77,11 +78,6 @@ class ModbusConnection(BaseModbusConnection):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        if isinstance(params, ModbusUdpParams):
-            raise ValueError(
-                "Modbus UDP is not supported by the tmodbus ModbusConnection; "
-                "use modbus_connection.pymodbus.ModbusConnection"
-            )
         if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
             raise ValueError(
                 "ASCII-over-TCP is not supported by the tmodbus "
@@ -142,7 +138,17 @@ class ModbusConnection(BaseModbusConnection):
                 retry_on_device_failure=False,
                 on_connection_lost=self._on_connection_lost,
             )
-        assert not isinstance(params, ModbusUdpParams)  # rejected at construction
+        if isinstance(params, ModbusUdpParams):
+            return create_async_udp_client(
+                params.host,
+                params.port,
+                unit_id=_PLACEHOLDER_UNIT_ID,
+                timeout=self._timeout,
+                auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
+                on_connection_lost=self._on_connection_lost,
+            )
         if isinstance(params, ModbusTlsParams):
             return create_async_tcp_client(
                 params.host,
