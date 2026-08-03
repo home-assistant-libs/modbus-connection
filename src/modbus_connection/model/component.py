@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import cached_property
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
@@ -33,6 +34,8 @@ class Component(_ComponentBase):
 
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
+
+    declared_fields: Mapping[str, RegisterField[Any] | _BitField] = MappingProxyType({})
     # repeating_group fields, split by count kind: a fixed ``int`` count is static
     # (its instances fold into the normal read like ordinary fields), a
     # ``RegisterField`` count is read at poll time (the two-phase repeating path).
@@ -74,12 +77,15 @@ class Component(_ComponentBase):
         bits: dict[str, _BitField] = {}
         static_groups: dict[str, RepeatingGroupField[Any]] = {}
         repeating: dict[str, RepeatingGroupField[Any]] = {}
+        declared: dict[str, RegisterField[Any] | _BitField] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
                     registers[name] = value
+                    declared[name] = value
                 elif isinstance(value, _BitField):
                     bits[name] = value
+                    declared[name] = value
                 elif isinstance(value, RepeatingGroupField):
                     target = (
                         static_groups if isinstance(value.count, int) else repeating
@@ -89,6 +95,7 @@ class Component(_ComponentBase):
         cls._bit_fields = bits
         cls._static_groups = static_groups
         cls._repeating_fields = repeating
+        cls.declared_fields = MappingProxyType(declared)
 
     def __init__(
         self,
