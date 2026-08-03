@@ -78,14 +78,14 @@ class ModbusConnection(BaseModbusConnection):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
-            raise ValueError(
-                "ASCII-over-TCP is not supported by the tmodbus "
-                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
-            )
         if isinstance(params, ModbusUdpParams) and params.framer != "socket":
             raise ValueError(
                 "RTU- and ASCII-over-UDP are not supported by the tmodbus "
+                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
+            )
+        if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
+            raise ValueError(
+                "ASCII-over-TCP is not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
         super().__init__(params, timeout=timeout, message_spacing=message_spacing)
