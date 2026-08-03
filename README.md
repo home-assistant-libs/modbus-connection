@@ -82,6 +82,12 @@ uv sync --extra tmodbus
 uv run pytest
 ```
 
+The suite runs both backends against a real in-process Modbus server (tmodbus's,
+over TCP, UDP, RTU-over-TCP, serial and TLS) rather than against mocks, so it
+covers actual framing and error responses — and running the pymodbus client
+against the tmodbus server checks the two implementations against each other.
+`tests/conftest.py` has the datastore and the server helpers.
+
 Formatting/linting is [ruff](https://docs.astral.sh/ruff/) and type-checking is
 [mypy](https://mypy-lang.org/), both enforced in CI. Run them locally with:
 

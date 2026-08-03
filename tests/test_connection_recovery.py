@@ -10,11 +10,10 @@ than fakes.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator, Callable
+from contextlib import AsyncExitStack
 
 import pytest
-from pymodbus.server import ModbusTcpServer
 
 from modbus_connection import (
     ModbusConnection,
@@ -25,7 +24,7 @@ from modbus_connection import (
 from modbus_connection.pymodbus import ModbusConnection as PymodbusConnection
 from modbus_connection.tmodbus import ModbusConnection as TmodbusConnection
 
-from .conftest import UNIT_ID, sim_holding_device
+from .conftest import UNIT_ID, holding_store, serve_tcp
 
 BACKENDS: dict[str, Callable[[ModbusTcpParams], ModbusConnection]] = {
     "pymodbus": lambda params: PymodbusConnection(params, timeout=1),
@@ -35,44 +34,30 @@ BACKENDS: dict[str, Callable[[ModbusTcpParams], ModbusConnection]] = {
 VALUE = 4321
 
 
-async def _wait_until_listening(host: str, port: int) -> None:
-    for _ in range(100):
-        try:
-            reader, writer = await asyncio.open_connection(host, port)
-        except OSError:
-            await asyncio.sleep(0.02)
-            continue
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
-        return
-    pytest.fail(f"server on {host}:{port} never started listening")
-
-
 class _Server:
     """A Modbus TCP server on a fixed port that tests start and stop at will."""
 
     def __init__(self, host: str, port: int) -> None:
         self._host = host
         self._port = port
-        self._server: ModbusTcpServer | None = None
-        self._task: asyncio.Task[None] | None = None
+        self._running: AsyncExitStack | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._running is not None
 
     async def start(self) -> None:
-        self._server = ModbusTcpServer(
-            sim_holding_device([VALUE]), address=(self._host, self._port)
+        stack = AsyncExitStack()
+        # Bound and accepting once this returns, so there is nothing to poll for.
+        await stack.enter_async_context(
+            serve_tcp(holding_store([VALUE]), self._host, self._port)
         )
-        self._task = asyncio.create_task(self._server.serve_forever())
-        await _wait_until_listening(self._host, self._port)
+        self._running = stack
 
     async def stop(self) -> None:
-        assert self._server is not None
-        assert self._task is not None
-        await self._server.shutdown()
-        self._task.cancel()
-        with contextlib.suppress(BaseException):
-            await self._task
-        self._server = self._task = None
+        assert self._running is not None
+        running, self._running = self._running, None
+        await running.aclose()
         # Give the client's event loop a turn to process the closed socket.
         await asyncio.sleep(0.05)
 
@@ -90,7 +75,7 @@ async def server(server_port: tuple[str, int]) -> AsyncIterator[_Server]:
     try:
         yield running
     finally:
-        if running._server is not None:
+        if running.is_running:
             await running.stop()
 
 

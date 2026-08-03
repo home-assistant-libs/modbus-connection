@@ -12,17 +12,16 @@ import asyncio
 import os
 import pty
 from collections.abc import AsyncIterator, Callable
+from contextlib import AsyncExitStack
 from typing import Any, Literal
 
 import pytest
-from pymodbus import FramerType
-from pymodbus.server import ModbusSerialServer
 
 import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusSerialParams
 
-from .conftest import sim_holding_device
+from .conftest import holding_store, serve_serial
 
 UNIT_ID = 1
 
@@ -56,54 +55,41 @@ def _make_bridge(loop: asyncio.AbstractEventLoop) -> tuple[str, str, list[int]]:
 
 
 @pytest.fixture
-async def serial_port() -> AsyncIterator[Callable[[FramerType], Any]]:
+async def serial_port() -> AsyncIterator[Callable[[str], Any]]:
     """Async factory that starts a serial server and tears it down after the test."""
-    cleanups: list[Any] = []
+    stack = AsyncExitStack()
 
-    async def start(framer: FramerType) -> str:
+    async def start(framing: str) -> str:
         loop = asyncio.get_running_loop()
         server_port, client_port, masters = _make_bridge(loop)
         values = [0] * 10
         values[0] = 5579
-        context = sim_holding_device(values)
-        server = ModbusSerialServer(
-            context, framer=framer, port=server_port, baudrate=9600
+        await stack.enter_async_context(
+            serve_serial(holding_store(values), server_port, framing)
         )
-        task = asyncio.create_task(server.serve_forever())
-        await asyncio.sleep(0.3)
 
-        async def cleanup() -> None:
-            await server.shutdown()
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+        @stack.push_async_callback
+        async def close_bridge() -> None:
             for fd in masters:
                 loop.remove_reader(fd)
                 os.close(fd)
 
-        cleanups.append(cleanup)
         return client_port
 
-    yield start
-
-    for cleanup in cleanups:
-        await cleanup()
+    try:
+        yield start
+    finally:
+        await stack.aclose()
 
 
 @pytest.mark.parametrize("backend", ["pymodbus", "tmodbus"])
-@pytest.mark.parametrize(
-    ("framing", "framer"),
-    [("rtu", FramerType.RTU), ("ascii", FramerType.ASCII)],
-)
+@pytest.mark.parametrize("framing", ["rtu", "ascii"])
 async def test_serial_reads(
-    serial_port: Callable[[FramerType], Any],
+    serial_port: Callable[[str], Any],
     backend: str,
     framing: Literal["rtu", "ascii"],
-    framer: FramerType,
 ) -> None:
-    client_port = await serial_port(framer)
+    client_port = await serial_port(framing)
     params = ModbusSerialParams(device=client_port, baudrate=9600, framer=framing)
     if backend == "pymodbus":
         conn = pymodbus_backend.ModbusConnection(params, timeout=2)
