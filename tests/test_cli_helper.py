@@ -100,6 +100,11 @@ async def test_connect_from_args_dispatches_by_transport(
     assert calls["kwargs"]["port"] == 1502
 
     await connect_from_args(_parse(["1.2.3.4", "--transport", "udp"]))
+    assert calls["name"].endswith("tmodbus.connect_udp")
+
+    await connect_from_args(
+        _parse(["1.2.3.4", "--transport", "udp", "--framer", "rtu"])
+    )
     assert calls["name"].endswith("pymodbus.connect_udp")
 
     await connect_from_args(_parse(["1.2.3.4", "--framer", "ascii"]))
@@ -129,8 +134,14 @@ def test_load_backend_falls_back_to_pymodbus(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_load_backend_routes_unsupported_tmodbus_requests() -> None:
-    assert _load_backend("udp", None) is pymodbus_backend
+    assert _load_backend("udp", "rtu") is pymodbus_backend
     assert _load_backend("tcp", "ascii") is pymodbus_backend
+
+
+def test_load_backend_prefers_tmodbus_for_udp() -> None:
+    # tmodbus carries MBAP-framed UDP; only rtu/ascii framing needs pymodbus.
+    assert _load_backend("udp", None) is tmodbus_backend
+    assert _load_backend("udp", "socket") is tmodbus_backend
 
 
 def test_load_backend_errors_when_none_installed(
@@ -146,8 +157,8 @@ def test_load_backend_reports_pymodbus_requirement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "modbus_connection.pymodbus", None)
-    with pytest.raises(ModbusError, match="udp.*requires pymodbus"):
-        _load_backend("udp", None)
+    with pytest.raises(ModbusError, match="udp with rtu framing requires pymodbus"):
+        _load_backend("udp", "rtu")
     with pytest.raises(ModbusError, match="tcp with ascii framing requires pymodbus"):
         _load_backend("tcp", "ascii")
 

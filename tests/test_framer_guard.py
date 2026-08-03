@@ -13,10 +13,20 @@ from modbus_connection import (
 )
 
 
-def test_tmodbus_rejects_udp_params() -> None:
-    # tmodbus has no UDP transport; the error points at the client that does.
+@pytest.mark.parametrize("framer", ["rtu", "ascii"])
+def test_tmodbus_rejects_non_socket_udp_framing(framer: str) -> None:
+    # tmodbus' UDP transport speaks MBAP only; the error points at the client
+    # that carries the other framings.
     with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
-        tmodbus_backend.ModbusConnection(ModbusUdpParams(host="127.0.0.1"))
+        tmodbus_backend.ModbusConnection(
+            ModbusUdpParams(host="127.0.0.1", framer=framer)  # type: ignore[arg-type]
+        )
+
+
+def test_tmodbus_accepts_socket_udp_framing() -> None:
+    # The default (MBAP) framing constructs without I/O.
+    conn = tmodbus_backend.ModbusConnection(ModbusUdpParams(host="127.0.0.1"))
+    assert conn.connected is False
 
 
 def test_tmodbus_rejects_ascii_over_tcp() -> None:
@@ -33,12 +43,13 @@ def test_tmodbus_rejects_ascii_over_tcp() -> None:
     [
         pytest.param(ModbusTcpParams(host="127.0.0.1", framer="ascii"), id="tcp-ascii"),
         pytest.param(ModbusUdpParams(host="127.0.0.1"), id="udp"),
+        pytest.param(ModbusUdpParams(host="127.0.0.1", framer="rtu"), id="udp-rtu"),
         pytest.param(
             ModbusSerialParams(device="/dev/null", framer="ascii"), id="serial-ascii"
         ),
     ],
 )
 def test_pymodbus_accepts_the_full_matrix(params: object) -> None:
-    # Every params type — including the two tmodbus rejects — constructs
+    # Every params type — including the framings tmodbus rejects — constructs
     # without I/O on the pymodbus client.
     assert pymodbus_backend.ModbusConnection(params).connected is False  # type: ignore[arg-type]

@@ -14,6 +14,7 @@ from tmodbus import (
     create_async_rtu_client,
     create_async_rtu_over_tcp_client,
     create_async_tcp_client,
+    create_async_udp_client,
 )
 from tmodbus.exceptions import (
     InvalidResponseError,
@@ -77,10 +78,10 @@ class ModbusConnection(BaseModbusConnection):
         timeout: float = 3,
         message_spacing: float = 0.0,
     ) -> None:
-        if isinstance(params, ModbusUdpParams):
+        if isinstance(params, ModbusUdpParams) and params.framer != "socket":
             raise ValueError(
-                "Modbus UDP is not supported by the tmodbus ModbusConnection; "
-                "use modbus_connection.pymodbus.ModbusConnection"
+                "RTU- and ASCII-over-UDP are not supported by the tmodbus "
+                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
         if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
             raise ValueError(
@@ -142,7 +143,18 @@ class ModbusConnection(BaseModbusConnection):
                 retry_on_device_failure=False,
                 on_connection_lost=self._on_connection_lost,
             )
-        assert not isinstance(params, ModbusUdpParams)  # rejected at construction
+        if isinstance(params, ModbusUdpParams):
+            # rtu and ascii framing were rejected at construction.
+            return create_async_udp_client(
+                params.host,
+                params.port,
+                unit_id=_PLACEHOLDER_UNIT_ID,
+                timeout=self._timeout,
+                auto_reconnect=False,
+                response_retry_strategy=_RESPONSE_RETRIES,
+                retry_on_device_failure=False,
+                on_connection_lost=self._on_connection_lost,
+            )
         if isinstance(params, ModbusTlsParams):
             return create_async_tcp_client(
                 params.host,
@@ -365,7 +377,7 @@ async def connect_udp(
 ) -> ModbusConnection:
     """Open a Modbus UDP connection.
 
-    Raises ``TypeError`` for invalid connection parameters.
+    Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
     connection = ModbusConnection(
         ModbusUdpParams(host=host, port=port, framer=framer),
