@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from types import ModuleType
 
 import pytest
-from pymodbus import FramerType
-from pymodbus.server import ModbusUdpServer
 
 import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusUdpParams
 from modbus_connection._client import BaseModbusConnection
 
-from .conftest import sim_holding_device
+from .modbus_server import holding_store, serve_udp
 
 UNIT_ID = 1
 
@@ -37,20 +34,9 @@ async def udp_server(free_udp_port: int) -> AsyncIterator[tuple[str, int]]:
     """A Modbus UDP server with one known holding register."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
-    context = sim_holding_device(values)
     host, port = "127.0.0.1", free_udp_port
-    server = ModbusUdpServer(context, framer=FramerType.SOCKET, address=(host, port))
-    task = asyncio.create_task(server.serve_forever())
-    await asyncio.sleep(0.2)
-    try:
+    async with serve_udp(holding_store(values), host, port):
         yield host, port
-    finally:
-        await server.shutdown()
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
 
 
 @backends
