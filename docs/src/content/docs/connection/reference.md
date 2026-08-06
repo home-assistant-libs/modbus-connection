@@ -53,7 +53,8 @@ connection.
 #### `on_connection_lost(callback)`
 
 Register a `Callable[[], None]` fired when the link drops; returns an
-unsubscribe callable.
+unsubscribe callable. A deliberate `close()` is not a lost connection and never
+fires the callbacks.
 
 #### `close()`
 

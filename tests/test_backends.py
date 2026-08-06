@@ -258,6 +258,28 @@ async def test_next_request_reconnects_after_drop(
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+async def test_close_does_not_fire_on_connection_lost(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # A deliberate close() also drives the backend's transport disconnect hook;
+    # that is not a lost connection, so registered callbacks must not fire —
+    # not during close(), and not for a late disconnect event after it.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    calls: list[int] = []
+    conn.on_connection_lost(lambda: calls.append(1))
+    assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [1234]
+
+    await conn.close()
+    if backend == "pymodbus":
+        conn._on_trace_connect(False)  # type: ignore[attr-defined]
+    else:
+        conn._on_connection_lost(None)  # type: ignore[attr-defined]
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 async def test_close_is_permanent(modbus_server: tuple[str, int], backend: str) -> None:
     # close() is idempotent and permanent: it never reconnects afterwards, so a
     # later connect() raises ClientClosedError instead of re-establishing.
