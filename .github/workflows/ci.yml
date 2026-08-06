@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-run against a branch on demand: the dependencies are resolved fresh each
+  # run (uv.lock is not committed), so a green result can go red — or back to
+  # green — without anything here changing.
+  workflow_dispatch:
 
 permissions:
   contents: read
