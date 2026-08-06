@@ -421,7 +421,7 @@ async def connect_tcp(
     host: str,
     *,
     port: int = 502,
-    timeout: float = 3,
+    timeout: float = 10,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
@@ -442,7 +442,7 @@ async def connect_udp(
     host: str,
     *,
     port: int = 502,
-    timeout: float = 3,
+    timeout: float = 10,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
@@ -469,7 +469,7 @@ async def connect_tls(
     client_key: str | None = None,
     client_key_password: str | None = None,
     sslctx: ssl.SSLContext | None = None,
-    timeout: float = 3,
+    timeout: float = 10,
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus/TLS connection.
@@ -501,7 +501,7 @@ async def connect_serial(
     bytesize: int = 8,
     parity: str = "N",
     stopbits: int = 1,
-    timeout: float = 3,
+    timeout: float = 10,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
