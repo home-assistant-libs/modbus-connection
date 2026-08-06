@@ -68,10 +68,6 @@ WriteValidator = Callable[[Any], Any]
 # ``None`` (warned once per distinct value); any other exception propagates.
 Converter = Callable[[int], Any] | Mapping[int, Any]
 
-# (converter, raw value) pairs we have already warned about, so a rejected
-# value is logged only once per distinct value rather than on every poll.
-_warned_unknown_value: set[tuple[Any, int]] = set()
-
 
 def _decimals(scale: float) -> int:
     """Return the decimal precision implied by a scale."""
@@ -259,6 +255,9 @@ class NumberField[T](_ScaledField[T]):
         # class, a plain function, or a dict); None returns the raw int.
         self.convert = convert
         self.word_order = word_order
+        # Raw values this field has already warned about, so a rejected value
+        # is logged only once per distinct value rather than on every poll.
+        self._warned_unknown: set[int] = set()
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         raw = combine_words(words, word_order=self.word_order)
@@ -285,11 +284,8 @@ class NumberField[T](_ScaledField[T]):
                 return convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
             except ValueError:
                 pass
-        # key by id: mappings aren't hashable, and converters live as long as
-        # their field (a class attribute), so ids are stable
-        key = (id(convert), raw)
-        if key not in _warned_unknown_value:
-            _warned_unknown_value.add(key)
+        if raw not in self._warned_unknown:
+            self._warned_unknown.add(raw)
             _LOGGER.warning(
                 "Field %r: %s has no mapping for value %d; decoding as None",
                 self.name,

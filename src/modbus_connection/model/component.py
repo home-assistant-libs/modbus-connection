@@ -282,12 +282,15 @@ class Component(_ComponentBase):
             [(start, start + count - 1) for start, count in blocks], excluded
         )
 
-    async def async_update(self) -> None:
+    async def async_update(self, *, notify: bool = True) -> None:
         """Read this component and notify its listeners.
+
+        Pass ``notify=False`` to skip the listeners, for a caller that
+        notifies them itself.
 
         Raises ``BlockReadError`` if the device rejects a block.
         """
-        await self._refresh(collect_raw=False)
+        await self._refresh(collect_raw=False, notify=notify)
 
     # -- writes --------------------------------------------------------------
 

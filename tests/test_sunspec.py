@@ -9,7 +9,7 @@ from enum import IntEnum, IntFlag
 import pytest
 
 from modbus_connection.mock import MockModbusConnection
-from modbus_connection.model import Component, fields
+from modbus_connection.model import Component
 from modbus_connection.model import sunspec as ss
 
 
@@ -210,7 +210,6 @@ async def test_enum_write_accepts_member() -> None:
 async def test_unknown_enum_decodes_to_none_and_warns_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    fields._warned_unknown_value.clear()
     dev = _device({0: 7})  # 7 is not a Mode member
     with caplog.at_level(logging.WARNING, logger="modbus_connection.model"):
         await dev.async_update()
@@ -402,3 +401,34 @@ async def test_sunspec_component_header_check_in_group() -> None:
     unit.holding[1009] = 3  # the model's length changed
     with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
         await ComponentGroup(unit, [component]).async_update()
+
+
+async def test_sunspec_header_check_runs_without_notify() -> None:
+    """The map-shift check is part of the read, not of notifying."""
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    (model,) = (await ss.scan(unit, 1000))[103]
+    component = _Discovered(unit, model)
+    unit.holding[1008] = 111  # the map shifts
+    with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
+        await component.async_update(notify=False)
+
+
+async def test_sunspec_group_header_check_precedes_all_listeners() -> None:
+    """A shifted member fails the group update before any member notifies."""
+    from modbus_connection.model import ComponentGroup
+
+    class _Common(ss.SunSpecComponent):
+        serial = ss.string(2, 2)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    models = await ss.scan(unit, 1000)
+    healthy = _Common(unit, models[1][0])
+    shifted = _Discovered(unit, models[103][0])
+    fired: list[str] = []
+    healthy.add_update_listener(lambda: fired.append("healthy"))
+    unit.holding[1009] = 3  # 103's length changed; model 1 is untouched
+    with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
+        await ComponentGroup(unit, [healthy, shifted]).async_update()
+    assert fired == []  # the healthy member's listeners never fired

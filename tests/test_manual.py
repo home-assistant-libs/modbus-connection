@@ -306,6 +306,22 @@ async def test_listeners_fire_on_update() -> None:
     assert calls == [1]  # no longer notified
 
 
+async def test_update_without_notifying() -> None:
+    unit = _unit()
+    unit.holding[0] = 5
+    mc = ManualComponent(unit)
+    mc.add("a", integer(0))
+    calls: list[int] = []
+    mc.add_update_listener(lambda: calls.append(1))
+
+    values = await mc.async_update(notify=False)
+    assert values == {"a": 5}  # the values still come back
+    assert calls == []  # but no listener fires
+
+    mc.notify()  # the caller notifies itself
+    assert calls == [1]
+
+
 async def test_update_notifies_group_sub_instances() -> None:
     unit = _unit()
     unit.holding.update({8: 2, 11: 100, 31: 95})  # count@8=2; two modules
