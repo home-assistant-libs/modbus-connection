@@ -323,8 +323,9 @@ fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
   not support raises `ValueError` (see
   [Choosing a backend](/modbus-connection/getting-started/backends/)).
 - `TmodbusConnection` / `PymodbusConnection` and `TmodbusUnit` / `PymodbusUnit`
-  — backend-specific aliases and unit classes, for code that needs to name a
-  concrete type.
+  — the old backend-specific names, kept for compatibility. New code should
+  import `ModbusConnection` and type against the abstract
+  `modbus_connection.ModbusConnection` and the `ModbusUnit` Protocol.
 - The legacy factories `connect_tcp`, `connect_udp`, `connect_tls`, and
   `connect_serial` — kept for compatibility. Each builds the matching parameter
   dataclass from keyword arguments, also accepts the constructor's `timeout`
