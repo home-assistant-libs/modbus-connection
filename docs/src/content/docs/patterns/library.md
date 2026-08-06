@@ -1,6 +1,6 @@
 ---
-title: Library entrypoint
-description: How the main entrypoint of a device library built on modbus-connection comes together — a top-level device object over Components and a ComponentGroup.
+title: The device object
+description: How the top-level device object of a library built on modbus-connection comes together — one typed class over Components and a ComponentGroup.
 ---
 
 modbus-connection is a foundation you build a **device library** on. A good device
@@ -11,7 +11,7 @@ library (a Samson TROVIS 557x heating controller) as the worked example.
 
 ## The shape
 
-The entrypoint class:
+The device object:
 
 1. takes a `ModbusUnit` — never a connection, and never a host/port. The consumer
    owns the connection and hands you a unit.

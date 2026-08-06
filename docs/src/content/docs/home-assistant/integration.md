@@ -34,7 +34,7 @@ Core requires all protocol and device communication to live in a **separate
 library published to PyPI**; the integration itself is a thin layer that wires
 that library to Home Assistant's entities, config flow and coordinator.
 
-That requirement is precisely the [library entrypoint pattern](/modbus-connection/patterns/library/):
+That requirement is precisely the [device-object pattern](/modbus-connection/patterns/library/):
 a standalone package, built on modbus-connection, that exposes a device object
 over `Component`s and consumes a `ModbusUnit`. Build that library first — it is
 what the integration will `import` and list in its `manifest.json` requirements.
@@ -46,7 +46,7 @@ An integration built this way has three clear layers:
 1. **modbus-connection** — the connection + modelling foundation the library is
    built on.
 2. **A device library** (its own PyPI package) — the
-   [entrypoint pattern](/modbus-connection/patterns/library/): a top-level device
+   [device-object pattern](/modbus-connection/patterns/library/): a top-level device
    object over `Component`s, backend-neutral, consuming a `ModbusUnit`. This has
    **no Home Assistant dependency** and is released and tested on its own.
 3. **Your device integration** (in `homeassistant/components/<domain>/`) — owns

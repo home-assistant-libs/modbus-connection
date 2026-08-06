@@ -40,7 +40,7 @@ from modbus_connection.cli_helper import (
     print_component,
 )
 
-from my_device import MyDevice  # your modelled Component / device entrypoint
+from my_device import MyDevice  # your modelled Component / device object
 
 
 async def main() -> int:

@@ -115,7 +115,7 @@ export default defineConfig({
         {
           label: "Building a library",
           items: [
-            { label: "Library entrypoint", slug: "patterns/library" },
+            { label: "The device object", slug: "patterns/library" },
             { label: "Query helper", slug: "patterns/query-helper" },
             { label: "Testing", slug: "patterns/testing" },
           ],
