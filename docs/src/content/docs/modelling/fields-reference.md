@@ -50,10 +50,7 @@ returns the decoded value or `None`. See
 
 Create a `RepeatingGroupField` describing repeated sub-components. `count` is a
 fixed `int` (must be `>= 0`; instances fold into the normal read) or a
-`RegisterField` read at poll time (a second read pass sizes the list) — an
-int- or float-typed one, so a SunSpec `uint16` `N` point works; the decoded
-count is truncated to an `int`, and an unimplemented (`None`) count yields no
-instances.
+`RegisterField` read at poll time (a second read pass sizes the list).
 `stride` is the block length (must be `> 0`, or `ValueError`). Reading the
 attribute returns `list[C]` — the instances built on the last update. See
 [Repeated sub-units](/modbus-connection/modelling/repeats/).
