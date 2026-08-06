@@ -17,6 +17,8 @@ from modbus_connection import (
     ModbusUdpParams,
 )
 
+Params = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+
 
 def test_tcp_params_defaults_and_frozen() -> None:
     params = ModbusTcpParams(host="dev.local")
@@ -103,3 +105,85 @@ def test_params_are_keyword_only_and_hashable(
     with pytest.raises(TypeError):
         params_cls(*kwargs.values())
     assert {params_cls(**kwargs), params_cls(**kwargs)} == {params_cls(**kwargs)}
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        pytest.param(
+            ModbusTcpParams(host="dev.local", framer="socket"),
+            ModbusTcpParams(host="dev.local", framer="rtu"),
+            id="tcp-framer-ignored",
+        ),
+        pytest.param(
+            ModbusTcpParams(host="Dev.LOCAL"),
+            ModbusTcpParams(host="dev.local"),
+            id="tcp-host-case-insensitive",
+        ),
+        pytest.param(
+            ModbusUdpParams(host="fe80::1"),
+            ModbusUdpParams(host="FE80::1"),
+            id="udp-ipv6-case-insensitive",
+        ),
+        pytest.param(
+            ModbusTlsParams(host="dev.local", port=802, verify=False),
+            ModbusTlsParams(host="dev.local", port=802, verify=True),
+            id="tls-settings-ignored",
+        ),
+        pytest.param(
+            ModbusTcpParams(host="dev.local", port=802),
+            ModbusTlsParams(host="dev.local", port=802),
+            id="tcp-and-tls-share-endpoint",
+        ),
+        pytest.param(
+            ModbusSerialParams(device="/dev/ttyUSB0", baudrate=9600),
+            ModbusSerialParams(device="/dev/ttyUSB0", baudrate=19200, parity="E"),
+            id="serial-line-settings-ignored",
+        ),
+    ],
+)
+def test_endpoint_same_device(left: Params, right: Params) -> None:
+    assert left.endpoint == right.endpoint
+    assert hash(left.endpoint) == hash(right.endpoint)
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        pytest.param(
+            ModbusTcpParams(host="dev.local"),
+            ModbusTcpParams(host="other.local"),
+            id="tcp-different-host",
+        ),
+        pytest.param(
+            ModbusTcpParams(host="dev.local", port=502),
+            ModbusTcpParams(host="dev.local", port=503),
+            id="tcp-different-port",
+        ),
+        pytest.param(
+            ModbusTcpParams(host="dev.local", port=502),
+            ModbusUdpParams(host="dev.local", port=502),
+            id="tcp-vs-udp",
+        ),
+        pytest.param(
+            ModbusSerialParams(device="/dev/ttyUSB0"),
+            ModbusSerialParams(device="/dev/ttyUSB1"),
+            id="serial-different-device",
+        ),
+        pytest.param(
+            ModbusSerialParams(device="/dev/ttyUSB0"),
+            ModbusTcpParams(host="/dev/ttyUSB0", port=502),
+            id="serial-vs-tcp",
+        ),
+    ],
+)
+def test_endpoint_different_device(left: Params, right: Params) -> None:
+    assert left.endpoint != right.endpoint
+
+
+def test_endpoint_usable_as_grouping_key() -> None:
+    by_endpoint = {
+        ModbusSerialParams(device="/dev/ttyUSB0", baudrate=9600).endpoint: "first"
+    }
+    other = ModbusSerialParams(device="/dev/ttyUSB0", baudrate=19200)
+    assert by_endpoint[other.endpoint] == "first"

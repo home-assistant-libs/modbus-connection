@@ -114,6 +114,37 @@ other parameters. The backends call this for you when connecting.
 | `stopbits` | `1 \| 2` | `1` | Stop bits per character. |
 | `framer` | `"rtu" \| "ascii"` | `"rtu"` | Serial framing. Any other value raises `ValueError`. |
 
+### `endpoint`
+
+Every parameter dataclass has an `endpoint` property: a hashable tuple
+identifying the physical target the params point at, excluding link settings.
+Two params objects with equal endpoints address the same device, so the
+property answers "do these configurations target the same device?" and doubles
+as a dictionary key for grouping shared connections:
+
+| Class | Endpoint | Excluded settings |
+| --- | --- | --- |
+| `ModbusTcpParams` | `("tcp", host, port)` | `framer` |
+| `ModbusUdpParams` | `("udp", host, port)` | `framer` |
+| `ModbusTlsParams` | `("tcp", host, port)` | all TLS options |
+| `ModbusSerialParams` | `("serial", device)` | `baudrate`, `bytesize`, `parity`, `stopbits`, `framer` |
+
+`ModbusTlsParams` deliberately shares the `"tcp"` transport tag: a TLS link and
+a plain-TCP link to the same host and port target the same TCP endpoint, hence
+the same device. The host is lowercased in the tuple, since DNS names and IPv6
+hex digits are case-insensitive. The serial device path is compared verbatim —
+aliases of the same port (a `/dev/serial/by-id` symlink versus `/dev/ttyUSB0`)
+are not resolved.
+
+Equal endpoints with **unequal params** signal conflicting configurations for
+one device — for example two serial configs for `/dev/ttyUSB0` at different
+baud rates — which a connection manager can detect and reject:
+
+```python
+if new_params.endpoint == existing_params.endpoint and new_params != existing_params:
+    raise ValueError("conflicting settings for the same device")
+```
+
 ## `ModbusUnit`
 
 A runtime-checkable `Protocol` representing one unit on a shared connection.

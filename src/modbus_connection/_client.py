@@ -47,6 +47,16 @@ class ModbusTcpParams:
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
 
+    @property
+    def endpoint(self) -> tuple[str, str, int]:
+        """Hashable identity of the addressed device: transport, host, and port.
+
+        Two params objects with equal endpoints point at the same device even
+        when link settings such as ``framer`` differ. The host is lowercased,
+        as DNS names and IPv6 hex digits are case-insensitive.
+        """
+        return ("tcp", self.host.lower(), self.port)
+
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusUdpParams:
@@ -67,6 +77,16 @@ class ModbusUdpParams:
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
+
+    @property
+    def endpoint(self) -> tuple[str, str, int]:
+        """Hashable identity of the addressed device: transport, host, and port.
+
+        Two params objects with equal endpoints point at the same device even
+        when link settings such as ``framer`` differ. The host is lowercased,
+        as DNS names and IPv6 hex digits are case-insensitive.
+        """
+        return ("udp", self.host.lower(), self.port)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,6 +116,18 @@ class ModbusTlsParams:
 
     sslctx: ssl.SSLContext | None = None
     """TLS context overriding the other TLS options."""
+
+    @property
+    def endpoint(self) -> tuple[str, str, int]:
+        """Hashable identity of the addressed device: transport, host, and port.
+
+        Two params objects with equal endpoints point at the same device even
+        when the TLS settings differ. The transport tag is ``"tcp"``: a TLS
+        link and a plain-TCP link to the same host and port target the same
+        TCP endpoint, hence the same device. The host is lowercased, as DNS
+        names and IPv6 hex digits are case-insensitive.
+        """
+        return ("tcp", self.host.lower(), self.port)
 
     async def create_ssl_context(self) -> ssl.SSLContext:
         """Return the supplied TLS context or build one from these parameters."""
@@ -139,6 +171,18 @@ class ModbusSerialParams:
             raise ValueError(
                 f"unknown serial framer {self.framer!r}; expected 'rtu' or 'ascii'"
             )
+
+    @property
+    def endpoint(self) -> tuple[str, str]:
+        """Hashable identity of the addressed serial port: transport and device.
+
+        Two params objects with equal endpoints point at the same serial port
+        even when line settings such as ``baudrate``, ``parity``, or ``framer``
+        differ. The device path is compared verbatim; aliases of the same port
+        (e.g. a ``/dev/serial/by-id`` symlink versus ``/dev/ttyUSB0``) are not
+        resolved.
+        """
+        return ("serial", self.device)
 
 
 ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams

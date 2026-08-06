@@ -61,6 +61,18 @@ connection = ModbusConnection(
 )
 ```
 
+### Sharing one connection per device
+
+Because the dataclasses are frozen and hashable, a params object can serve as
+the identity key for a pool of shared connections. When consumers may describe
+the same device with *different* link settings, key on
+[`params.endpoint`](/modbus-connection/connection/reference/#endpoint) instead:
+it identifies only the physical target (`host` and `port`, or the serial
+`device` path), so two configs for `/dev/ttyUSB0` at different baud rates — or
+the same host and port with different framing — map to the same key. Equal
+endpoints with unequal params mean conflicting settings for one device, which a
+pool should reject rather than open a second competing link.
+
 ### TLS
 
 `ModbusTlsParams` verifies the server certificate against the system trust
