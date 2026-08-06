@@ -264,9 +264,7 @@ SunSpecComponent(unit, model)
 `model` is the [`SunSpecModel`](#sunspecmodel) from a scan; it becomes the
 component's `base_offset`. Every read verifies the read-back header against
 the discovered model and raises
-[`SunSpecMapShiftError`](#sunspecmapshifterror) on a mismatch before any
-listener fires — including reads with `notify=False`, and before *any*
-member's listeners in a pooled `ComponentGroup` update.
+[`SunSpecMapShiftError`](#sunspecmapshifterror) on a mismatch.
 
 ### Exceptions
 

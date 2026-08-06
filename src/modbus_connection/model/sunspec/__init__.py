@@ -579,8 +579,7 @@ class SunSpecComponent(Component):
     def _verify_read(self) -> None:
         """Verify the read-back model header against the discovered model.
 
-        Runs after every read, before any listener fires — including reads
-        with ``notify=False``. Raises ``SunSpecMapShiftError`` on a mismatch.
+        Raises ``SunSpecMapShiftError`` on a mismatch.
         """
         if (
             self.model_id != self._model.model_id

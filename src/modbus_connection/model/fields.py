@@ -255,8 +255,6 @@ class NumberField[T](_ScaledField[T]):
         # class, a plain function, or a dict); None returns the raw int.
         self.convert = convert
         self.word_order = word_order
-        # Raw values this field has already warned about, so a rejected value
-        # is logged only once per distinct value rather than on every poll.
         self._warned_unknown: set[int] = set()
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:

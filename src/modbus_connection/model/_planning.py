@@ -209,7 +209,7 @@ class _Readable:
         """Check the values just read, before any listener sees them.
 
         Runs on every refresh, whether or not it notifies. Subclasses raise to
-        fail the update (``SunSpecComponent`` checks its model header here).
+        fail the update.
         """
 
     async def _refresh(self, *, collect_raw: bool, notify: bool = True) -> Raw:
