@@ -159,7 +159,7 @@ the old one.
 
 :::tip[If your device needs a pause between frames]
 You own the connection, so set the gap on it directly with `message_spacing`. Use
-[per-unit spacing](/modbus-connection/connection/connection-parameters/#request-spacing)
+[per-unit spacing](/modbus-connection/connection/connections-and-units/#request-spacing)
 only when your link carries several units and just one of them needs pacing.
 :::
 

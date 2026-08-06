@@ -66,7 +66,7 @@ a new connection to reconnect.
 
 All four are frozen, keyword-only dataclasses importable from
 `modbus_connection`. See
-[Connection parameters](/modbus-connection/connection/connection-parameters/)
+[Choosing connection parameters](/modbus-connection/connection/connections-and-units/#choosing-connection-parameters)
 for usage guidance.
 
 ### `ModbusTcpParams`
@@ -171,7 +171,7 @@ not implement raises `NotImplementedError` — see
 Set the minimum interval between requests to this unit. The setting belongs to
 the unit ID and combines with connection-wide spacing by waiting for the longer
 interval; pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
-See [Request spacing](/modbus-connection/connection/connection-parameters/#request-spacing).
+See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 #### `on_connection_lost(callback)`
 
@@ -183,8 +183,8 @@ unsubscribe callable. Equivalent to registering on the owning connection.
 Converters between register words and Python values, used by the
 [modelling fields](/modbus-connection/modelling/fields/) and available for
 direct use — see
-[Encoding and decoding](/modbus-connection/connection/encoding-decoding/) for
-examples.
+[Decoding what you read](/modbus-connection/connection/operations/#decoding-what-you-read)
+for examples.
 
 ### `WordOrder`
 

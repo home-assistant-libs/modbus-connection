@@ -36,3 +36,6 @@ print(modbus_connection.__all__)
 
 Importing `modbus_connection` never imports a backend. The backend is only
 loaded when you import `modbus_connection.tmodbus` or `modbus_connection.pymodbus`.
+
+Continue with the [Quickstart](/modbus-connection/getting-started/quickstart/)
+to read your first registers.

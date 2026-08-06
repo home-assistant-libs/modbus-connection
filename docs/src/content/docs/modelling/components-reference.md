@@ -269,6 +269,7 @@ components.
 
 #### `SunSpecGenerationError`
 
-Raised by the [generator](/modbus-connection/modelling/sunspec-generation/)
+Raised by the
+[generator](/modbus-connection/modelling/sunspec-discovery/#generating-component-classes)
 (`modbus_connection.model.sunspec.generate`) when emitting a static layout
 would be incorrect.

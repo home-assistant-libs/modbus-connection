@@ -10,7 +10,9 @@ reserved *unimplemented* value the device sends when the point is absent.
 `modbus_connection.model.sunspec` provides helpers that build model fields
 with the right width, sign and sentinel — so an unimplemented point decodes to
 `None` automatically. They are the same fields you'd otherwise hand-roll with the
-[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate.
+[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate;
+the full signatures live in the
+[field reference](/modbus-connection/modelling/fields-reference/#sunspec-point-helpers).
 
 ```python
 from modbus_connection.model import Component
@@ -63,11 +65,8 @@ absent point decodes to `None`.
 | `int64` | 4 | `0x8000…` |
 | `uint64` | 4 | `0xFFFF…` |
 
-```python
-int16(address, *, scale=1.0, scale_register=None, scale_register_stride=0,
-      stride=0, writable=False, unit=None) -> NumberField[float]
-# uint16 / int32 / uint32 / int64 / uint64 share this signature.
-```
+All six share one signature: `address`, then keyword-only `scale`,
+`scale_register` / `scale_register_stride`, `stride`, `writable`, and `unit`.
 
 ## Accumulators
 
@@ -81,32 +80,19 @@ like the numeric points do.
 | `acc32` | 2 |
 | `acc64` | 4 |
 
-```python
-acc32(address, *, scale=1.0, scale_register=None, scale_register_stride=0,
-      stride=0, unit=None) -> NumberField[int]
-```
+They take the numeric points' options minus `writable` — a counter is never
+written.
 
 ## Scale-factor point
 
-```python
-sunssf(address, *, stride=0) -> NumberField[int]
-```
-
-A signed int16 power-of-ten exponent (unimplemented `0x8000`). Reference it from a
-scaled point with `scale_register=`, and optionally declare it as its own field.
+`sunssf` is a signed int16 power-of-ten exponent (unimplemented `0x8000`).
+Reference it from a scaled point with `scale_register=`, and optionally declare
+it as its own field.
 
 ## Enumerations and bitfields
 
 Pass an `IntEnum` / `IntFlag` to decode to members; omit it for the raw integer.
 Both have `enum16`/`enum32` and `bitfield16`/`bitfield32`/`bitfield64` variants.
-
-```python
-enum16(address, enum=None, *, stride=0, writable=False)
-enum32(address, enum=None, *, stride=0, writable=False)
-bitfield16(address, flags=None, *, stride=0, writable=False)
-bitfield32(address, flags=None, *, stride=0, writable=False)
-bitfield64(address, flags=None, *, stride=0, writable=False)
-```
 
 ```python
 from enum import IntEnum
@@ -126,24 +112,15 @@ class Inverter(Component):
 
 ## Floats and strings
 
-```python
-float32(address, *, stride=0, writable=False, unit=None) -> FloatField
-float64(address, *, stride=0, writable=False, unit=None) -> FloatField
-string(address, length, *, stride=0, writable=False) -> StringField
-```
-
 `float32` / `float64` decode NaN (any NaN, sentinel `0x7FC00000`) to `None`.
-`string` is a fixed-length null-padded ASCII string over `length` registers.
+`string(address, length)` is a fixed-length null-padded ASCII string over
+`length` registers.
 
 ## Address points
 
 SunSpec models carry network addresses in registers. These are read-only:
-
-```python
-ipaddr(address, *, stride=0) -> IPv4Field     # IPv4 over 2 registers
-ipv6addr(address, *, stride=0) -> IPv6Field   # IPv6 over 8 registers
-eui48(address, *, stride=0) -> Eui48Field     # EUI-48 / MAC over 3 registers
-```
+`ipaddr` (IPv4 over two registers), `ipv6addr` (IPv6 over eight), and `eui48`
+(an EUI-48 / MAC address over three).
 
 ```python
 from modbus_connection.model.sunspec import ipaddr, eui48
@@ -185,5 +162,6 @@ class Meter(Component):
 See [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story
 on `base_offset`, `stride`, and `index`.
 
-Continue with [SunSpec discovery](/modbus-connection/modelling/sunspec-discovery/)
-to locate models on a device.
+Continue with
+[Discovery and generation](/modbus-connection/modelling/sunspec-discovery/) to
+locate models on a device and generate component classes for them.

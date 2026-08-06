@@ -9,7 +9,9 @@ attribute returns `T | None` — the decoded value, or `None` before the first r
 or when a sentinel decodes to "no value".
 
 Prefer the **helpers** below over constructing field classes directly; they are
-named presets (width, sign, sentinel, scale) over a small set of codecs. Every
+named presets (width, sign, sentinel, scale) over a small set of codecs. This
+page covers what each helper means and when to use it; the full signatures live
+in the [field reference](/modbus-connection/modelling/fields-reference/). Every
 helper lives in `modbus_connection.model`:
 
 ```python
@@ -93,12 +95,6 @@ pass `"little"` for CDAB.
 An unscaled integer register — counts, percentages, addresses.
 
 ```python
-integer(address, *, offset=0.0, signed=True, nan=None, stride=0,
-        writable=False, scale_register=None, scale_register_stride=0,
-        unit=None, force_fc16=False) -> NumberField[int]
-```
-
-```python
 count = integer(4)  # signed 16-bit int
 percent = integer(7, signed=False)  # 0..65535
 shifted = integer(2, offset=-100)  # raw - 100
@@ -108,12 +104,6 @@ shifted = integer(2, offset=-100)  # raw - 100
 
 A scaled numeric register — a 0.1-scaled temperature, a voltage, and so on. The
 one helper where `scale` is a **required positional** argument.
-
-```python
-gauge(address, scale, *, offset=0.0, signed=True, nan=None, stride=0,
-      writable=False, scale_register=None, scale_register_stride=0,
-      unit=None, force_fc16=False) -> NumberField[float]
-```
 
 ```python
 voltage = gauge(0, 0.1, unit="V")  # raw * 0.1
@@ -126,19 +116,13 @@ A single raw register word — no scaling, sign handling, or sentinel. Useful fo
 status word you decode yourself.
 
 ```python
-raw_register(address, *, stride=0, writable=False, force_fc16=False) -> RawField
+status = raw_register(7)  # the word as-is, 0..65535
 ```
 
 ### 32- and 64-bit integers
 
 `uint32` / `int32` span two consecutive registers; `uint64` / `int64` span four.
 All take `scale`, `offset`, `word_order`, `unit`, and the write options.
-
-```python
-uint32(address, *, scale=1.0, offset=0.0, word_order="big", stride=0,
-       writable=False, unit=None, force_fc16=False) -> NumberField[int]
-# int32 / uint64 / int64 have the same signature.
-```
 
 ```python
 energy = uint32(2, unit="Wh")  # 32-bit over registers 2–3
@@ -149,13 +133,7 @@ lifetime = uint64(20, unit="Wh")  # 64-bit over registers 20–23
 ## Floating-point fields
 
 `float32` decodes an IEEE-754 single over two registers; `float64` a double over
-four.
-
-```python
-float32(address, *, scale=1.0, offset=0.0, word_order="big", stride=0,
-        writable=False, unit=None, force_fc16=False) -> FloatField
-# float64 is identical but spans four registers.
-```
+four. Both take `scale`, `offset`, `word_order`, `unit`, and the write options.
 
 ```python
 flow = float32(40, unit="m³/h")
@@ -168,10 +146,6 @@ precise = float64(50)
 (two characters per register).
 
 ```python
-string(address, length, *, stride=0, writable=False, force_fc16=False) -> StringField
-```
-
-```python
 serial = string(100, 8)  # 8 registers -> up to 16 ASCII characters
 ```
 
@@ -182,13 +156,6 @@ Map a raw register natively to an `IntEnum` or `IntFlag`.
 - `enum` — an `IntEnum` field. A code with no member decodes to `None` (warned
   once per distinct value).
 - `flags` — an `IntFlag` field. Unknown bits are **kept**.
-
-```python
-enum(address, enum_type, *, count=1, signed=False, word_order="big",
-     nan=None, stride=0, writable=False, force_fc16=False) -> NumberField[E]
-flags(address, flag_type, *, count=1, signed=False, word_order="big",
-      nan=None, stride=0, writable=False, force_fc16=False) -> NumberField[F]
-```
 
 ```python
 from enum import IntEnum, IntFlag
@@ -247,11 +214,6 @@ component may mix them freely.
 - `coil` — a coil (FC01). Read/write; pass `writable=True` to allow writes.
 - `discrete_input` — a discrete input (FC02). Read-only — it has no `writable`
   option because discrete inputs are physically read-only.
-
-```python
-coil(address, *, writable=False, stride=0) -> CoilField
-discrete_input(address, *, stride=0) -> DiscreteInputField
-```
 
 ```python
 class IO(Component):

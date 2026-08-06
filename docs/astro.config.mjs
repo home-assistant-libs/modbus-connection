@@ -15,13 +15,15 @@ export default defineConfig({
     "/getting-started/connections-and-units/":
       "/modbus-connection/connection/connections-and-units/",
     "/getting-started/connection-parameters/":
-      "/modbus-connection/connection/connection-parameters/",
+      "/modbus-connection/connection/connections-and-units/",
     "/getting-started/operations/": "/modbus-connection/connection/operations/",
     "/getting-started/encoding-decoding/":
-      "/modbus-connection/connection/encoding-decoding/",
+      "/modbus-connection/connection/operations/",
     "/reference/exceptions/": "/modbus-connection/connection/reference/",
     "/reference/testing/": "/modbus-connection/patterns/testing/",
     "/modelling/reference/": "/modbus-connection/modelling/components-reference/",
+    "/modelling/sunspec-generation/":
+      "/modbus-connection/modelling/sunspec-discovery/",
   },
   integrations: [
     starlight({
@@ -66,6 +68,7 @@ export default defineConfig({
           items: [
             { label: "Introduction", slug: "index" },
             { label: "Installation", slug: "getting-started/installation" },
+            { label: "Quickstart", slug: "getting-started/quickstart" },
             { label: "Choosing a backend", slug: "getting-started/backends" },
           ],
         },
@@ -76,15 +79,7 @@ export default defineConfig({
               label: "Connections and units",
               slug: "connection/connections-and-units",
             },
-            {
-              label: "Connection parameters",
-              slug: "connection/connection-parameters",
-            },
             { label: "Modbus operations", slug: "connection/operations" },
-            {
-              label: "Encoding and decoding",
-              slug: "connection/encoding-decoding",
-            },
             { label: "Reference", slug: "connection/reference" },
           ],
         },
@@ -93,21 +88,22 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "modelling/overview" },
             { label: "Built-in fields", slug: "modelling/fields" },
-            { label: "SunSpec fields", slug: "modelling/sunspec" },
-            {
-              label: "SunSpec discovery",
-              slug: "modelling/sunspec-discovery",
-            },
-            {
-              label: "SunSpec generation",
-              slug: "modelling/sunspec-generation",
-            },
             { label: "Repeated sub-units", slug: "modelling/repeats" },
             { label: "Component groups", slug: "modelling/component-group" },
             { label: "Manual components", slug: "modelling/manual-component" },
             {
               label: "Restricting fields",
               slug: "modelling/restricting-fields",
+            },
+            {
+              label: "SunSpec",
+              items: [
+                { label: "SunSpec fields", slug: "modelling/sunspec" },
+                {
+                  label: "Discovery and generation",
+                  slug: "modelling/sunspec-discovery",
+                },
+              ],
             },
             { label: "Field reference", slug: "modelling/fields-reference" },
             {

@@ -1,6 +1,6 @@
 ---
 title: Modbus operations
-description: Use the raw register, bit, diagnostic, file-record, and identification operations on a ModbusUnit.
+description: Read and write registers and bits on a ModbusUnit, and convert the raw register words to and from Python values.
 ---
 
 `ModbusUnit` exposes the standard Modbus operations. Register reads return
@@ -27,7 +27,30 @@ and device identification (FC43/14). The
 [reference](/modbus-connection/connection/reference/#modbusunit) lists every
 method with its signature and function code.
 
-All operations raise on failure. See
+All operations raise on failure — see
 [Exceptions](/modbus-connection/connection/reference/#exceptions) for the error
-hierarchy and [Encoding and decoding](/modbus-connection/connection/encoding-decoding/)
-for converting register words.
+hierarchy.
+
+## Decoding what you read
+
+Register reads hand back raw 16-bit words. `modbus_connection.decode` converts
+them to Python values:
+
+```python
+from modbus_connection.decode import decode_float32, decode_int16, decode_string
+
+decode_int16(await unit.read_holding_registers(9, 1))
+decode_float32(await unit.read_holding_registers(40, 2))
+decode_string(await unit.read_holding_registers(10, 4))
+```
+
+`modbus_connection.encode` performs the inverse conversion for writes. Both
+modules support signed and unsigned integers, floats, and strings, with
+configurable word order for multi-register values; `decode` additionally covers
+network addresses (IPv4, IPv6, EUI-48). The
+[reference](/modbus-connection/connection/reference/#encoding-and-decoding-functions)
+lists every function.
+
+For a device with more than a handful of values, use the
+[device-modelling framework](/modbus-connection/modelling/overview/) to attach
+these conversions to fields and pool reads.
