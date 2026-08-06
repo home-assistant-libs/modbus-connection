@@ -305,4 +305,6 @@ The helpers return instances of a small set of codec classes —
 `NumberField`, `FloatField`, `StringField`, `RawField`, and the address types
 (`IPv4Field`, `IPv6Field`, `Eui48Field`) — plus `CoilField` / `DiscreteInputField`
 for bits. Reach for a subclass directly only for a codec the helpers don't
-cover; almost everything is expressible with the helpers above.
+cover; almost everything is expressible with the helpers above. The
+[reference](/modbus-connection/modelling/reference/#field-classes) documents each
+class's constructor and attributes.

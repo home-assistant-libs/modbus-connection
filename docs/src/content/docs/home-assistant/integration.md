@@ -56,7 +56,7 @@ An integration built this way has three clear layers:
 
 Keeping the device library separate is not just good practice here — it is a
 condition for merging into Core, and it means the hard part (the register map)
-gets tested against the [mock](/modbus-connection/reference/testing/) with no Home
+gets tested against the [mock](/modbus-connection/patterns/testing/) with no Home
 Assistant in the loop.
 
 :::note[Custom integrations]
@@ -159,7 +159,7 @@ the old one.
 
 :::tip[If your device needs a pause between frames]
 You own the connection, so set the gap on it directly with `message_spacing`. Use
-[per-unit spacing](/modbus-connection/getting-started/connection-parameters/#request-spacing)
+[per-unit spacing](/modbus-connection/connection/connection-parameters/#request-spacing)
 only when your link carries several units and just one of them needs pacing.
 :::
 
@@ -221,7 +221,7 @@ clause, or it escapes the coordinator as an unexpected exception.
 
 ## Errors map cleanly
 
-Catch [`ModbusError`](/modbus-connection/reference/exceptions/) in the coordinator
+Catch [`ModbusError`](/modbus-connection/connection/reference/#exceptions) in the coordinator
 and raise `UpdateFailed`. The neutral hierarchy means the same handling works
 whichever backend the integration ships:
 
@@ -252,19 +252,19 @@ async def async_get_config_entry_diagnostics(hass, entry):
 
 `async_read_raw()` reads the device fresh, so it reflects the live register
 state at download time. It raises the same
-[`ModbusError`](/modbus-connection/reference/exceptions/) subclasses as an update;
+[`ModbusError`](/modbus-connection/connection/reference/#exceptions) subclasses as an update;
 catch them if you'd rather serialize a diagnostics payload than fail the download.
 Its keys are the four Modbus spaces — `"holding"`, `"input"`, `"coil"`,
 `"discrete"` — each an address-keyed map of raw values.
 
 A downloaded snapshot also replays straight into the mock backend with
-[`load_raw()`](/modbus-connection/reference/testing/#replaying-a-raw-snapshot), so
+[`load_raw()`](/modbus-connection/patterns/testing/#replaying-a-raw-snapshot), so
 a raw dump attached to a bug report can back a regression test with no hardware.
 
 ## Testing without hardware
 
 The library layer is fully testable with the shipped
-[mock backend](/modbus-connection/reference/testing/) — a pytest plugin that
+[mock backend](/modbus-connection/patterns/testing/) — a pytest plugin that
 implements the same APIs. Your device library's tests need no Home Assistant
 and no device; the integration layer then only has to test the Home Assistant
 wiring.

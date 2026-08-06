@@ -42,6 +42,6 @@ The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
 should construct the backend's `ModbusConnection` with a shared parameter object.
 :::
 
-Continue with [Connection parameters](/modbus-connection/getting-started/connection-parameters/)
-to configure a link or [Modbus operations](/modbus-connection/getting-started/operations/)
+Continue with [Connection parameters](/modbus-connection/connection/connection-parameters/)
+to configure a link or [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

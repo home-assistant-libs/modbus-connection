@@ -9,6 +9,18 @@ import starlightLlmsTxt from "starlight-llms-txt";
 export default defineConfig({
   site: "https://home-assistant-libs.github.io",
   base: "/modbus-connection",
+  // Old locations of pages moved in the docs restructure.
+  redirects: {
+    "/getting-started/connections-and-units/":
+      "/modbus-connection/connection/connections-and-units/",
+    "/getting-started/connection-parameters/":
+      "/modbus-connection/connection/connection-parameters/",
+    "/getting-started/operations/": "/modbus-connection/connection/operations/",
+    "/getting-started/encoding-decoding/":
+      "/modbus-connection/connection/encoding-decoding/",
+    "/reference/exceptions/": "/modbus-connection/connection/reference/",
+    "/reference/testing/": "/modbus-connection/patterns/testing/",
+  },
   integrations: [
     starlight({
       title: "modbus-connection",
@@ -51,19 +63,25 @@ export default defineConfig({
             { label: "Introduction", slug: "index" },
             { label: "Installation", slug: "getting-started/installation" },
             { label: "Choosing a backend", slug: "getting-started/backends" },
+          ],
+        },
+        {
+          label: "Modbus Connection",
+          items: [
             {
               label: "Connections and units",
-              slug: "getting-started/connections-and-units",
+              slug: "connection/connections-and-units",
             },
             {
               label: "Connection parameters",
-              slug: "getting-started/connection-parameters",
+              slug: "connection/connection-parameters",
             },
-            { label: "Modbus operations", slug: "getting-started/operations" },
+            { label: "Modbus operations", slug: "connection/operations" },
             {
               label: "Encoding and decoding",
-              slug: "getting-started/encoding-decoding",
+              slug: "connection/encoding-decoding",
             },
+            { label: "Reference", slug: "connection/reference" },
           ],
         },
         {
@@ -87,6 +105,7 @@ export default defineConfig({
               label: "Restricting fields",
               slug: "modelling/restricting-fields",
             },
+            { label: "Reference", slug: "modelling/reference" },
           ],
         },
         {
@@ -94,6 +113,7 @@ export default defineConfig({
           items: [
             { label: "Library entrypoint", slug: "patterns/library" },
             { label: "Query helper", slug: "patterns/query-helper" },
+            { label: "Testing", slug: "patterns/testing" },
           ],
         },
         {
@@ -107,13 +127,6 @@ export default defineConfig({
               label: "Integration structure",
               slug: "home-assistant/integration",
             },
-          ],
-        },
-        {
-          label: "Reference",
-          items: [
-            { label: "Exceptions", slug: "reference/exceptions" },
-            { label: "Testing", slug: "reference/testing" },
           ],
         },
       ],

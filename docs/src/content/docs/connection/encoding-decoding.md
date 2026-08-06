@@ -14,8 +14,11 @@ decode_string(await unit.read_holding_registers(10, 4))
 ```
 
 `modbus_connection.encode` performs the inverse conversion for writes. Both
-modules support signed and unsigned integers, floats, strings, network
-addresses, and configurable word order.
+modules support signed and unsigned integers, floats, and strings, with
+configurable word order for multi-register values; `decode` additionally covers
+network addresses (IPv4, IPv6, EUI-48). The
+[reference](/modbus-connection/connection/reference/#encoding-and-decoding-functions)
+lists every function.
 
 For a device with more than a handful of values, use the
 [device-modelling framework](/modbus-connection/modelling/overview/) to attach
