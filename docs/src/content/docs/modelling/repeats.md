@@ -175,7 +175,9 @@ The signature:
 repeating_group(count, component_class, *, stride) -> RepeatingGroupField[C]
 ```
 
-- `count` — a `RegisterField[int]` or a fixed `int` (must be `>= 0`).
+- `count` — a `RegisterField` or a fixed `int` (must be `>= 0`). A float-typed
+  count field (a SunSpec `uint16` `N` point) is accepted; the decoded count is
+  truncated to an `int`.
 - `component_class` — a `Component` subclass modelling one instance at instance
   0's addresses.
 - `stride` — the block length (must be `> 0`).

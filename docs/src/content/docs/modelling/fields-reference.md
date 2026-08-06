@@ -50,7 +50,7 @@ returns the decoded value or `None`. See
 
 Create a `RepeatingGroupField` describing repeated sub-components. `count` is a
 fixed `int` (must be `>= 0`; instances fold into the normal read) or a
-`RegisterField[int]` read at poll time (a second read pass sizes the list).
+`RegisterField` read at poll time (a second read pass sizes the list).
 `stride` is the block length (must be `> 0`, or `ValueError`). Reading the
 attribute returns `list[C]` — the instances built on the last update. See
 [Repeated sub-units](/modbus-connection/modelling/repeats/).
@@ -134,7 +134,7 @@ Instance attributes: `address`, `stride`, `writable` (always `False` on a
 ### `RepeatingGroupField[C]`
 
 The descriptor [`repeating_group()`](#repeating_groupcount-component_class--stride)
-returns. Instance attributes: `count` (an `int` or `RegisterField[int]`),
+returns. Instance attributes: `count` (an `int` or `RegisterField`),
 `component_class`, `stride`, and `name`. Reading it on a component instance
 returns `list[C]`.
 
@@ -176,6 +176,7 @@ noted, they take `scale=1.0`, `scale_register=None`, `scale_register_stride=0`,
 | `uint64(address, …)` | `NumberField[float]` | 4 | `0xFFFF_FFFF_FFFF_FFFF` |
 | `acc16 / acc32 / acc64(address, …)` | `NumberField[int]` | 1 / 2 / 4 | `0` ("not accumulated"); no `writable` option |
 | `sunssf(address, *, stride=0)` | `NumberField[int]` | 1 | `0x8000` |
+| `boolean(address, *, stride=0, writable=False)` | `NumberField[bool]` | 1 | `0xFFFF`; codes other than 0/1 decode to `None` |
 | `enum16 / enum32(address, enum=None, *, stride=0, writable=False)` | `NumberField[E]` or `NumberField[int]` | 1 / 2 | `0xFFFF` / `0xFFFFFFFF` |
 | `bitfield16 / bitfield32 / bitfield64(address, flags=None, *, stride=0, writable=False)` | `NumberField[F]` or `NumberField[int]` | 1 / 2 / 4 | `0xFFFF` / `0xFFFFFFFF` / `0xFFFF…` |
 | `float32 / float64(address, *, stride=0, writable=False, unit=None)` | `FloatField` | 2 / 4 | any NaN |

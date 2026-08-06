@@ -90,7 +90,7 @@ class _ComponentBase(_Readable):
         items = []
         for name, field in self._repeating_fields.items():
             # a register-count group's count is a RegisterField (see the split above)
-            count_field = cast("RegisterField[int]", field.count)
+            count_field = cast("RegisterField[Any]", field.count)
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
                 ReadItem(
