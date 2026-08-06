@@ -430,6 +430,7 @@ async def connect_serial(
     bytesize: int = 8,
     parity: str = "N",
     stopbits: int = 1,
+    timeout: float = 10,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
 ) -> ModbusConnection:
@@ -446,6 +447,7 @@ async def connect_serial(
             stopbits=stopbits,  # type: ignore[arg-type]
             framer=framer,
         ),
+        timeout=timeout,
         message_spacing=message_spacing,
     )
     await connection.connect()

@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLinksValidator from "starlight-links-validator";
 import starlightLlmsTxt from "starlight-llms-txt";
 
 // Project GitHub Pages site: https://home-assistant-libs.github.io/modbus-connection/
@@ -9,6 +10,21 @@ import starlightLlmsTxt from "starlight-llms-txt";
 export default defineConfig({
   site: "https://home-assistant-libs.github.io",
   base: "/modbus-connection",
+  // Old locations of pages moved in the docs restructure.
+  redirects: {
+    "/getting-started/connections-and-units/":
+      "/modbus-connection/connection/connections-and-units/",
+    "/getting-started/connection-parameters/":
+      "/modbus-connection/connection/connections-and-units/",
+    "/getting-started/operations/": "/modbus-connection/connection/operations/",
+    "/getting-started/encoding-decoding/":
+      "/modbus-connection/connection/operations/",
+    "/reference/exceptions/": "/modbus-connection/connection/reference/",
+    "/reference/testing/": "/modbus-connection/patterns/testing/",
+    "/modelling/reference/": "/modbus-connection/modelling/components-reference/",
+    "/modelling/sunspec-generation/":
+      "/modbus-connection/modelling/sunspec-discovery/",
+  },
   integrations: [
     starlight({
       title: "modbus-connection",
@@ -17,6 +33,8 @@ export default defineConfig({
       // Announces the current version on every page — see the middleware.
       routeMiddleware: "./src/routeData.ts",
       plugins: [
+        // Fails the build on a broken internal link or heading anchor.
+        starlightLinksValidator(),
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
@@ -50,20 +68,19 @@ export default defineConfig({
           items: [
             { label: "Introduction", slug: "index" },
             { label: "Installation", slug: "getting-started/installation" },
+            { label: "Quickstart", slug: "getting-started/quickstart" },
             { label: "Choosing a backend", slug: "getting-started/backends" },
+          ],
+        },
+        {
+          label: "Modbus Connection",
+          items: [
             {
               label: "Connections and units",
-              slug: "getting-started/connections-and-units",
+              slug: "connection/connections-and-units",
             },
-            {
-              label: "Connection parameters",
-              slug: "getting-started/connection-parameters",
-            },
-            { label: "Modbus operations", slug: "getting-started/operations" },
-            {
-              label: "Encoding and decoding",
-              slug: "getting-started/encoding-decoding",
-            },
+            { label: "Modbus operations", slug: "connection/operations" },
+            { label: "Reference", slug: "connection/reference" },
           ],
         },
         {
@@ -71,15 +88,6 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "modelling/overview" },
             { label: "Built-in fields", slug: "modelling/fields" },
-            { label: "SunSpec fields", slug: "modelling/sunspec" },
-            {
-              label: "SunSpec discovery",
-              slug: "modelling/sunspec-discovery",
-            },
-            {
-              label: "SunSpec generation",
-              slug: "modelling/sunspec-generation",
-            },
             { label: "Repeated sub-units", slug: "modelling/repeats" },
             { label: "Component groups", slug: "modelling/component-group" },
             { label: "Manual components", slug: "modelling/manual-component" },
@@ -87,13 +95,29 @@ export default defineConfig({
               label: "Restricting fields",
               slug: "modelling/restricting-fields",
             },
+            {
+              label: "SunSpec",
+              items: [
+                { label: "SunSpec fields", slug: "modelling/sunspec" },
+                {
+                  label: "Discovery and generation",
+                  slug: "modelling/sunspec-discovery",
+                },
+              ],
+            },
+            { label: "Field reference", slug: "modelling/fields-reference" },
+            {
+              label: "Component reference",
+              slug: "modelling/components-reference",
+            },
           ],
         },
         {
           label: "Building a library",
           items: [
-            { label: "Library entrypoint", slug: "patterns/library" },
+            { label: "The device object", slug: "patterns/library" },
             { label: "Query helper", slug: "patterns/query-helper" },
+            { label: "Testing", slug: "patterns/testing" },
           ],
         },
         {
@@ -107,13 +131,6 @@ export default defineConfig({
               label: "Integration structure",
               slug: "home-assistant/integration",
             },
-          ],
-        },
-        {
-          label: "Reference",
-          items: [
-            { label: "Exceptions", slug: "reference/exceptions" },
-            { label: "Testing", slug: "reference/testing" },
           ],
         },
       ],

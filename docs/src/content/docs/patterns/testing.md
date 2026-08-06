@@ -134,6 +134,91 @@ async def test_read_refused(mock_modbus_unit):
     mock_modbus_unit.fail_read(1100, None)  # clear it
 ```
 
+## Simulating a dropped link
+
+`simulate_connection_lost()` on the connection drops the link and fires every
+`on_connection_lost` callback — for testing code that observes the transport,
+like a coordinator marking entities unavailable. The drop is transient, as it is
+on a real connection: the next request establishes the link again.
+
+```python
+async def test_reacts_to_a_drop(mock_modbus_connection, mock_modbus_unit):
+    events = []
+    mock_modbus_connection.on_connection_lost(lambda: events.append("lost"))
+
+    mock_modbus_connection.simulate_connection_lost()
+    assert events == ["lost"]
+    assert mock_modbus_connection.connected is False
+
+    await mock_modbus_unit.read_holding_registers(0, 1)  # reconnects on demand
+    assert mock_modbus_connection.connected is True
+```
+
+`close()` behaves like the real thing too: it is permanent, does not fire the
+callbacks, and later requests raise `ClientClosedError`.
+
+## Canned responses for the other operations
+
+The register and bit operations resolve against the stores, but the
+diagnostic, file-record, and identification operations have no natural store.
+Arm each one you use with `set_response(method, value)` — a callable value is
+evaluated per call — or the mock raises `NotImplementedError` telling you which
+response to configure:
+
+```python
+async def test_reads_server_id(mock_modbus_unit):
+    mock_modbus_unit.set_response("report_server_id", b"\x11ACME v2")
+    assert await mock_modbus_unit.report_server_id() == b"\x11ACME v2"
+```
+
+The operations that take a canned response: `read_exception_status`,
+`report_server_id`, `read_fifo_queue`, `read_device_identification`,
+`read_file_record`, `diagnostics`, `get_comm_event_counter`, and
+`get_comm_event_log`. (`mask_write_register` and `read_write_registers` work
+against the register stores directly, and `write_file_record` is accepted as a
+no-op.)
+
+## Mock API reference
+
+### `MockModbusConnection`
+
+Implements the full `ModbusConnection` API in memory — `connected`,
+`for_unit(unit_id)`, `connect()`, `close()`, and
+`on_connection_lost(callback)` — plus the test hook
+[`simulate_connection_lost()`](#simulating-a-dropped-link). `for_unit` returns
+**the same `MockModbusUnit` per unit id**, so the unit you seed is the unit the
+code under test reads.
+
+### `MockModbusUnit`
+
+Implements the full `ModbusUnit` API against in-memory stores, plus the test
+configuration surface:
+
+| Member | What it does |
+| --- | --- |
+| `holding`, `input`, `coils`, `discrete_inputs` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read) — [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
+| `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes; returns an unsubscribe callable. |
+| `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |
+| `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete_input"`); `None` clears it. |
+| `set_response(method, value)` | Arm a [canned response](#canned-responses-for-the-other-operations) for a non-store operation. |
+| `load_raw(raw)` | Load an [`async_read_raw()` snapshot](#replaying-a-raw-snapshot) into the stores; raises `ValueError` for an unknown space. |
+| `set_message_spacing(seconds)` | Records the interval on the `message_spacing` attribute for assertions; raises `ValueError` if negative. |
+
+### `WriteEvent`
+
+The frozen dataclass `on_write` callbacks receive:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `register_type` | `"holding" \| "coil"` | Which table was written. |
+| `address` | `int` | The first written address. |
+| `values` | `list[int] \| list[bool]` | The written values, one per address. |
+
+### `RegisterSpec` and `CoilSpec`
+
+The store value types: `int | list[int] | Callable[[], int | list[int]]` for
+the register stores, and the `bool` equivalent for the bit stores.
+
 ## Why it matters
 
 The mock lets a device library's tests cover the hard part — the register map, the

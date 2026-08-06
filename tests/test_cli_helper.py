@@ -8,6 +8,7 @@ reflection-based field printer.
 from __future__ import annotations
 
 import argparse
+import inspect
 import io
 import sys
 from enum import IntEnum
@@ -57,6 +58,38 @@ async def test_connect_from_args_maps_failure() -> None:
     args = _parse(["127.0.0.1", "--port", "1"])
     with pytest.raises(ModbusConnectionError):
         await connect_from_args(args)
+
+
+def test_factory_signatures_accept_cli_kwargs() -> None:
+    # connect_from_args forwards timeout/message_spacing plus per-transport
+    # options to the backends' connect_* factories. A factory missing one of
+    # them would raise TypeError at connect time, which the dispatch test
+    # below can't see through its monkeypatched stand-ins — so bind the real
+    # signatures against everything connect_from_args can pass.
+    common = {"timeout": 3.0, "message_spacing": 0.0}
+    per_factory: dict[str, dict[str, Any]] = {
+        "connect_tcp": {"port": 502, "framer": "rtu"},
+        "connect_udp": {"port": 502, "framer": "socket"},
+        "connect_tls": {
+            "port": 802,
+            "verify": True,
+            "check_hostname": True,
+            "client_cert": None,
+            "client_key": None,
+            "client_key_password": None,
+        },
+        "connect_serial": {
+            "baudrate": 9600,
+            "bytesize": 8,
+            "parity": "N",
+            "stopbits": 1,
+            "framer": "rtu",
+        },
+    }
+    for backend in (tmodbus_backend, pymodbus_backend):
+        for name, kwargs in per_factory.items():
+            signature = inspect.signature(getattr(backend, name))
+            signature.bind("target", **kwargs, **common)  # TypeError on mismatch
 
 
 async def test_connect_from_args_dispatches_by_transport(

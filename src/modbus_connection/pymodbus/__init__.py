@@ -203,9 +203,11 @@ class ModbusConnection(BaseModbusConnection):
 
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
-        if not connecting:
-            self._client = None
-            self._lost_callbacks.fire()
+        # Our own close() also triggers this hook, which is not a lost connection.
+        if connecting or self._closed:
+            return
+        self._client = None
+        self._lost_callbacks.fire()
 
 
 PymodbusConnection = ModbusConnection

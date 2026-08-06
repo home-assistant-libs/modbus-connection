@@ -6,7 +6,7 @@ description: Map a device's registers and coils to typed attributes with Compone
 `modbus_connection.model` is an optional, backend-neutral framework for mapping a
 device's registers and coils to typed Python attributes, then reading the whole
 device — or one sub-system — in as few Modbus calls as possible. It talks only to
-a `ModbusUnit`, so it runs over any backend (or the [mock](/modbus-connection/reference/testing/)).
+a `ModbusUnit`, so it runs over any backend (or the [mock](/modbus-connection/patterns/testing/)).
 
 ## A first component
 
@@ -67,8 +67,8 @@ An `async_update()` either applies fully or raises — it never applies a block 
 part-way. If the device answers one of the block reads with a Modbus **exception
 response** (an illegal data address, say, because a block it used to serve stopped
 answering), the update raises
-[`BlockReadError`](/modbus-connection/reference/exceptions/#blockreaderror). It is a
-[`ModbusExceptionError`](/modbus-connection/reference/exceptions/#modbusexceptionerror),
+[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror). It is a
+[`ModbusExceptionError`](/modbus-connection/connection/reference/#modbusexceptionerror),
 so `.exception_code` says *why* the read was refused, plus `.space`, `.address`, and
 `.count` for *which* block:
 
@@ -266,3 +266,6 @@ class Controller(Component):
   layout at runtime from config.
 - [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
   component to the subset of a layout a device actually serves.
+- [Field reference](/modbus-connection/modelling/fields-reference/) and
+  [Component reference](/modbus-connection/modelling/components-reference/) —
+  every class, method, and field of the modelling layer.

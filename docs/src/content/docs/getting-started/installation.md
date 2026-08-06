@@ -31,8 +31,11 @@ selecting an extra.
 import modbus_connection
 
 print(modbus_connection.__all__)
-# ['ModbusConnection', 'ModbusConnectionError', 'ModbusError', ...]
+# ['BlockReadError', 'ClientClosedError', 'ModbusConnection', ...]
 ```
 
 Importing `modbus_connection` never imports a backend. The backend is only
 loaded when you import `modbus_connection.tmodbus` or `modbus_connection.pymodbus`.
+
+Continue with the [Quickstart](/modbus-connection/getting-started/quickstart/)
+to read your first registers.
