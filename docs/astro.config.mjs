@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLinksValidator from "starlight-links-validator";
 import starlightLlmsTxt from "starlight-llms-txt";
 
 // Project GitHub Pages site: https://home-assistant-libs.github.io/modbus-connection/
@@ -20,6 +21,7 @@ export default defineConfig({
       "/modbus-connection/connection/encoding-decoding/",
     "/reference/exceptions/": "/modbus-connection/connection/reference/",
     "/reference/testing/": "/modbus-connection/patterns/testing/",
+    "/modelling/reference/": "/modbus-connection/modelling/components-reference/",
   },
   integrations: [
     starlight({
@@ -29,6 +31,8 @@ export default defineConfig({
       // Announces the current version on every page — see the middleware.
       routeMiddleware: "./src/routeData.ts",
       plugins: [
+        // Fails the build on a broken internal link or heading anchor.
+        starlightLinksValidator(),
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
@@ -105,7 +109,11 @@ export default defineConfig({
               label: "Restricting fields",
               slug: "modelling/restricting-fields",
             },
-            { label: "Reference", slug: "modelling/reference" },
+            { label: "Field reference", slug: "modelling/fields-reference" },
+            {
+              label: "Component reference",
+              slug: "modelling/components-reference",
+            },
           ],
         },
         {

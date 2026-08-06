@@ -266,5 +266,6 @@ class Controller(Component):
   layout at runtime from config.
 - [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
   component to the subset of a layout a device actually serves.
-- [Reference](/modbus-connection/modelling/reference/) — every class, method, and
-  field of the modelling layer.
+- [Field reference](/modbus-connection/modelling/fields-reference/) and
+  [Component reference](/modbus-connection/modelling/components-reference/) —
+  every class, method, and field of the modelling layer.

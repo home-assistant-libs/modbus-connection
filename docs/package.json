@@ -17,5 +17,8 @@
   },
   "overrides": {
     "esbuild": "0.28.1"
+  },
+  "devDependencies": {
+    "starlight-links-validator": "^0.25.2"
   }
 }

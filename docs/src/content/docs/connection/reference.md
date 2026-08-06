@@ -327,6 +327,7 @@ fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
   concrete type.
 - The legacy factories `connect_tcp`, `connect_udp`, `connect_tls`, and
   `connect_serial` — kept for compatibility. Each builds the matching parameter
-  dataclass from keyword arguments, constructs a `ModbusConnection`, eagerly
-  `connect()`s it, and returns it. New code should construct `ModbusConnection`
-  with a shared parameter object instead.
+  dataclass from keyword arguments, also accepts the constructor's `timeout`
+  and `message_spacing`, constructs a `ModbusConnection`, eagerly `connect()`s
+  it, and returns it. New code should construct `ModbusConnection` with a
+  shared parameter object instead.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The site accent blue (see src/styles/custom.css), with a register-block
+       glyph: two units on a shared bus. -->
+  <rect width="32" height="32" rx="7" fill="#1173a8"/>
+  <path d="M7 22V10h3.2l3.3 6.4 3.3-6.4H20v12h-3v-6.6l-2.5 4.8h-2L10 15.4V22Z" fill="#fff"/>
+  <rect x="22.5" y="10" width="3" height="5" rx="1" fill="#b9dcef"/>
+  <rect x="22.5" y="17" width="3" height="5" rx="1" fill="#b9dcef"/>
+</svg>

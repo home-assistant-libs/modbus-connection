@@ -27,8 +27,13 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Busy-device response | Retried, then raised | Raised immediately |
 | Diagnostics (FC08) and comm-event codes (FC0B/FC0C) | ❌ | ✅ |
 
-tmodbus can identify a corrupt frame and raises `ModbusProtocolError`.
-pymodbus maps both a corrupt reply and a missing reply to `ModbusTimeoutError`.
+The full operation list, with each method's signature and function code, is in
+the [`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
+
+tmodbus can identify a corrupt frame and raises
+[`ModbusProtocolError`](/modbus-connection/connection/reference/#modbusprotocolerror).
+pymodbus maps both a corrupt reply and a missing reply to
+[`ModbusTimeoutError`](/modbus-connection/connection/reference/#modbustimeouterror).
 
 tmodbus retries `SERVER_DEVICE_BUSY` responses with exponential backoff for up
 to one minute. pymodbus raises the response immediately. Neither backend retries
