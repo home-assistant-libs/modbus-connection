@@ -30,8 +30,6 @@ export default defineConfig({
       title: "modbus-connection",
       description:
         "A small, backend-neutral Modbus connection abstraction and device-modelling framework for Python.",
-      // Announces the current version on every page — see the middleware.
-      routeMiddleware: "./src/routeData.ts",
       plugins: [
         // Fails the build on a broken internal link or heading anchor.
         starlightLinksValidator(),
