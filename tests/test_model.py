@@ -385,15 +385,12 @@ async def test_generic_enum_signed_codes() -> None:
 
 
 async def test_generic_enum_unknown_value_is_none() -> None:
-    from modbus_connection.model import fields
-
     class Mode(IntEnum):
         OFF = 0
 
     class Dev(Component):
         mode = enum(0, Mode)
 
-    fields._warned_unknown_value.clear()
     unit = MockModbusConnection().for_unit(1)
     unit.holding[0] = 9  # not a Mode member
     dev = Dev(unit)
@@ -405,8 +402,6 @@ async def test_convert_function(caplog: pytest.LogCaptureFixture) -> None:
     """Any callable works as ``convert``; a ValueError decodes to None, warned once."""
     import logging
 
-    from modbus_connection.model import fields
-
     def parity(raw: int) -> str:
         if raw > 2:
             raise ValueError(raw)
@@ -416,7 +411,6 @@ async def test_convert_function(caplog: pytest.LogCaptureFixture) -> None:
         first: NumberField[str] = NumberField(0, convert=parity)
         second: NumberField[str] = NumberField(1, convert=parity)
 
-    fields._warned_unknown_value.clear()
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 2, 1: 9})  # 9 is rejected by the converter
     dev = Dev(unit)
@@ -434,13 +428,10 @@ async def test_convert_mapping(caplog: pytest.LogCaptureFixture) -> None:
     """A dict works as ``convert``; a missing key decodes to None, warned once."""
     import logging
 
-    from modbus_connection.model import fields
-
     class Dev(Component):
         state: NumberField[str] = NumberField(0, convert={1: "on", 2: "off"})
         unknown: NumberField[str] = NumberField(1, convert={1: "on", 2: "off"})
 
-    fields._warned_unknown_value.clear()
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 1, 1: 9})  # 9 has no mapping
     dev = Dev(unit)
@@ -738,6 +729,21 @@ async def test_listeners_and_independent_update() -> None:
     unsubscribe()
     await a.async_update()
     assert len(calls) == 1  # no longer notified
+
+
+async def test_update_without_notifying() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 7})
+    a = Meter(unit)
+    calls: list[int] = []
+    a.add_update_listener(lambda: calls.append(1))
+
+    await a.async_update(notify=False)
+    assert a.count == 7  # the values refresh
+    assert calls == []  # but no listener fires
+
+    a.notify()  # the caller notifies itself
+    assert calls == [1]
 
 
 # -- block planning -----------------------------------------------------------

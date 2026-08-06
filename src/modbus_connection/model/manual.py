@@ -142,12 +142,15 @@ class ManualComponent(_ComponentBase):
             max_span=self._max_span,
         )
 
-    async def async_update(self) -> dict[str, Any]:
+    async def async_update(self, *, notify: bool = True) -> dict[str, Any]:
         """Read every target and return the decoded values.
+
+        Pass ``notify=False`` to skip the listeners, for a caller that
+        notifies them itself.
 
         Raises ``BlockReadError`` if the device rejects a block.
         """
-        await self._refresh(collect_raw=False)
+        await self._refresh(collect_raw=False, notify=notify)
         return dict(self._values)
 
     # -- writes --------------------------------------------------------------

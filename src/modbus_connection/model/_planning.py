@@ -205,12 +205,20 @@ class _Readable:
         """Drop the caches this object owns; subclasses add theirs via ``super()``."""
         self._plan = None
 
+    def _verify_read(self) -> None:
+        """Check the values just read, before any listener sees them.
+
+        Runs on every refresh, whether or not it notifies. Subclasses raise to
+        fail the update.
+        """
+
     async def _refresh(self, *, collect_raw: bool, notify: bool = True) -> Raw:
         """Read all targets and optionally return raw values."""
         if self._plan is None:
             self._plan = self._build_plan()
         raw = await self._plan.execute(self._unit, collect_raw=collect_raw)
         _merge_raw(raw, await self._refresh_repeating_groups(collect_raw=collect_raw))
+        self._verify_read()
         if notify:
             self.notify()
         return raw

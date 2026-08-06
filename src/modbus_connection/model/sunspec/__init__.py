@@ -576,8 +576,11 @@ class SunSpecComponent(Component):
         super().__init__(unit, base_offset=model.address)
         self._model = model
 
-    def notify(self) -> None:
-        """Verify the read-back model header, then fire the update listeners."""
+    def _verify_read(self) -> None:
+        """Verify the read-back model header against the discovered model.
+
+        Raises ``SunSpecMapShiftError`` on a mismatch.
+        """
         if (
             self.model_id != self._model.model_id
             or self.model_length != self._model.length
@@ -588,4 +591,3 @@ class SunSpecComponent(Component):
                 f" read {self.model_id}/{self.model_length}"
                 " - the register map has changed"
             )
-        super().notify()

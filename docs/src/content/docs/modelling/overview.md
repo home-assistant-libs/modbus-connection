@@ -216,6 +216,9 @@ await meter.async_update()  # prints
 unsubscribe()
 ```
 
+Pass `async_update(notify=False)` to read without firing the listeners, for a
+caller that notifies them itself.
+
 ## Raw diagnostics
 
 Alongside the decoded read, `async_read_raw()` returns the device's **raw**

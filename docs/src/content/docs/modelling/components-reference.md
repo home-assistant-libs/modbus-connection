@@ -42,10 +42,11 @@ All are overridable on a subclass (or set per instance).
 
 ### Methods
 
-#### `async_update()`
+#### `async_update(*, notify=True)`
 
 `async` — read every field with pooled block reads, decode the values, and
-notify the listeners. The read plan is built and cached on the first call.
+notify the listeners — unless `notify=False`, for a caller that notifies them
+itself. The read plan is built and cached on the first call.
 Raises [`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror)
 if the device rejects a block; the update then applies nothing.
 
@@ -172,10 +173,11 @@ The value decoded for `key` on the last update — `None` if not yet read. For a
 Property — a copy of all decoded values from the last update as
 `dict[str, Any]` (repeating-group instances not included).
 
-#### `async_update()`
+#### `async_update(*, notify=True)`
 
 `async` — read every target with pooled reads and return the decoded values as
-a `dict`. Raises
+a `dict`; `notify=False` skips the listeners, for a caller that notifies them
+itself. Raises
 [`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror) if
 the device rejects a block.
 
@@ -260,10 +262,9 @@ SunSpecComponent(unit, model)
 ```
 
 `model` is the [`SunSpecModel`](#sunspecmodel) from a scan; it becomes the
-component's `base_offset`. `notify()` verifies the read-back header against the
-discovered model after every update and raises
-[`SunSpecMapShiftError`](#sunspecmapshifterror) on a mismatch before any
-listener fires.
+component's `base_offset`. Every read verifies the read-back header against
+the discovered model and raises
+[`SunSpecMapShiftError`](#sunspecmapshifterror) on a mismatch.
 
 ### Exceptions
 

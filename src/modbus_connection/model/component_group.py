@@ -66,6 +66,11 @@ class ComponentGroup(_Readable):
         for component in self._components:
             component.notify()
 
+    def _verify_read(self) -> None:
+        """Run each member's post-read check before any member notifies."""
+        for component in self._components:
+            component._verify_read()
+
     async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
         # the pooled first pass read each member's count registers; now drive
         # each member's own second pass so their register-count groups refresh
