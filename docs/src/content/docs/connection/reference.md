@@ -16,13 +16,13 @@ and API, so selecting a backend changes only the import. The abstract class is
 what you type against and `isinstance`-check.
 
 ```python
-ModbusConnection(params, *, timeout=3, message_spacing=0.0)
+ModbusConnection(params, *, timeout=10, message_spacing=0.0)
 ```
 
 | Parameter | Type | Meaning |
 | --- | --- | --- |
 | `params` | `ModbusTcpParams \| ModbusUdpParams \| ModbusTlsParams \| ModbusSerialParams` | The transport to connect over — see [the parameter dataclasses](#parameter-dataclasses). |
-| `timeout` | `float`, default `3` | Per-request timeout in seconds. |
+| `timeout` | `float`, default `10` | Per-request timeout in seconds. |
 | `message_spacing` | `float`, default `0.0` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
 
 Constructing a connection performs no I/O; the first unit operation connects on

@@ -36,8 +36,10 @@ pymodbus maps both a corrupt reply and a missing reply to
 [`ModbusTimeoutError`](/modbus-connection/connection/reference/#modbustimeouterror).
 
 tmodbus retries `SERVER_DEVICE_BUSY` responses with exponential backoff for up
-to one minute. pymodbus raises the response immediately. Neither backend retries
-timeouts, dropped links, or other exception responses.
+to one minute — a retransmission native to tmodbus, which this library only
+bounds and configures; there is no equivalent layer over pymodbus, so pymodbus
+raises the busy response immediately. Neither backend retries timeouts, dropped
+links, or other exception responses.
 
 Constructing a connection with unsupported parameters raises `ValueError`. A
 `ModbusUnit` operation that the selected backend does not implement raises

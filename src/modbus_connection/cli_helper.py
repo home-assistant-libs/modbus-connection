@@ -150,8 +150,8 @@ def add_connection_args(
     group.add_argument(
         "--timeout",
         type=float,
-        default=3.0,
-        help="per-request timeout in seconds (default: 3)",
+        default=10.0,
+        help="per-request timeout in seconds (default: 10)",
     )
 
     if serial_ok:
