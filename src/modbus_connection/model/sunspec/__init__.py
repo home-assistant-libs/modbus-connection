@@ -16,7 +16,7 @@ from ..fields import (
     WriteValidator,
 )
 from .errors import SunSpecError, SunSpecMapShiftError
-from .scan import SunSpecModel, scan
+from .scan import SunSpecModel, SunSpecModels, scan
 
 if TYPE_CHECKING:
     from ..._protocol import ModbusUnit
@@ -26,12 +26,14 @@ __all__ = [
     "SunSpecError",
     "SunSpecMapShiftError",
     "SunSpecModel",
+    "SunSpecModels",
     "acc16",
     "acc32",
     "acc64",
     "bitfield16",
     "bitfield32",
     "bitfield64",
+    "boolean",
     "scan",
     "enum16",
     "enum32",
@@ -318,6 +320,29 @@ def acc64(
 def sunssf(address: int, *, stride: int = 0) -> NumberField[int]:
     """A scale-factor point: a signed int16 power-of-ten exponent."""
     return NumberField(address, count=1, signed=True, nan=_INT16_NAN, stride=stride)
+
+
+# A 0/1 enable-flag point's codes: anything else decodes to None (warned once),
+# as out-of-spec codes should read as unknown rather than truthy.
+_BOOLEAN_CODES = {0: False, 1: True}
+
+
+def boolean(
+    address: int,
+    *,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+) -> NumberField[bool]:
+    """A 16-bit 0/1 enable-flag point decoding to ``bool`` (unimplemented 0xFFFF)."""
+    return NumberField(
+        address,
+        count=1,
+        signed=False,
+        nan=_UINT16_NAN,
+        convert=_BOOLEAN_CODES,
+        stride=stride,
+        writable=writable,
+    )
 
 
 @overload

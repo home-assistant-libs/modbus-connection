@@ -89,6 +89,22 @@ written.
 Reference it from a scaled point with `scale_register=`, and optionally declare
 it as its own field.
 
+## Boolean points
+
+SunSpec models are full of 0/1 enable flags. `boolean` decodes one to a
+`bool`: 0 is `False`, 1 is `True`, the unimplemented `0xFFFF` is `None`, and
+any other code decodes to `None` too (warned once), since an out-of-spec code
+should read as unknown rather than truthy. Pass `writable=True` (or a write
+validator) for a controllable flag; writing encodes `True`/`False` as 1/0.
+
+```python
+from modbus_connection.model.sunspec import boolean
+
+
+class Storage(Component):
+    backup_enabled = boolean(10, writable=True)
+```
+
 ## Enumerations and bitfields
 
 Pass an `IntEnum` / `IntFlag` to decode to members; omit it for the raw integer.

@@ -190,6 +190,8 @@ per distinct value. For a mapping an enum class can't express (e.g. onto a
 ```python
 from enum import StrEnum
 
+from modbus_connection.model import Component, NumberField
+
 
 class State(StrEnum):
     OFF = "off"

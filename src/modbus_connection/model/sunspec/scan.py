@@ -26,7 +26,24 @@ class SunSpecModel:
     length: int
 
 
-async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecModel]]:
+class SunSpecModels(dict[int, list[SunSpecModel]]):
+    """The discovered models by ID — a plain dict with lookup helpers."""
+
+    def first(self, *model_ids: int) -> SunSpecModel | None:
+        """Return the first discovered model among ``model_ids``.
+
+        The IDs are tried in the order given, so earlier IDs take priority
+        (e.g. preferred model variants before their fallbacks). For an ID
+        discovered more than once, the first location in chain order is
+        returned. Returns ``None`` when no ID matches.
+        """
+        for model_id in model_ids:
+            if found := self.get(model_id):
+                return found[0]
+        return None
+
+
+async def scan(unit: ModbusUnit, base_address: int) -> SunSpecModels:
     """Return the discovered SunSpec models by ID.
 
     Raises ``SunSpecError`` if the marker is absent or the chain is invalid.
@@ -35,7 +52,7 @@ async def scan(unit: ModbusUnit, base_address: int) -> dict[int, list[SunSpecMod
     if decode_uint32(marker) != _SUNSPEC_MARKER:
         raise SunSpecError(f"No SunSpec marker found at register {base_address}")
 
-    models: dict[int, list[SunSpecModel]] = {}
+    models = SunSpecModels()
     address = base_address + 2
     for _ in range(_MAX_MODELS):
         model_id, length = await unit.read_holding_registers(address, 2)

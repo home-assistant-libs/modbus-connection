@@ -222,10 +222,21 @@ for the point helpers.
 ### `scan(unit, base_address)`
 
 `async` — walk the SunSpec model chain starting at the `"SunS"` marker at
-`base_address` and return the discovered models as
-`dict[int, list[SunSpecModel]]`, keyed by model ID (an ID can occur more than
-once). Raises [`SunSpecError`](#sunspecerror) if the marker is absent or the
-chain does not terminate within 100 models.
+`base_address` and return the discovered models as a
+[`SunSpecModels`](#sunspecmodels), keyed by model ID (an ID can occur more
+than once). Raises [`SunSpecError`](#sunspecerror) if the marker is absent or
+the chain does not terminate within 100 models.
+
+### `SunSpecModels`
+
+The scan result: a `dict[int, list[SunSpecModel]]` subclass, usable as a
+plain dict, with a lookup helper on top.
+
+- **`first(*model_ids)`** — the first discovered [`SunSpecModel`](#sunspecmodel)
+  among `model_ids`. The IDs are tried in the order given, so earlier IDs take
+  priority (preferred model variants before their fallbacks); for an ID
+  discovered more than once, the first location in chain order is returned.
+  `None` when no ID matches.
 
 ### `SunSpecModel`
 

@@ -328,7 +328,11 @@ class RepeatingGroupField[C: Component]:
     name: str = ""  # set by __set_name__ when used as a class descriptor
 
     def __init__(
-        self, count: RegisterField[int] | int, component_class: type[C], *, stride: int
+        self,
+        count: RegisterField[int] | RegisterField[float] | int,
+        component_class: type[C],
+        *,
+        stride: int,
     ) -> None:
         self.count = count
         self.component_class = component_class
@@ -352,12 +356,16 @@ class RepeatingGroupField[C: Component]:
 
 
 def repeating_group[C: Component](
-    count: RegisterField[int] | int,
+    count: RegisterField[int] | RegisterField[float] | int,
     component_class: type[C],
     *,
     stride: int,
 ) -> RepeatingGroupField[C]:
     """Create a repeated subcomponent field.
+
+    A float-typed count field (e.g. a SunSpec ``uint16`` ``N`` point) is
+    accepted: the decoded count is truncated to an ``int``, and an
+    unimplemented (``None``) count yields no instances.
 
     Raises ``ValueError`` for a non-positive stride or negative fixed count.
     """

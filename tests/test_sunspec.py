@@ -167,6 +167,7 @@ def test_all_factories_build_fields() -> None:
         "SunSpecError",
         "SunSpecMapShiftError",
         "SunSpecModel",
+        "SunSpecModels",
         "scan",
     }
     for name in set(ss.__all__) - discovery:
@@ -227,6 +228,49 @@ async def test_unknown_bitfield_bits_are_kept() -> None:
     assert int(dev.events) == 0xFFF0
 
 
+# -- boolean points -------------------------------------------------------------
+
+
+class Switch(Component):
+    enabled = ss.boolean(0, writable=True)
+    backup = ss.boolean(1)
+
+
+async def test_boolean_decodes_codes() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 1: 0})
+    dev = Switch(unit)
+    await dev.async_update()
+    assert dev.enabled is True
+    assert dev.backup is False
+
+
+async def test_boolean_unimplemented_is_none() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xFFFF, 1: 1})
+    dev = Switch(unit)
+    await dev.async_update()
+    assert dev.enabled is None
+    assert dev.backup is True
+
+
+async def test_boolean_out_of_spec_code_is_none() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 2, 1: 1})  # 2 is neither 0 nor 1
+    dev = Switch(unit)
+    await dev.async_update()
+    assert dev.enabled is None
+
+
+async def test_boolean_write() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    dev = Switch(unit)
+    await dev.write("enabled", True)
+    assert (await unit.read_holding_registers(0, 1))[0] == 1
+    await dev.write("enabled", False)
+    assert (await unit.read_holding_registers(0, 1))[0] == 0
+
+
 # -- model discovery -----------------------------------------------------------
 
 
@@ -283,6 +327,30 @@ async def test_scan_repeated_model_id() -> None:
             ss.SunSpecModel(model_id=203, address=5, length=1),
         ]
     }
+
+
+async def test_scan_result_first_prefers_argument_order() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    models = await ss.scan(unit, 1000)
+    assert isinstance(models, dict)  # still usable as a plain dict
+    # 111 is absent; 103 is tried before the also-present 1
+    assert models.first(111, 103, 1) == ss.SunSpecModel(
+        model_id=103, address=1008, length=2
+    )
+    assert models.first(111, 112) is None
+
+
+async def test_scan_result_first_takes_chain_order_within_an_id() -> None:
+    models = ss.SunSpecModels(
+        {
+            203: [
+                ss.SunSpecModel(model_id=203, address=2, length=1),
+                ss.SunSpecModel(model_id=203, address=5, length=1),
+            ]
+        }
+    )
+    assert models.first(203) == ss.SunSpecModel(model_id=203, address=2, length=1)
 
 
 async def test_scan_no_marker() -> None:

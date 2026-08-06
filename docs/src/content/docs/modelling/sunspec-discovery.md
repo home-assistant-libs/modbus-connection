@@ -12,12 +12,22 @@ terminates the chain.
 ```python
 from modbus_connection.model.sunspec import scan
 
-models = await scan(unit, 40000)  # dict[int, list[SunSpecModel]]
+models = await scan(unit, 40000)  # SunSpecModels: dict[int, list[SunSpecModel]]
 ```
 
 `base_address` is the zero-based marker address. SunSpec defines 0, 40000, and
 50000 as possible locations. Each `SunSpecModel` contains the model ID, header
 address, and data length. A model ID can occur more than once.
+
+The result is a `SunSpecModels` — a plain `dict` keyed by model ID, with a
+lookup helper on top. `first(*model_ids)` returns the first discovered model
+among the given IDs, tried in the order given, so preferred model variants
+come before their fallbacks; it returns `None` when no ID matches:
+
+```python
+# a float-model inverter if present, else the int+SF variant
+model = models.first(111, 112, 113, 101, 102, 103)
+```
 
 ## Components at discovered models
 
