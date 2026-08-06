@@ -235,6 +235,8 @@ class _ScaledField[T](RegisterField[T]):
 class NumberField[T](_ScaledField[T]):
     """Decode a scaled or mapped integer field."""
 
+    _warned_unknown: set[int] | None = None
+
     def __init__(
         self,
         address: int,
@@ -255,7 +257,6 @@ class NumberField[T](_ScaledField[T]):
         # class, a plain function, or a dict); None returns the raw int.
         self.convert = convert
         self.word_order = word_order
-        self._warned_unknown: set[int] = set()
 
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         raw = combine_words(words, word_order=self.word_order)
@@ -282,6 +283,8 @@ class NumberField[T](_ScaledField[T]):
                 return convert(raw)  # IntFlag keeps unknown bits; IntEnum may raise
             except ValueError:
                 pass
+        if self._warned_unknown is None:
+            self._warned_unknown = set()
         if raw not in self._warned_unknown:
             self._warned_unknown.add(raw)
             _LOGGER.warning(
