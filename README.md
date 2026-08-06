@@ -13,10 +13,7 @@ neither.
 One physical Modbus link addresses many units (1–247). Sharing a single,
 internally-serialized connection across many consumers is strictly better than
 each opening a competing socket. This package is the connection abstraction that
-makes that sharing possible while keeping the backend swappable. Each parameter
-object exposes an `endpoint` key identifying the physical target (host and
-port, or serial device path) so callers can group connections per device and
-detect conflicting configurations for the same link.
+makes that sharing possible while keeping the backend swappable.
 
 ## Install
 
