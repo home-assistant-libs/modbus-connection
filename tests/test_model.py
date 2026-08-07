@@ -16,6 +16,7 @@ from modbus_connection.model import (
     Component,
     ComponentGroup,
     ManualComponent,
+    boolean,
     coil,
     discrete_input,
     enum,
@@ -478,6 +479,41 @@ async def test_enum_type_is_an_alias_for_convert() -> None:
 
     with pytest.raises(ValueError, match="either convert or enum_type"):
         NumberField(0, convert=Mode, enum_type=Mode)
+
+
+class _Relay(Component):
+    """On/off state held in holding registers, as devices without coils do."""
+
+    output = boolean(0, writable=True)
+    alarm = boolean(1)
+    fan = boolean(2, nan=0xFFFF)
+
+
+async def test_boolean_decodes_codes_and_rejects_out_of_spec() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 1: 0, 2: 7})  # 7 is neither 0 nor 1
+    dev = _Relay(unit)
+    await dev.async_update()
+    assert dev.output is True
+    assert dev.alarm is False
+    assert dev.fan is None
+
+
+async def test_boolean_nan_sentinel() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 1, 1: 1, 2: 0xFFFF})
+    dev = _Relay(unit)
+    await dev.async_update()
+    assert dev.fan is None
+
+
+async def test_boolean_write_round_trips() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    dev = _Relay(unit)
+    await dev.write("output", True)
+    assert (await unit.read_holding_registers(0, 1))[0] == 1
+    await dev.write("output", False)
+    assert (await unit.read_holding_registers(0, 1))[0] == 0
 
 
 # -- writes -------------------------------------------------------------------

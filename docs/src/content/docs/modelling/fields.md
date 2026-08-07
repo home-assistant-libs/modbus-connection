@@ -208,6 +208,22 @@ A callable converter signals an unknown value only by raising `ValueError`;
 any other exception (including `KeyError`) is a bug and propagates, failing
 the read.
 
+## Boolean register fields
+
+Many devices report on/off state as a 0/1 **register** rather than a coil.
+`boolean` decodes such a register to `bool | None` — any value other than 0 or 1
+decodes to `None` (warned once), so an out-of-spec code reads as unknown rather
+than truthy:
+
+```python
+class Relay(Component):
+    output = boolean(0, writable=True)  # holding register: 0 = off, 1 = on
+```
+
+Pass `nan=` for a device with a "no value" sentinel, which decodes to `None`
+without a warning. For an actual coil or discrete input, use the bit fields
+below — `boolean` reads the component's register space.
+
 ## Bit fields
 
 Single-bit fields decode to `bool | None`. Each carries its own space, so a
