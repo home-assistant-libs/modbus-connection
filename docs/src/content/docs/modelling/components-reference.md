@@ -38,7 +38,7 @@ All are overridable on a subclass (or set per instance).
 | `max_gap` | `int` | `16` | Gap-based planning only: spans within this many addresses merge into one read. |
 | `max_span` | `int` | `125` | The widest a single block read may be (125 is the Modbus per-request ceiling). |
 | `scale_in_block` | `bool` | `False` | On a repeating sub-unit: shift `scale_register` addresses with each instance instead of keeping them in the parent's fixed block. |
-| `declared_fields` | `Mapping[str, RegisterField \| bit field]` | — | Read-only mapping of attribute name to declared field object, in declaration order; available on the class and its instances, and never narrowed by `restrict_fields`. |
+| `declared_fields` | `Mapping[str, RegisterField \| BitField]` | — | Read-only mapping of attribute name to declared field object, in declaration order; available on the class and its instances, and never narrowed by `restrict_fields`. `isinstance(field, BitField)` tells a bit apart from a register. |
 
 ### Methods
 

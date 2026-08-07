@@ -13,6 +13,7 @@ from modbus_connection.decode import decode_float32
 from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
+    BitField,
     Component,
     ComponentGroup,
     ManualComponent,
@@ -1754,6 +1755,22 @@ def test_declared_fields_names_every_field_in_declaration_order() -> None:
     assert list(_Mixed.declared_fields) == ["voltage", "relay", "energy", "fault"]
     assert isinstance(_Mixed.declared_fields["relay"], CoilField)
     assert isinstance(_Mixed.declared_fields["fault"], DiscreteInputField)
+
+
+def test_declared_fields_split_registers_from_bits_via_bitfield() -> None:
+    """BitField is public so declared_fields values can be told apart."""
+    kinds = {
+        name: "bit" if isinstance(field, BitField) else "register"
+        for name, field in _Mixed.declared_fields.items()
+    }
+    assert kinds == {
+        "voltage": "register",
+        "relay": "bit",
+        "energy": "register",
+        "fault": "bit",
+    }
+    assert _Mixed.declared_fields["relay"].space == "coil"
+    assert _Mixed.declared_fields["fault"].space == "discrete"
 
 
 def test_declared_fields_is_reachable_from_the_class_and_an_instance() -> None:
