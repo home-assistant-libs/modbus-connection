@@ -3,17 +3,28 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish (e.g. 4.0.1)
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: astral-sh/setup-uv@v7
       - name: Set package version from release tag
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: sed -i "s/^version = \"0\\.0\\.0\"$/version = \"${RELEASE_TAG}\"/" pyproject.toml
+      - name: Verify the version was substituted
+        run: grep -qx "version = \"${RELEASE_TAG}\"" pyproject.toml
       - run: uv build
       - uses: actions/upload-artifact@v7
         with:
