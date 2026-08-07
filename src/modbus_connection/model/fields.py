@@ -36,6 +36,7 @@ __all__ = [
     "RegisterField",
     "StringField",
     "WriteValidator",
+    "boolean",
     "coil",
     "discrete_input",
     "enum",
@@ -742,6 +743,36 @@ def flags[F: IntFlag](
         convert=flag_type,
         word_order=word_order,
         nan=nan,
+        stride=stride,
+        writable=writable,
+        force_fc16=force_fc16,
+    )
+
+
+# A 0/1 register's codes: anything else decodes to None (warned once), as an
+# out-of-spec code should read as unknown rather than truthy.
+_BOOLEAN_CODES = {0: False, 1: True}
+
+
+def boolean(
+    address: int,
+    *,
+    nan: int | Iterable[int] | None = None,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    force_fc16: bool = False,
+) -> NumberField[bool]:
+    """A 16-bit 0/1 register decoding to ``bool``.
+
+    For a device that reports on/off state in a holding or input register
+    rather than a coil.
+    """
+    return NumberField(
+        address,
+        count=1,
+        signed=False,
+        nan=nan,
+        convert=_BOOLEAN_CODES,
         stride=stride,
         writable=writable,
         force_fc16=force_fc16,

@@ -15,6 +15,7 @@ from ..fields import (
     StringField,
     WriteValidator,
 )
+from ..fields import boolean as _boolean
 from .errors import SunSpecError, SunSpecMapShiftError
 from .scan import SunSpecModel, SunSpecModels, scan
 
@@ -322,11 +323,6 @@ def sunssf(address: int, *, stride: int = 0) -> NumberField[int]:
     return NumberField(address, count=1, signed=True, nan=_INT16_NAN, stride=stride)
 
 
-# A 0/1 enable-flag point's codes: anything else decodes to None (warned once),
-# as out-of-spec codes should read as unknown rather than truthy.
-_BOOLEAN_CODES = {0: False, 1: True}
-
-
 def boolean(
     address: int,
     *,
@@ -334,15 +330,7 @@ def boolean(
     writable: bool | WriteValidator = False,
 ) -> NumberField[bool]:
     """A 16-bit 0/1 enable-flag point decoding to ``bool`` (unimplemented 0xFFFF)."""
-    return NumberField(
-        address,
-        count=1,
-        signed=False,
-        nan=_UINT16_NAN,
-        convert=_BOOLEAN_CODES,
-        stride=stride,
-        writable=writable,
-    )
+    return _boolean(address, nan=_UINT16_NAN, stride=stride, writable=writable)
 
 
 @overload

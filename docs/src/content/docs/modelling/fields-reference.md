@@ -27,6 +27,7 @@ returns the decoded value or `None`. See
 | `string(address, length, *, stride=0, writable=False, force_fc16=False)` | `StringField` | `length` | Null-padded ASCII, two characters per register. |
 | `enum(address, enum_type, *, count=1, signed=False, nan=None, …)` | `NumberField[E]` | `count` | Maps to an `IntEnum`; unknown codes decode to `None`. |
 | `flags(address, flag_type, *, count=1, signed=False, nan=None, …)` | `NumberField[F]` | `count` | Maps to an `IntFlag`; unknown bits are kept. |
+| `boolean(address, *, nan=None, stride=0, writable=False, force_fc16=False)` | `NumberField[bool]` | 1 | A 0/1 register; other values decode to `None`. |
 | `coil(address, *, writable=False, stride=0)` | `CoilField` | 1 bit | A coil (FC01). |
 | `discrete_input(address, *, stride=0)` | `DiscreteInputField` | 1 bit | A discrete input (FC02, read-only). |
 
