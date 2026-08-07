@@ -11,7 +11,7 @@ import argparse
 import inspect
 import io
 import sys
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 from typing import Any
 
 import pytest
@@ -22,6 +22,7 @@ from modbus_connection import ModbusConnectionError, ModbusError
 from modbus_connection._protocol import ModbusUnit
 from modbus_connection.cli_helper import (
     CountingUnit,
+    ReadBlock,
     _load_backend,
     add_connection_args,
     connect_from_args,
@@ -29,7 +30,7 @@ from modbus_connection.cli_helper import (
     print_component,
 )
 from modbus_connection.mock import MockModbusConnection
-from modbus_connection.model import Component, coil, enum, gauge, integer
+from modbus_connection.model import Component, coil, enum, flags, gauge, integer
 
 
 def _parse(argv: list[str]) -> argparse.Namespace:
@@ -340,15 +341,42 @@ async def test_counting_unit_counts_reads_and_delegates() -> None:
     assert counting.reads == 2
 
 
+async def test_counting_unit_records_each_block_span() -> None:
+    """``blocks`` names the space, start and width of every read issued."""
+    unit = MockModbusConnection().for_unit(1)
+    counting = CountingUnit(unit)
+
+    await counting.read_holding_registers(10, 4)
+    await counting.read_input_registers(20, 2)
+    await counting.read_coils(0, 8)
+    await counting.read_discrete_inputs(5, 3)
+
+    assert counting.blocks == [
+        ReadBlock("holding", 10, 4),
+        ReadBlock("input", 20, 2),
+        ReadBlock("coil", 0, 8),
+        ReadBlock("discrete", 5, 3),
+    ]
+    # reads stays what it always was — a summary of the blocks recorded.
+    assert counting.reads == len(counting.blocks) == 4
+
+
 class _State(IntEnum):
     IDLE = 0
     RUNNING = 1
+
+
+class _Alarm(IntFlag):
+    OVER_TEMPERATURE = 0x01
+    LOW_FLOW = 0x02
+    SENSOR_FAULT = 0x04
 
 
 class _Meter(Component):
     temperature = gauge(0, 0.1, unit="°C")
     count = integer(1, signed=False)
     state = enum(2, _State)
+    alarm = flags(3, _Alarm)
     relay = coil(0)
 
     @property
@@ -367,15 +395,16 @@ async def test_counting_unit_tallies_a_component_update() -> None:
 
     # Contiguous holding registers pool into one read; coils are a second space.
     assert counting.reads == 2
+    assert counting.blocks == [ReadBlock("holding", 0, 4), ReadBlock("coil", 0, 1)]
     assert meter.temperature == pytest.approx(23.5)
 
 
 # -- field reflection ---------------------------------------------------------
 
 
-def _read_meter() -> _Meter:
+def _read_meter(alarm: int = 0x05) -> _Meter:
     unit = MockModbusConnection().for_unit(1)
-    unit.holding.update({0: 235, 1: 7, 2: 1})
+    unit.holding.update({0: 235, 1: 7, 2: 1, 3: alarm})
     unit.coils.update({0: True})
     return _Meter(unit)
 
@@ -395,9 +424,31 @@ async def test_field_rows_reflects_fields_units_and_properties() -> None:
     assert "async_update" not in rows
 
 
-def test_field_rows_unread_renders_placeholder() -> None:
+async def test_field_rows_renders_a_flag_by_its_set_bits() -> None:
+    """An IntFlag names its set bits; ``int.__str__`` would print a number."""
+    meter = _read_meter()
+    await meter.async_update()
+
+    assert str(meter.alarm) == "5"  # what the generic path would have printed
+    assert dict(field_rows(meter))["alarm"] == "over_temperature|sensor_fault"
+
+
+async def test_field_rows_renders_an_empty_flag_as_none() -> None:
+    meter = _read_meter(alarm=0)
+    await meter.async_update()
+    assert dict(field_rows(meter))["alarm"] == "none"
+
+
+async def test_field_rows_reports_flag_bits_the_type_does_not_name() -> None:
+    """IntFlag keeps unnamed bits; a fault word must not hide one."""
+    meter = _read_meter(alarm=0x02 | 0x80)
+    await meter.async_update()
+    assert dict(field_rows(meter))["alarm"] == "low_flow|0x80"
+
+
+def test_field_rows_unread_renders_placeholder_without_a_unit() -> None:
     rows = dict(field_rows(_read_meter()))  # never updated
-    assert rows["temperature"] == "— °C"  # placeholder still carries the unit
+    assert rows["temperature"] == "—"  # nothing was measured, so no unit
     assert rows["label"] == "—"  # property over an unread field
 
 

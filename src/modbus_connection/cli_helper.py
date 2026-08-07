@@ -7,13 +7,14 @@ import importlib
 import inspect
 import sys
 from collections.abc import Callable, Iterable
-from enum import IntEnum
+from dataclasses import dataclass
+from enum import Flag, IntEnum
 from typing import TYPE_CHECKING
 
 from ._client import BaseModbusConnection
 from ._protocol import ModbusUnit
 from .exceptions import ModbusError
-from .model import CoilField, Component, DiscreteInputField, RegisterField
+from .model import CoilField, Component, DiscreteInputField, RegisterField, Space
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CountingUnit",
+    "ReadBlock",
     "add_connection_args",
     "connect_from_args",
     "field_rows",
@@ -242,33 +244,56 @@ async def connect_from_args(
 # -- read counting -----------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ReadBlock:
+    """Describe one block read a ``CountingUnit`` observed.
+
+    The read-side counterpart of ``modbus_connection.mock.WriteEvent``.
+    """
+
+    space: Space
+    """The address space the block was read from."""
+
+    address: int
+    """Start address of the block."""
+
+    count: int
+    """Number of registers or bits the block covers."""
+
+
 class CountingUnit:
-    """Count block reads made through a ``ModbusUnit``."""
+    """Record the block reads made through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
-        self.reads = 0
+        self.blocks: list[ReadBlock] = []
+        """Every block read so far, in the order it was issued."""
+
+    @property
+    def reads(self) -> int:
+        """How many block reads were issued — ``len(blocks)``."""
+        return len(self.blocks)
 
     @property
     def connected(self) -> bool:
         return self._unit.connected
 
-    # -- counted block reads --------------------------------------------------
+    # -- recorded block reads -------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        self.reads += 1
+        self.blocks.append(ReadBlock("holding", address, count))
         return await self._unit.read_holding_registers(address, count)
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        self.reads += 1
+        self.blocks.append(ReadBlock("input", address, count))
         return await self._unit.read_input_registers(address, count)
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        self.reads += 1
+        self.blocks.append(ReadBlock("coil", address, count))
         return await self._unit.read_coils(address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        self.reads += 1
+        self.blocks.append(ReadBlock("discrete", address, count))
         return await self._unit.read_discrete_inputs(address, count)
 
     # -- delegated pass-through -----------------------------------------------
@@ -340,10 +365,34 @@ class CountingUnit:
 # -- field reflection --------------------------------------------------------
 
 
+def _format_flag(value: Flag) -> str:
+    """Render a flag value as the lowercased names of the bits it has set.
+
+    A ``flags()`` field decodes to an ``IntFlag``, which is a ``ReprEnum`` — its
+    ``__str__`` is ``int``'s — and is not an ``IntEnum``, so the generic path
+    would print a status or fault word as a bare number. An ``IntFlag`` also
+    keeps bits its type does not name; those are reported as a hex remainder
+    rather than silently dropped, since a fault word is the last place to hide a
+    set bit. An empty flag renders as ``none``.
+    """
+    names: list[str] = []
+    named_bits = 0
+    for member in type(value):
+        if member.name and member in value:
+            names.append(member.name.lower())
+            if isinstance(member, int):
+                named_bits |= int(member)
+    if isinstance(value, int) and (unnamed := int(value) & ~named_bits):
+        names.append(f"0x{unnamed:x}")
+    return "|".join(names) if names else "none"
+
+
 def _format_value(value: object) -> str:
     """Render a decoded field value for display."""
     if value is None:
         return "—"
+    if isinstance(value, Flag):
+        return _format_flag(value)
     if isinstance(value, IntEnum):
         return value.name.lower()
     return str(value)
@@ -361,9 +410,14 @@ def field_rows(component: Component) -> list[tuple[str, str]]:
             descriptor, (RegisterField, CoilField, DiscreteInputField, property)
         ):
             continue
-        value = _format_value(getattr(component, name))
+        decoded = getattr(component, name)
+        value = _format_value(decoded)
         unit = descriptor.unit if isinstance(descriptor, RegisterField) else None
-        rows.append((name, f"{value} {unit}" if unit else value))
+        # A field with no value carries no unit: "— °C" reads as a measurement
+        # that came back empty, when nothing was measured at all.
+        rows.append(
+            (name, f"{value} {unit}" if unit and decoded is not None else value)
+        )
     return rows
 
 
