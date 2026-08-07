@@ -158,8 +158,7 @@ print(counting.reads)  # e.g. 6
 `print_component` walks a component's public attributes by reflection and prints
 each modelled field — register/coil/discrete fields and computed `@property`
 values — under a heading, values aligned, with each field's `unit` appended. A new
-field shows up with no change to the script. Read the component first; a field
-with no value renders as a bare `—`, without its unit:
+field shows up with no change to the script:
 
 ```python
 print_component(device.sensors, title="Sensors")

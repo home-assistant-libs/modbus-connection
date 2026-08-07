@@ -141,11 +141,6 @@ class MockModbusUnit:
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
         self.read_events: list[ReadEvent] = []
-        """Every block read issued to this unit, in order.
-
-        Reads are recorded as they are dispatched, so one the device then
-        rejects (see ``fail_read``) still appears — the request went out.
-        """
 
     @property
     def connected(self) -> bool:
