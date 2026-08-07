@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING
 from ._client import BaseModbusConnection
 from ._protocol import ModbusUnit
 from .exceptions import ModbusError
-from .model import CoilField, Component, DiscreteInputField, RegisterField
+from .model import (
+    CoilField,
+    Component,
+    DiscreteInputField,
+    RegisterField,
+    RepeatingGroupField,
+)
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -24,6 +30,7 @@ __all__ = [
     "add_connection_args",
     "connect_from_args",
     "field_rows",
+    "group_rows",
     "print_component",
 ]
 
@@ -396,18 +403,50 @@ def field_rows(component: Component) -> list[tuple[str, str]]:
     return rows
 
 
+def group_rows(component: Component) -> list[tuple[str, list[Component]]]:
+    """Return each ``repeating_group`` on ``component`` with its instances.
+
+    An unread register-counted group has no instances yet and yields an empty
+    list, which is the honest answer rather than an omission.
+    """
+    cls = type(component)
+    groups: list[tuple[str, list[Component]]] = []
+    for name in dir(component):
+        if name.startswith("_"):
+            continue
+        if isinstance(inspect.getattr_static(cls, name, None), RepeatingGroupField):
+            groups.append((name, list(getattr(component, name))))
+    return groups
+
+
 def print_component(
     component: Component,
     *,
     title: str | None = None,
     file: TextIO | None = None,
+    indent: str = "",
 ) -> None:
-    """Print every field on ``component`` under a heading."""
+    """Print every field on ``component`` under a heading.
+
+    Each ``repeating_group``'s instances follow as indented sub-blocks, so a
+    device modelled as repeated sub-units dumps in full rather than showing
+    only the fields that happen to sit on the parent. ``indent`` prefixes every
+    line, for embedding the output in a wider report.
+    """
     rows = field_rows(component)
     out = file if file is not None else sys.stdout
     heading = title if title is not None else type(component).__name__
-    print(heading, file=out)
-    print("-" * len(heading), file=out)
+    print(f"{indent}{heading}", file=out)
+    print(f"{indent}{'-' * len(heading)}", file=out)
     width = max((len(name) for name, _ in rows), default=0)
     for name, value in rows:
-        print(f"  {name.ljust(width)}  {value}", file=out)
+        print(f"{indent}  {name.ljust(width)}  {value}", file=out)
+    for name, instances in group_rows(component):
+        for index, instance in enumerate(instances, start=1):
+            print(file=out)
+            print_component(
+                instance,
+                title=f"{name}[{index}]",
+                file=out,
+                indent=f"{indent}  ",
+            )
