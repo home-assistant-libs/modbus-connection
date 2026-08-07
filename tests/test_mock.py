@@ -285,6 +285,69 @@ async def test_fail_read_triggers_on_any_covered_address(
     assert await mock_modbus_unit.read_holding_registers(50, 3) == [0, 0, 0]
 
 
+# -- an unreachable device ----------------------------------------------------
+
+
+async def test_fail_requests_covers_every_read_and_write(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """A device that is not answering has no readable address at all."""
+    mock_modbus_unit.holding.update({0: 7, 500: 9})
+    mock_modbus_unit.input[0] = 7
+    mock_modbus_unit.coils[0] = True
+    mock_modbus_unit.fail_requests(ModbusConnectionError("device is offline"))
+
+    for read in (
+        mock_modbus_unit.read_holding_registers(0, 1),
+        mock_modbus_unit.read_holding_registers(500, 1),
+        mock_modbus_unit.read_input_registers(0, 1),
+        mock_modbus_unit.read_coils(0, 1),
+        mock_modbus_unit.read_discrete_inputs(0, 1),
+    ):
+        with pytest.raises(ModbusConnectionError, match="offline"):
+            await read
+
+    with pytest.raises(ModbusConnectionError):
+        await mock_modbus_unit.write_register(0, 1)
+    with pytest.raises(ModbusConnectionError):
+        await mock_modbus_unit.write_coil(0, True)
+
+
+async def test_fail_requests_cleared_with_none(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    mock_modbus_unit.holding[0] = 7
+    mock_modbus_unit.fail_requests(ModbusConnectionError("device is offline"))
+    mock_modbus_unit.fail_requests(None)
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [7]
+
+
+async def test_fail_requests_still_records_the_attempt(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """The request went out, so it is logged — as with a per-address failure."""
+    mock_modbus_unit.fail_requests(ModbusConnectionError("device is offline"))
+
+    with pytest.raises(ModbusConnectionError):
+        await mock_modbus_unit.read_holding_registers(4, 3)
+
+    assert mock_modbus_unit.read_events == [ReadEvent("holding", 4, 3)]
+
+
+async def test_fail_requests_is_per_unit(
+    mock_modbus_connection: MockModbusConnection,
+) -> None:
+    """One silent device on a shared gateway does not silence its neighbours."""
+    offline = mock_modbus_connection.for_unit(1)
+    other = mock_modbus_connection.for_unit(2)
+    other.holding[0] = 7
+    offline.fail_requests(ModbusConnectionError("device is offline"))
+
+    with pytest.raises(ModbusConnectionError):
+        await offline.read_holding_registers(0, 1)
+    assert await other.read_holding_registers(0, 1) == [7]
+
+
 async def test_fail_read_applies_per_table(mock_modbus_unit: MockModbusUnit) -> None:
     mock_modbus_unit.fail_read(5, ModbusExceptionError(2), register_type="input")
     with pytest.raises(ModbusExceptionError):
