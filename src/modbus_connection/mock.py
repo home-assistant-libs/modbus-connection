@@ -38,6 +38,8 @@ class WriteEvent:
     register_type: RegisterType
     address: int
     values: list[int] | list[bool]
+    function_code: int
+    """The Modbus function code the write went out as (0x06/0x10, 0x05/0x0F, 0x16)."""
 
 
 @dataclass(frozen=True)
@@ -271,7 +273,7 @@ class MockModbusUnit:
         self._ensure_connected()
         self._raise_if_write_fails("holding", address)
         self.holding[address] = int(value)
-        self._fire_write(WriteEvent("holding", address, [int(value)]))
+        self._fire_write(WriteEvent("holding", address, [int(value)], 0x06))
 
     async def write_registers(self, address: int, values: list[int]) -> None:
         self._ensure_connected()
@@ -279,7 +281,7 @@ class MockModbusUnit:
         self._raise_if_write_fails("holding", address, len(ints))
         for offset, value in enumerate(ints):
             self.holding[address + offset] = value
-        self._fire_write(WriteEvent("holding", address, ints))
+        self._fire_write(WriteEvent("holding", address, ints, 0x10))
 
     # -- raw coil / discrete-input I/O ----------------------------------------
 
@@ -295,7 +297,7 @@ class MockModbusUnit:
         self._ensure_connected()
         self._raise_if_write_fails("coil", address)
         self.coils[address] = bool(value)
-        self._fire_write(WriteEvent("coil", address, [bool(value)]))
+        self._fire_write(WriteEvent("coil", address, [bool(value)], 0x05))
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
         self._ensure_connected()
@@ -303,7 +305,7 @@ class MockModbusUnit:
         self._raise_if_write_fails("coil", address, len(bools))
         for offset, value in enumerate(bools):
             self.coils[address + offset] = value
-        self._fire_write(WriteEvent("coil", address, bools))
+        self._fire_write(WriteEvent("coil", address, bools, 0x0F))
 
     # -- full function-code surface -------------------------------------------
 
@@ -315,7 +317,7 @@ class MockModbusUnit:
         current = _read_registers(self.holding, address, 1)[0]
         new = (current & and_mask) | (or_mask & ~and_mask)
         self.holding[address] = new
-        self._fire_write(WriteEvent("holding", address, [new]))
+        self._fire_write(WriteEvent("holding", address, [new], 0x16))
 
     async def read_write_registers(
         self,
