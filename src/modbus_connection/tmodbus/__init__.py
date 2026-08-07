@@ -77,6 +77,7 @@ class ModbusConnection(BaseModbusConnection):
         *,
         timeout: float = 10,
         message_spacing: float = 0.0,
+        connect_delay: float = 0.0,
     ) -> None:
         if isinstance(params, ModbusUdpParams) and params.framer != "socket":
             raise ValueError(
@@ -88,7 +89,12 @@ class ModbusConnection(BaseModbusConnection):
                 "ASCII-over-TCP is not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
-        super().__init__(params, timeout=timeout, message_spacing=message_spacing)
+        super().__init__(
+            params,
+            timeout=timeout,
+            message_spacing=message_spacing,
+            connect_delay=connect_delay,
+        )
         self._unit_clients: dict[int, AsyncModbusClient] = {}
 
     def for_unit(self, unit_id: int) -> TmodbusUnit:
@@ -353,6 +359,7 @@ async def connect_tcp(
     timeout: float = 10,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
+    connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus TCP connection.
 
@@ -362,6 +369,7 @@ async def connect_tcp(
         ModbusTcpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
+        connect_delay=connect_delay,
     )
     await connection.connect()
     return connection
@@ -374,6 +382,7 @@ async def connect_udp(
     timeout: float = 10,
     framer: SocketFraming = "socket",
     message_spacing: float = 0.0,
+    connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus UDP connection.
 
@@ -383,6 +392,7 @@ async def connect_udp(
         ModbusUdpParams(host=host, port=port, framer=framer),
         timeout=timeout,
         message_spacing=message_spacing,
+        connect_delay=connect_delay,
     )
     await connection.connect()
     return connection
@@ -400,6 +410,7 @@ async def connect_tls(
     sslctx: ssl.SSLContext | None = None,
     timeout: float = 10,
     message_spacing: float = 0.0,
+    connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus/TLS connection.
 
@@ -418,6 +429,7 @@ async def connect_tls(
         ),
         timeout=timeout,
         message_spacing=message_spacing,
+        connect_delay=connect_delay,
     )
     await connection.connect()
     return connection
@@ -433,6 +445,7 @@ async def connect_serial(
     timeout: float = 10,
     framer: SerialFraming = "rtu",
     message_spacing: float = 0.0,
+    connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus serial connection.
 
@@ -449,6 +462,7 @@ async def connect_serial(
         ),
         timeout=timeout,
         message_spacing=message_spacing,
+        connect_delay=connect_delay,
     )
     await connection.connect()
     return connection

@@ -109,3 +109,39 @@ async def test_close_during_connect_closes_new_client_without_resurrection() -> 
     assert conn.close_calls == 1  # the just-connected client was disposed
     with pytest.raises(ClientClosedError):
         await conn.connect()
+
+
+class _DelayedConnection(BaseModbusConnection):
+    """Connects instantly; only connect_delay separates connect from ready."""
+
+    def __init__(self, connect_delay: float) -> None:
+        super().__init__(ModbusTcpParams(host="127.0.0.1"), connect_delay=connect_delay)
+
+    async def _connect_client(self) -> Any:
+        return object()
+
+    async def _close_client(self, client: Any) -> None:
+        pass
+
+    def for_unit(self, unit_id: int) -> ModbusUnit:
+        raise NotImplementedError
+
+
+async def test_connect_delay_holds_the_shared_flight() -> None:
+    """The delay runs inside the flight: no caller sees the client early."""
+    conn = _DelayedConnection(connect_delay=0.05)
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    waiters = [asyncio.create_task(conn.connect()) for _ in range(3)]
+    await asyncio.sleep(0)
+    assert conn.connected is False  # the pause holds publication of the client
+    await asyncio.gather(*waiters)
+
+    assert conn.connected is True
+    assert loop.time() - start >= 0.05  # one delay, shared by all callers
+
+
+async def test_connect_delay_defaults_to_none() -> None:
+    conn = _DelayedConnection(connect_delay=0.0)
+    await conn.connect()
+    assert conn.connected is True
