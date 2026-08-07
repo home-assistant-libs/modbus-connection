@@ -88,6 +88,31 @@ def test_command_sets_ready(mock_modbus_unit):
     mock_modbus_unit.on_write(respond)
 ```
 
+## Asserting on the reads a poll issued
+
+`read_events` logs every block read the unit received, in order, as a
+[`ReadEvent`](#readevent). Where `async_read_raw()` reports which *addresses* a
+poll covered, this reports the **blocks the planner actually asked for** — so a
+test can pin down how many round-trips a poll costs, and how wide each one was:
+
+```python
+async def test_poll_respects_the_controller_limits(mock_modbus_unit):
+    await MyDevice(mock_modbus_unit).async_update()
+
+    blocks = mock_modbus_unit.read_events
+    assert len(blocks) == 3  # the whole map in three round-trips
+    assert all(b.count <= 100 for b in blocks)  # controller caps a read at 100
+    assert all(b.register_type == "holding" for b in blocks)  # no coils on this device
+```
+
+That is the assertion a device library wants when its controller only answers
+[declared ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+or caps a request's width — the log is the read-side counterpart of `on_write`,
+and needs no wrapper around the unit.
+
+A read is recorded when it is dispatched, so one the device then rejects (see
+[`fail_read`](#simulating-a-read-failure)) still appears: the request went out.
+
 ## Simulating a rejected write
 
 Arm `fail_write` and the next write covering that address raises the given error
@@ -198,6 +223,7 @@ configuration surface:
 | --- | --- |
 | `holding`, `input`, `coils`, `discrete_inputs` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read) — [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
 | `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes; returns an unsubscribe callable. |
+| `read_events` | The [`ReadEvent`](#readevent) log of [every block read](#asserting-on-the-reads-a-poll-issued) the unit received, in order. |
 | `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |
 | `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete_input"`); `None` clears it. |
 | `set_response(method, value)` | Arm a [canned response](#canned-responses-for-the-other-operations) for a non-store operation. |
@@ -213,6 +239,16 @@ The frozen dataclass `on_write` callbacks receive:
 | `register_type` | `"holding" \| "coil"` | Which table was written. |
 | `address` | `int` | The first written address. |
 | `values` | `list[int] \| list[bool]` | The written values, one per address. |
+
+### `ReadEvent`
+
+The frozen dataclass `read_events` collects:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `register_type` | `"holding" \| "input" \| "coil" \| "discrete_input"` | Which table was read. |
+| `address` | `int` | The block's first address. |
+| `count` | `int` | How many addresses the block covers. |
 
 ### `RegisterSpec` and `CoilSpec`
 

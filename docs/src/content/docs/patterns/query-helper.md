@@ -17,7 +17,7 @@ value printing every time:
 | --- | --- |
 | `add_connection_args(parser, connections=…)` | Add the connection arguments (target, transport, framer, port, timeout, serial/TLS options) to an `argparse` parser. |
 | `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over whichever backend is installed). |
-| `CountingUnit` | Wrap a `ModbusUnit` to record the block reads an update performs — `reads` for the count, `blocks` for their spans. |
+| `CountingUnit` | Wrap a `ModbusUnit` to count the block reads an update performs. |
 | `print_component(component, *, title=None, file=None)` | Print every field on a component by reflection. |
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
 
@@ -140,7 +140,7 @@ link can't be opened.
 ### `CountingUnit`
 
 Wrap `connection.for_unit(id)` in a `CountingUnit` before handing it to a
-component. Its `reads` property then tallies every block read the update issued —
+component. Its `reads` attribute then tallies every block read the update issued —
 a quick sanity check that your [`ranges`](/modbus-connection/modelling/overview/#readable-address-ranges)
 and `max_gap` are collapsing fields into as few Modbus round-trips as the plan
 allows. It implements `ModbusUnit` in full, so it drops in wherever one is
@@ -151,17 +151,6 @@ counting = CountingUnit(conn.for_unit(args.unit))
 device = MyDevice(counting)
 await device.async_update()
 print(counting.reads)  # e.g. 6
-```
-
-`blocks` holds the reads themselves — a `ReadBlock(space, address, count)` each,
-in the order they were issued, with `reads` being `len(blocks)`. Use it in a test
-to assert on *where* the planner read and *how wide* each block was, not just how
-many there were — for instance that no block crosses an address the device will
-not answer, or that none exceeds a gateway's per-request cap:
-
-```python
-assert all(block.count <= 100 for block in counting.blocks)
-holding = [b for b in counting.blocks if b.space == "holding"]
 ```
 
 ### `print_component` and `field_rows`
@@ -177,9 +166,9 @@ print_component(device.sensors, title="Sensors")
 ```
 
 An `IntEnum` field prints as its member name, lowercased (`running`). A
-[`flags()`](/modbus-connection/modelling/fields/#enum-and-flag-fields) field prints the
-names of the bits it has set, joined by `|` (`over_temperature|sensor_fault`), or
-`none` when nothing is set. Because an `IntFlag` keeps bits its type does not
+[`flags()`](/modbus-connection/modelling/fields/#enum-and-flag-fields) field prints
+the names of the bits it has set, joined by `|` (`over_temperature|sensor_fault`),
+or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
 name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
 status or fault word should not hide a set bit.
 

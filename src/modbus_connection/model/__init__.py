@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .._types import BitSpace
 from ._component_base import UpdateListener
-from ._const import Range, RegisterSpace, Space
+from ._const import Range, RegisterSpace
 from .component import (
     Component,
     RepeatingGroupField,
@@ -53,7 +53,6 @@ __all__ = [
     "RegisterField",
     "RegisterSpace",
     "RepeatingGroupField",
-    "Space",
     "StringField",
     "UpdateListener",
     "WriteValidator",

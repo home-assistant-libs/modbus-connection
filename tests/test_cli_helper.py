@@ -22,7 +22,6 @@ from modbus_connection import ModbusConnectionError, ModbusError
 from modbus_connection._protocol import ModbusUnit
 from modbus_connection.cli_helper import (
     CountingUnit,
-    ReadBlock,
     _load_backend,
     add_connection_args,
     connect_from_args,
@@ -341,26 +340,6 @@ async def test_counting_unit_counts_reads_and_delegates() -> None:
     assert counting.reads == 2
 
 
-async def test_counting_unit_records_each_block_span() -> None:
-    """``blocks`` names the space, start and width of every read issued."""
-    unit = MockModbusConnection().for_unit(1)
-    counting = CountingUnit(unit)
-
-    await counting.read_holding_registers(10, 4)
-    await counting.read_input_registers(20, 2)
-    await counting.read_coils(0, 8)
-    await counting.read_discrete_inputs(5, 3)
-
-    assert counting.blocks == [
-        ReadBlock("holding", 10, 4),
-        ReadBlock("input", 20, 2),
-        ReadBlock("coil", 0, 8),
-        ReadBlock("discrete", 5, 3),
-    ]
-    # reads stays what it always was — a summary of the blocks recorded.
-    assert counting.reads == len(counting.blocks) == 4
-
-
 class _State(IntEnum):
     IDLE = 0
     RUNNING = 1
@@ -395,7 +374,6 @@ async def test_counting_unit_tallies_a_component_update() -> None:
 
     # Contiguous holding registers pool into one read; coils are a second space.
     assert counting.reads == 2
-    assert counting.blocks == [ReadBlock("holding", 0, 4), ReadBlock("coil", 0, 1)]
     assert meter.temperature == pytest.approx(23.5)
 
 

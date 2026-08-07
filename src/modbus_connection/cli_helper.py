@@ -7,14 +7,13 @@ import importlib
 import inspect
 import sys
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from enum import Flag, IntEnum
 from typing import TYPE_CHECKING
 
 from ._client import BaseModbusConnection
 from ._protocol import ModbusUnit
 from .exceptions import ModbusError
-from .model import CoilField, Component, DiscreteInputField, RegisterField, Space
+from .model import CoilField, Component, DiscreteInputField, RegisterField
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CountingUnit",
-    "ReadBlock",
     "add_connection_args",
     "connect_from_args",
     "field_rows",
@@ -244,56 +242,33 @@ async def connect_from_args(
 # -- read counting -----------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ReadBlock:
-    """Describe one block read a ``CountingUnit`` observed.
-
-    The read-side counterpart of ``modbus_connection.mock.WriteEvent``.
-    """
-
-    space: Space
-    """The address space the block was read from."""
-
-    address: int
-    """Start address of the block."""
-
-    count: int
-    """Number of registers or bits the block covers."""
-
-
 class CountingUnit:
-    """Record the block reads made through a ``ModbusUnit``."""
+    """Count block reads made through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
-        self.blocks: list[ReadBlock] = []
-        """Every block read so far, in the order it was issued."""
-
-    @property
-    def reads(self) -> int:
-        """How many block reads were issued — ``len(blocks)``."""
-        return len(self.blocks)
+        self.reads = 0
 
     @property
     def connected(self) -> bool:
         return self._unit.connected
 
-    # -- recorded block reads -------------------------------------------------
+    # -- counted block reads --------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        self.blocks.append(ReadBlock("holding", address, count))
+        self.reads += 1
         return await self._unit.read_holding_registers(address, count)
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        self.blocks.append(ReadBlock("input", address, count))
+        self.reads += 1
         return await self._unit.read_input_registers(address, count)
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        self.blocks.append(ReadBlock("coil", address, count))
+        self.reads += 1
         return await self._unit.read_coils(address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        self.blocks.append(ReadBlock("discrete", address, count))
+        self.reads += 1
         return await self._unit.read_discrete_inputs(address, count)
 
     # -- delegated pass-through -----------------------------------------------
