@@ -14,6 +14,7 @@ __all__ = [
     "CoilSpec",
     "MockModbusConnection",
     "MockModbusUnit",
+    "ReadEvent",
     "RegisterSpec",
     "WriteEvent",
 ]
@@ -37,6 +38,15 @@ class WriteEvent:
     register_type: RegisterType
     address: int
     values: list[int] | list[bool]
+
+
+@dataclass(frozen=True)
+class ReadEvent:
+    """Describe a block read from a mock unit."""
+
+    register_type: ReadRegisterType
+    address: int
+    count: int
 
 
 def _materialize(
@@ -130,6 +140,7 @@ class MockModbusUnit:
         self._read_failures: dict[tuple[ReadRegisterType, int], Exception] = {}
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
+        self.read_events: list[ReadEvent] = []
 
     @property
     def connected(self) -> bool:
@@ -225,6 +236,14 @@ class MockModbusUnit:
             if error is not None:
                 raise error
 
+    def _dispatch_read(
+        self, register_type: ReadRegisterType, address: int, count: int
+    ) -> None:
+        """Connect, record the block, then apply any configured read failure."""
+        self._ensure_connected()
+        self.read_events.append(ReadEvent(register_type, address, count))
+        self._raise_if_read_fails(register_type, address, count)
+
     def _fire_write(self, event: WriteEvent) -> None:
         for callback in list(self._write_callbacks):
             callback(event)
@@ -241,13 +260,11 @@ class MockModbusUnit:
     # -- raw register I/O -----------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        self._ensure_connected()
-        self._raise_if_read_fails("holding", address, count)
+        self._dispatch_read("holding", address, count)
         return _read_registers(self.holding, address, count)
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        self._ensure_connected()
-        self._raise_if_read_fails("input", address, count)
+        self._dispatch_read("input", address, count)
         return _read_registers(self.input, address, count)
 
     async def write_register(self, address: int, value: int) -> None:
@@ -267,13 +284,11 @@ class MockModbusUnit:
     # -- raw coil / discrete-input I/O ----------------------------------------
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        self._ensure_connected()
-        self._raise_if_read_fails("coil", address, count)
+        self._dispatch_read("coil", address, count)
         return _read_bits(self.coils, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        self._ensure_connected()
-        self._raise_if_read_fails("discrete_input", address, count)
+        self._dispatch_read("discrete_input", address, count)
         return _read_bits(self.discrete_inputs, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:

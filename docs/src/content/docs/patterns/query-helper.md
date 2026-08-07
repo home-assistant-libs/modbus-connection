@@ -158,12 +158,18 @@ print(counting.reads)  # e.g. 6
 `print_component` walks a component's public attributes by reflection and prints
 each modelled field — register/coil/discrete fields and computed `@property`
 values — under a heading, values aligned, with each field's `unit` appended. A new
-field shows up with no change to the script. Read the component first; unread
-fields render as `—`:
+field shows up with no change to the script:
 
 ```python
 print_component(device.sensors, title="Sensors")
 ```
+
+An `IntEnum` field prints as its member name, lowercased (`running`). A
+[`flags()`](/modbus-connection/modelling/fields/#enum-and-flag-fields) field prints
+the names of the bits it has set, joined by `|` (`over_temperature|sensor_fault`),
+or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
+name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
+status or fault word should not hide a set bit.
 
 If you want to format the output yourself (JSON, a table, grouping by section),
 `field_rows(component)` returns the `(name, value)` rows and you take it from

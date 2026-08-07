@@ -18,8 +18,10 @@ from modbus_connection import (
 from modbus_connection.mock import (
     MockModbusConnection,
     MockModbusUnit,
+    ReadEvent,
     WriteEvent,
 )
+from modbus_connection.model import Component, integer
 
 
 def test_satisfies_protocols(
@@ -140,6 +142,56 @@ async def test_on_write_unsubscribe(mock_modbus_unit: MockModbusUnit) -> None:
     unsub()
     await mock_modbus_unit.write_register(0, 1)
     assert events == []
+
+
+# -- read log -----------------------------------------------------------------
+
+
+async def test_read_events_record_every_block(mock_modbus_unit: MockModbusUnit) -> None:
+    """Each read is logged with its space, start address and width."""
+    await mock_modbus_unit.read_holding_registers(10, 4)
+    await mock_modbus_unit.read_input_registers(20, 2)
+    await mock_modbus_unit.read_coils(0, 8)
+    await mock_modbus_unit.read_discrete_inputs(5, 3)
+
+    assert mock_modbus_unit.read_events == [
+        ReadEvent("holding", 10, 4),
+        ReadEvent("input", 20, 2),
+        ReadEvent("coil", 0, 8),
+        ReadEvent("discrete_input", 5, 3),
+    ]
+
+
+async def test_read_events_show_the_blocks_a_component_planned(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """The log is how a device library asserts on its own read plan."""
+
+    class _Meter(Component):
+        first = integer(0)
+        last = integer(3)
+
+    await _Meter(mock_modbus_unit).async_update()
+
+    # Four fields' worth of addresses pooled into one block spanning 0-3.
+    assert mock_modbus_unit.read_events == [ReadEvent("holding", 0, 4)]
+
+
+async def test_read_events_record_a_read_the_device_rejects(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """A rejected read still went out, so it is still logged."""
+    mock_modbus_unit.fail_read(5, ModbusExceptionError("nope"))
+
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.read_holding_registers(4, 3)
+
+    assert mock_modbus_unit.read_events == [ReadEvent("holding", 4, 3)]
+
+
+async def test_read_events_ignore_a_write(mock_modbus_unit: MockModbusUnit) -> None:
+    await mock_modbus_unit.write_register(0, 1)
+    assert mock_modbus_unit.read_events == []
 
 
 # -- write failures -----------------------------------------------------------
