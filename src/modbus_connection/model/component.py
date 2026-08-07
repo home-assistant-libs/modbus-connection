@@ -370,6 +370,15 @@ def repeating_group[C: Component](
     accepted: the decoded count is truncated to an ``int``, and an
     unimplemented (``None``) count yields no instances.
 
+    On readable ranges: a fixed-count group's instances are read from the
+    parent's own plan, so their maps merge into it and must not describe the
+    same addresses differently. Either let the parent's ``register_ranges``
+    cover the instance addresses and leave the sub-component's unset — the
+    common case, and what keeps the repeated area in the parent's block — or
+    give the sub-component ranges disjoint from the parent's, for a sub-unit
+    whose own map has holes the parent cannot express. Declaring the same
+    addresses in both raises ``ValueError``.
+
     Raises ``ValueError`` for a non-positive stride or negative fixed count.
     """
     if stride <= 0:
