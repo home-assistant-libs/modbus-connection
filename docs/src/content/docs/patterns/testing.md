@@ -120,11 +120,15 @@ Arm `fail_write` and the next write covering that address raises the given error
 callbacks don't fire. `register_type` defaults to `"holding"` (use `"coil"` for
 coil writes — the tables are independent); pass `None` to clear:
 
+Arm the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
+for the condition — it constructs with its code implied, and it is what the
+backends raise:
+
 ```python
 async def test_write_rejected(mock_modbus_unit):
     mock_modbus_unit.holding[40] = 7
-    mock_modbus_unit.fail_write(40, ModbusExceptionError(3))  # illegal data value
-    with pytest.raises(ModbusExceptionError):
+    mock_modbus_unit.fail_write(40, IllegalDataValueError())
+    with pytest.raises(IllegalDataValueError):
         await mock_modbus_unit.write_register(40, 99)
     assert await mock_modbus_unit.read_holding_registers(40, 1) == [7]  # unchanged
 
@@ -135,7 +139,7 @@ async def test_write_rejected(mock_modbus_unit):
 The error you arm is the condition you're simulating:
 
 ```python
-mock_modbus_unit.fail_write(40, ModbusExceptionError(3))  # device rejects the value
+mock_modbus_unit.fail_write(40, IllegalDataValueError())  # device rejects the value
 mock_modbus_unit.fail_write(40, ModbusTimeoutError())  # device doesn't answer
 mock_modbus_unit.fail_write(40, ModbusConnectionError())  # device unreachable
 mock_modbus_unit.fail_write(40, ModbusProtocolError())  # corrupt reply
@@ -151,8 +155,8 @@ tables — they're independent); pass `None` to clear:
 
 ```python
 async def test_read_refused(mock_modbus_unit):
-    mock_modbus_unit.fail_read(1100, ModbusExceptionError(2))  # illegal data address
-    with pytest.raises(ModbusExceptionError):
+    mock_modbus_unit.fail_read(1100, IllegalDataAddressError())
+    with pytest.raises(IllegalDataAddressError):
         await mock_modbus_unit.read_holding_registers(1100, 4)
     await mock_modbus_unit.read_holding_registers(0, 4)  # other blocks unaffected
 
