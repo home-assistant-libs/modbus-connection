@@ -168,13 +168,53 @@ class BlockReadError(ModbusExceptionError):
         )
 
 
-_BLOCK_READ_ERRORS: dict[int, type[BlockReadError]] = {}
-for _code, _cls in _CODED_ERRORS.items():
-    _sub = type(
-        f"_BlockRead{_cls.__name__}",
-        (BlockReadError, _cls),
-        {"__module__": __name__, "__doc__": BlockReadError.__doc__},
+class IllegalFunctionBlockReadError(BlockReadError, IllegalFunctionError):
+    """A block read refused with code 1."""
+
+
+class IllegalDataAddressBlockReadError(BlockReadError, IllegalDataAddressError):
+    """A block read refused with code 2 — the device does not serve the block."""
+
+
+class IllegalDataValueBlockReadError(BlockReadError, IllegalDataValueError):
+    """A block read refused with code 3."""
+
+
+class ServerDeviceFailureBlockReadError(BlockReadError, ServerDeviceFailureError):
+    """A block read refused with code 4."""
+
+
+class AcknowledgeBlockReadError(BlockReadError, AcknowledgeError):
+    """A block read answered with code 5."""
+
+
+class ServerDeviceBusyBlockReadError(BlockReadError, ServerDeviceBusyError):
+    """A block read refused with code 6."""
+
+
+class MemoryParityBlockReadError(BlockReadError, MemoryParityError):
+    """A block read refused with code 8."""
+
+
+class GatewayPathUnavailableBlockReadError(BlockReadError, GatewayPathUnavailableError):
+    """A block read refused with code 10."""
+
+
+class GatewayTargetBlockReadError(BlockReadError, GatewayTargetError):
+    """A block read refused with code 11 — the gateway's target did not respond."""
+
+
+_BLOCK_READ_ERRORS: dict[int, type[BlockReadError]] = {
+    cls.code: cls
+    for cls in (
+        IllegalFunctionBlockReadError,
+        IllegalDataAddressBlockReadError,
+        IllegalDataValueBlockReadError,
+        ServerDeviceFailureBlockReadError,
+        AcknowledgeBlockReadError,
+        ServerDeviceBusyBlockReadError,
+        MemoryParityBlockReadError,
+        GatewayPathUnavailableBlockReadError,
+        GatewayTargetBlockReadError,
     )
-    globals()[_sub.__name__] = _sub  # importable by name, so pickling works
-    _BLOCK_READ_ERRORS[_code] = _sub
-del _code, _cls, _sub
+}

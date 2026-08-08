@@ -95,3 +95,13 @@ def test_block_read_error_with_unknown_code_stays_plain() -> None:
         err = BlockReadError("holding", 0, 1, code)
         assert type(err) is BlockReadError
         assert err.exception_code == code
+
+
+def test_the_combined_classes_are_public() -> None:
+    # The class name a traceback shows must be importable and catchable.
+    from modbus_connection import IllegalDataAddressBlockReadError
+
+    err = BlockReadError("holding", 100, 4, 2)
+    assert type(err) is IllegalDataAddressBlockReadError
+    with pytest.raises(IllegalDataAddressBlockReadError):
+        raise BlockReadError("holding", 100, 4, 2)
