@@ -107,10 +107,11 @@ This setting belongs to the unit ID and applies to every handle for that ID. It
 combines with connection-wide spacing by waiting for the longer interval. Pass
 `0` to clear it.
 
-A different kind of pause is the one some devices need **after the link opens**
-before they answer reliably — a gap `message_spacing` does not cover, since it
-spaces requests, not connection establishment. Set `connect_delay` in seconds on
-the connection; it is awaited each time the link is (re-)established, before any
+## Connect delay
+
+Some devices need a pause **after the link opens** before they answer reliably.
+Set `connect_delay` in seconds on the connection; it is awaited each time the
+link is established — the first connect and every reconnect — before any
 request uses it:
 
 ```python
@@ -119,6 +120,9 @@ connection = ModbusConnection(
     connect_delay=1.0,
 )
 ```
+
+This is not request pacing: `message_spacing` spaces requests on a live link,
+while `connect_delay` runs once per connection establishment.
 
 :::note[Legacy connection factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
