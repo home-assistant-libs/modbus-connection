@@ -17,8 +17,13 @@ The device object:
    owns the connection and hands you a unit.
 2. constructs its sub-systems as [`Component`](/modbus-connection/modelling/overview/)
    instances,
-3. pools them into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
-4. exposes `async_update()` plus typed access to each sub-system.
+3. exposes `async_setup()`, which reads everything that never changes and settles
+   which components this device serves,
+4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
+5. exposes `async_update()` plus typed access to each sub-system.
+
+Steps 3 and 4 are the [two phases](#two-phases-setup-and-polling) below: setup
+decides what to poll, polling is one call over that fixed set.
 
 ```python
 from __future__ import annotations
@@ -59,14 +64,18 @@ class Trovis557x:
         self.heating_circuit_2 = HeatingCircuit(unit, index=2)
         self.hot_water = HotWater(unit)
 
-        # One pooled reader for the whole device.
-        self._group = ComponentGroup(unit, self.components)
+        # Built by async_setup, once it knows what this device serves.
+        self._group: ComponentGroup | None = None
+
+    async def async_setup(self) -> None:
+        """Read what never changes, then pool what this device actually polls."""
+        await self.controller.async_update()  # identity: read once, never polled
+        self._group = ComponentGroup(self._unit, self.components)
 
     @property
     def components(self) -> tuple[Component, ...]:
         """Every actively polled sub-system."""
         return (
-            self.controller,
             self.sensors,
             self.heating_circuit_1,
             self.heating_circuit_2,
@@ -74,7 +83,8 @@ class Trovis557x:
         )
 
     async def async_update(self) -> None:
-        """Refresh all sub-systems in pooled Modbus reads."""
+        """Refresh all polled sub-systems in pooled Modbus reads."""
+        assert self._group is not None, "async_setup() must run first"
         await self._group.async_update()
 ```
 
@@ -94,7 +104,8 @@ async def main() -> None:
     try:
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
-        await device.async_update()
+        await device.async_setup()  # once
+        await device.async_update()  # every interval
 
         print("Outside temperature:", device.sensors.outside_1)
         print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
