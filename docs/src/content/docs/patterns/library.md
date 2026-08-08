@@ -17,8 +17,8 @@ The device object:
    owns the connection and hands you a unit.
 2. constructs its sub-systems as [`Component`](/modbus-connection/modelling/overview/)
    instances,
-3. exposes `async_setup()`, which reads everything that never changes and settles
-   which components this device serves,
+3. sets itself up once — reading everything that never changes and settling
+   which components this device serves — from the first `async_update()`,
 4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
 5. exposes `async_update()` plus typed access to each sub-system.
 
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from modbus_connection import IllegalDataAddressError
-from modbus_connection.model import ComponentGroup
+from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
 from .controller import Controller
@@ -59,29 +59,53 @@ class Trovis557x:
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
-        self.heating_circuit_2 = HeatingCircuit(unit, index=2)
-        self.hot_water = HotWater(unit)
+        # Optional: filled in by async_setup() if this model has them.
+        self.heating_circuit_2: HeatingCircuit | None = None
+        self.hot_water: HotWater | None = None
 
-        # Built by async_setup, once it knows what this device serves.
         self._group: ComponentGroup | None = None
 
     async def async_setup(self) -> None:
-        """Read what never changes, then pool what this device actually polls."""
+        """Read what never changes, and find which sub-systems this model has.
+
+        The first ``async_update()`` calls this; call it yourself to fail early
+        on an unreachable device. Safe to retry: nothing is kept until the
+        device answers.
+        """
         await self.controller.async_update()  # identity: read once, never polled
 
-        polled = [self.sensors, self.heating_circuit_1]
-        for component in (self.heating_circuit_2, self.hot_water):  # not on every model
-            try:
-                await component.async_update()
-            except IllegalDataAddressError:
-                continue  # this firmware does not serve it
-            polled.append(component)
+        heating_circuit_2 = await self._optional(HeatingCircuit(self._unit, index=2))
+        hot_water = await self._optional(HotWater(self._unit))
 
-        self._group = ComponentGroup(self._unit, polled)
+        self.heating_circuit_2 = heating_circuit_2
+        self.hot_water = hot_water
+        self._group = ComponentGroup(
+            self._unit,
+            [
+                c
+                for c in (
+                    self.sensors,
+                    self.heating_circuit_1,
+                    heating_circuit_2,
+                    hot_water,
+                )
+                if c is not None
+            ],
+        )
+
+    async def _optional[C: Component](self, component: C) -> C | None:
+        """Read an optional sub-system; None if this device does not have it."""
+        try:
+            await component.async_update()
+        except IllegalDataAddressError:
+            return None
+        return component
 
     async def async_update(self) -> None:
-        """Refresh all polled sub-systems in pooled Modbus reads."""
-        assert self._group is not None, "async_setup() must run first"
+        """Refresh all polled sub-systems; the first call sets the device up."""
+        if self._group is None:
+            await self.async_setup()
+        assert self._group is not None  # async_setup() always builds it
         await self._group.async_update()
 ```
 
@@ -101,11 +125,12 @@ async def main() -> None:
     try:
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
-        await device.async_setup()  # once
-        await device.async_update()  # every interval
+        await device.async_update()  # sets up on the first call
 
         print("Outside temperature:", device.sensors.outside_1)
         print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        if device.hot_water is not None:  # absent on some models
+            print("Hot water:", device.hot_water.temperature)
     finally:
         await connection.close()
 
