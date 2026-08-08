@@ -118,9 +118,24 @@ async def test_on_write_receives_event(mock_modbus_unit: MockModbusUnit) -> None
     await mock_modbus_unit.write_coils(0, [True, False])
 
     assert events == [
-        WriteEvent("holding", 10, [99]),
-        WriteEvent("coil", 0, [True, False]),
+        WriteEvent("holding", 10, [99], 0x06),
+        WriteEvent("coil", 0, [True, False], 0x0F),
     ]
+
+
+async def test_write_event_carries_the_function_code(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    events: list[WriteEvent] = []
+    mock_modbus_unit.on_write(events.append)
+
+    await mock_modbus_unit.write_register(0, 1)
+    await mock_modbus_unit.write_registers(1, [2, 3])
+    await mock_modbus_unit.write_coil(0, True)
+    await mock_modbus_unit.write_coils(1, [False])
+    await mock_modbus_unit.mask_write_register(0, and_mask=0, or_mask=1)
+
+    assert [e.function_code for e in events] == [0x06, 0x10, 0x05, 0x0F, 0x16]
 
 
 async def test_on_write_can_mock_other_data(mock_modbus_unit: MockModbusUnit) -> None:

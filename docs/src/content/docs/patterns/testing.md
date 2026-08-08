@@ -241,6 +241,7 @@ The frozen dataclass `on_write` callbacks receive:
 | `register_type` | `"holding" \| "coil"` | Which table was written. |
 | `address` | `int` | The first written address. |
 | `values` | `list[int] \| list[bool]` | The written values, one per address. |
+| `function_code` | `int` | The function code the write went out as: `0x06`/`0x10` for registers (`force_fc16` makes a one-register write `0x10`), `0x05`/`0x0F` for coils, `0x16` for a mask write. |
 
 ### `ReadEvent`
 

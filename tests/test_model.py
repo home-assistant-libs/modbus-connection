@@ -11,7 +11,7 @@ import pytest
 
 from modbus_connection.decode import decode_float32
 from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
-from modbus_connection.mock import MockModbusConnection, MockModbusUnit
+from modbus_connection.mock import MockModbusConnection, MockModbusUnit, WriteEvent
 from modbus_connection.model import (
     BitField,
     Component,
@@ -704,24 +704,12 @@ async def test_manual_component_scaled_write() -> None:
     assert unit.holding[10] == 500
 
 
-def _calls_recording_unit() -> tuple[MockModbusUnit, list[tuple]]:
-    """A mock unit that records each register-write call as ``(fc, *args)``."""
+def _write_recording_unit() -> tuple[MockModbusUnit, list[WriteEvent]]:
+    """A mock unit whose writes are captured as ``WriteEvent``s."""
     unit = MockModbusConnection().for_unit(1)
-    calls: list[tuple] = []
-    real_single = unit.write_register
-    real_multi = unit.write_registers
-
-    async def write_register(address: int, value: int) -> None:
-        calls.append(("single", address, value))
-        await real_single(address, value)
-
-    async def write_registers(address: int, values: list[int]) -> None:
-        calls.append(("multiple", address, values))
-        await real_multi(address, values)
-
-    unit.write_register = write_register  # type: ignore[method-assign]
-    unit.write_registers = write_registers  # type: ignore[method-assign]
-    return unit, calls
+    events: list[WriteEvent] = []
+    unit.on_write(events.append)
+    return unit, events
 
 
 async def test_single_register_uses_fc06_by_default() -> None:
@@ -730,9 +718,9 @@ async def test_single_register_uses_fc06_by_default() -> None:
     class Dev(Component):
         setpoint = integer(0, signed=False, writable=True)
 
-    unit, calls = _calls_recording_unit()
+    unit, events = _write_recording_unit()
     await Dev(unit).write("setpoint", 1234)
-    assert calls == [("single", 0, 1234)]
+    assert events == [WriteEvent("holding", 0, [1234], 0x06)]
     assert unit.holding[0] == 1234
 
 
@@ -742,9 +730,9 @@ async def test_force_fc16_uses_multiple_for_single_register() -> None:
     class Dev(Component):
         setpoint = integer(0, signed=False, writable=True, force_fc16=True)
 
-    unit, calls = _calls_recording_unit()
+    unit, events = _write_recording_unit()
     await Dev(unit).write("setpoint", 7)
-    assert calls == [("multiple", 0, [7])]
+    assert events == [WriteEvent("holding", 0, [7], 0x10)]
     assert unit.holding[0] == 7
 
 
@@ -1377,9 +1365,9 @@ async def test_base_offset_shifts_writes() -> None:
     class Block(Component):
         setpoint = integer(10, signed=False, writable=True)
 
-    unit, calls = _calls_recording_unit()
+    unit, events = _write_recording_unit()
     await Block(unit, base_offset=20).write("setpoint", 42)
-    assert calls == [("single", 30, 42)]
+    assert events == [WriteEvent("holding", 30, [42], 0x06)]
     assert unit.holding[30] == 42
 
 
