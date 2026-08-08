@@ -26,10 +26,19 @@ from modbus_connection.cli_helper import (
     add_connection_args,
     connect_from_args,
     field_rows,
+    group_rows,
     print_component,
 )
 from modbus_connection.mock import MockModbusConnection
-from modbus_connection.model import Component, coil, enum, flags, gauge, integer
+from modbus_connection.model import (
+    Component,
+    coil,
+    enum,
+    flags,
+    gauge,
+    integer,
+    repeating_group,
+)
 
 
 def _parse(argv: list[str]) -> argparse.Namespace:
@@ -444,6 +453,74 @@ async def test_print_component_writes_aligned_block() -> None:
     # Names are left-padded to a common width, so values line up.
     starts = {line.index(line.split()[1]) for line in lines[2:] if line.split()}
     assert len(starts) == 1
+
+
+class _Cell(Component):
+    """One repeated sub-unit, modelled at instance 0's addresses."""
+
+    voltage = gauge(10, 0.001, signed=False, unit="V")
+
+
+class _Battery(Component):
+    total_voltage = gauge(0, 0.1, signed=False, unit="V")
+    cells = repeating_group(2, _Cell, stride=2)
+
+
+async def _read_battery() -> _Battery:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 4832, 10: 3300, 12: 3298})
+    battery = _Battery(unit)
+    await battery.async_update()
+    return battery
+
+
+async def test_group_rows_returns_each_group_with_its_instances() -> None:
+    battery = await _read_battery()
+    groups = dict(group_rows(battery))
+
+    assert list(groups) == ["cells"]
+    assert [cell.voltage for cell in groups["cells"]] == [3.3, 3.298]
+
+
+async def test_group_rows_does_not_report_groups_as_plain_fields() -> None:
+    """A group is a list of sub-components, not a value, so it is not a row."""
+    battery = await _read_battery()
+    assert "cells" not in dict(field_rows(battery))
+
+
+async def test_print_component_renders_a_repeating_group_as_sub_blocks() -> None:
+    battery = await _read_battery()
+    buffer = io.StringIO()
+    print_component(battery, title="Battery", file=buffer)
+    lines = buffer.getvalue().splitlines()
+
+    assert lines[0] == "Battery"
+    assert "  total_voltage  483.2 V" in lines
+    # Each instance is its own indented block, numbered from 1.
+    assert "  cells[1]" in lines
+    assert "  cells[2]" in lines
+    assert "    voltage  3.3 V" in lines
+    assert "    voltage  3.298 V" in lines
+
+
+async def test_print_component_indents_a_whole_block() -> None:
+    """``indent`` prefixes every line, nested sub-blocks included."""
+    battery = await _read_battery()
+    buffer = io.StringIO()
+    print_component(battery, title="Battery", file=buffer, indent="| ")
+    lines = [line for line in buffer.getvalue().splitlines() if line]
+
+    assert all(line.startswith("| ") for line in lines)
+    assert "|   cells[1]" in lines
+
+
+async def test_print_component_without_groups_is_unchanged() -> None:
+    """A component with no repeating group prints exactly as it always did."""
+    meter = _read_meter()
+    await meter.async_update()
+    buffer = io.StringIO()
+    print_component(meter, title="Sensors", file=buffer)
+    assert not buffer.getvalue().endswith("\n\n")
 
 
 async def test_print_component_defaults_title_to_class_name() -> None:
