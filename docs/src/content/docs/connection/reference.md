@@ -53,8 +53,9 @@ connection.
 #### `on_connection_lost(callback)`
 
 Register a `Callable[[], None]` fired when the link drops; returns an
-unsubscribe callable. A deliberate `close()` or `disconnect()` is not a lost
-connection and never fires the callbacks.
+unsubscribe callable. A connection is **lost** when the transport takes it
+away; `close()` and `disconnect()` are the owner tearing it down, so neither
+fires the callbacks.
 
 #### `disconnect()`
 

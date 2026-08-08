@@ -203,9 +203,10 @@ class ModbusConnection(BaseModbusConnection):
 
     def _on_trace_connect(self, connecting: bool) -> None:
         """pymodbus trace hook: called True on connect, False on disconnect."""
-        # Our own close() and disconnect() also trigger this hook; with no
-        # published client there is nothing to lose, so only a drop of the
-        # live link counts.
+        # A connection is lost when the transport takes it from us; close() and
+        # disconnect() are us tearing it down, and also trigger this hook. Both
+        # unpublish the client before tearing down, so a hook that finds no
+        # published client is observing our own teardown.
         if connecting or self._closed or self._client is None:
             return
         self._client = None

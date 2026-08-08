@@ -269,9 +269,9 @@ class BaseModbusConnection(ABC):
         For recycling a link that is up but unusable — a peer that keeps the
         socket open but stops answering. Unlike ``close()``, the connection
         stays usable: existing unit handles and components reconnect on their
-        next request. A deliberate disconnect is not a lost connection, so
-        ``on_connection_lost`` callbacks do not fire. A no-op when there is no
-        link.
+        next request. A connection is *lost* when the transport takes it away;
+        this is tearing it down, so ``on_connection_lost`` callbacks do not
+        fire. A no-op when there is no link.
 
         Raises ``ModbusConnectionError`` if tearing the old link down fails;
         the link is dropped regardless.
