@@ -16,7 +16,7 @@ and API, so selecting a backend changes only the import. The abstract class is
 what you type against and `isinstance`-check.
 
 ```python
-ModbusConnection(params, *, timeout=10, message_spacing=0.0)
+ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
 ```
 
 | Parameter | Type | Meaning |
@@ -24,6 +24,7 @@ ModbusConnection(params, *, timeout=10, message_spacing=0.0)
 | `params` | `ModbusTcpParams \| ModbusUdpParams \| ModbusTlsParams \| ModbusSerialParams` | The transport to connect over — see [the parameter dataclasses](#parameter-dataclasses). |
 | `timeout` | `float`, default `10` | Per-request timeout in seconds. |
 | `message_spacing` | `float`, default `0.0` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
+| `connect_delay` | `float`, default `0.0` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
 
 Constructing a connection performs no I/O; the first unit operation connects on
 demand. See [Connections and units](/modbus-connection/connection/connections-and-units/)
@@ -369,7 +370,7 @@ fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
   `modbus_connection.ModbusConnection` and the `ModbusUnit` Protocol.
 - The legacy factories `connect_tcp`, `connect_udp`, `connect_tls`, and
   `connect_serial` — kept for compatibility. Each builds the matching parameter
-  dataclass from keyword arguments, also accepts the constructor's `timeout`
-  and `message_spacing`, constructs a `ModbusConnection`, eagerly `connect()`s
+  dataclass from keyword arguments, also accepts the constructor's `timeout`,
+  `message_spacing`, and `connect_delay`, constructs a `ModbusConnection`, eagerly `connect()`s
   it, and returns it. New code should construct `ModbusConnection` with a
   shared parameter object instead.

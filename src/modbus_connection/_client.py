@@ -203,10 +203,12 @@ class BaseModbusConnection(ABC):
         *,
         timeout: float = 10,
         message_spacing: float = 0.0,
+        connect_delay: float = 0.0,
     ) -> None:
         self._params = params
         self._timeout = timeout
         self._pacer = Pacer(message_spacing)
+        self._connect_delay = connect_delay
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
@@ -245,6 +247,11 @@ class BaseModbusConnection(ABC):
 
     async def _do_connect(self) -> None:
         client = await self._connect_client()
+        if self._connect_delay:
+            # Some devices need a pause after the link opens before they answer
+            # reliably. Inside the shared flight, so concurrent callers all wait
+            # it out rather than racing a half-ready device.
+            await asyncio.sleep(self._connect_delay)
         if self._closed:
             # A concurrent close() marked the connection closed while this
             # client was still being established; dispose of it and refuse.
