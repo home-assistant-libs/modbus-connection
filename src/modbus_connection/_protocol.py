@@ -1,7 +1,5 @@
 """The backend-neutral ``ModbusUnit`` Protocol."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
