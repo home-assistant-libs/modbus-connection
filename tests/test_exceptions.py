@@ -62,11 +62,8 @@ def test_subclasses_are_catchable_as_the_base() -> None:
         raise IllegalFunctionError()
 
 
-def test_block_read_error_still_carries_its_code() -> None:
-    err = BlockReadError("holding", 100, 4, 2)
-    assert isinstance(err, ModbusExceptionError)
-    assert err.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
-    assert (err.space, err.address, err.count) == ("holding", 100, 4)
+def test_block_read_error_is_an_alias() -> None:
+    assert BlockReadError is ModbusExceptionError
 
 
 def test_coded_registry_covers_every_enum_member() -> None:
@@ -89,9 +86,9 @@ def test_a_planner_raise_carries_both_answers() -> None:
     assert (err.space, err.address, err.count) == ("holding", 100, 4)
 
 
-def test_the_legacy_constructor_still_builds_and_catches() -> None:
-    err = BlockReadError("holding", 0, 1, 0x55)
-    assert type(err) is BlockReadError
+def test_an_unknown_code_still_carries_its_block() -> None:
+    err = ModbusExceptionError.from_code(0x55, block=ReadBlock("holding", 0, 1))
+    assert type(err) is ModbusExceptionError
     assert err.exception_code == 0x55
     assert err.block == ReadBlock("holding", 0, 1)
 

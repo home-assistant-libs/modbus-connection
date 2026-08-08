@@ -78,37 +78,6 @@ class ModbusExceptionError(ModbusError):
             message or f"Device returned Modbus exception code {exception_code}"
         )
 
-    @staticmethod
-    def from_code(
-        exception_code: int | None,
-        message: str | None = None,
-        *,
-        block: ReadBlock | None = None,
-    ) -> ModbusExceptionError:
-        """Build the subclass matching ``exception_code``, or the base class."""
-        cls = _CODED_ERRORS.get(exception_code, ModbusExceptionError)  # type: ignore[arg-type]
-        return cls(exception_code, message, block=block)
-
-
-class BlockReadError(ModbusExceptionError):
-    """A device rejected one block of a component read.
-
-    Deprecated as a catch target: every typed subclass inherits it, so existing
-    ``except BlockReadError`` handlers keep working, but new code should catch
-    the typed class and read ``block``.
-    """
-
-    def __init__(
-        self, space: str, address: int, count: int, exception_code: int | None
-    ) -> None:
-        ModbusExceptionError.__init__(
-            self,
-            exception_code,
-            f"{space} block read at address {address} (count {count}) "
-            f"returned Modbus exception code {exception_code}",
-            block=ReadBlock(space, address, count),
-        )
-
     @property
     def space(self) -> str | None:
         """Deprecated: read ``block.space``."""
@@ -124,8 +93,19 @@ class BlockReadError(ModbusExceptionError):
         """Deprecated: read ``block.count``."""
         return self.block.count if self.block else None
 
+    @staticmethod
+    def from_code(
+        exception_code: int | None,
+        message: str | None = None,
+        *,
+        block: ReadBlock | None = None,
+    ) -> ModbusExceptionError:
+        """Build the subclass matching ``exception_code``, or the base class."""
+        cls = _CODED_ERRORS.get(exception_code, ModbusExceptionError)  # type: ignore[arg-type]
+        return cls(exception_code, message, block=block)
 
-class _CodedError(BlockReadError):
+
+class _CodedError(ModbusExceptionError):
     """A Modbus exception response with a fixed, standard code."""
 
     code: ClassVar[ExceptionCode]
@@ -137,9 +117,7 @@ class _CodedError(BlockReadError):
         *,
         block: ReadBlock | None = None,
     ) -> None:
-        # Skip BlockReadError's legacy signature; it is only a catch target.
-        ModbusExceptionError.__init__(
-            self,
+        super().__init__(
             self.code if exception_code is None else exception_code,
             message,
             block=block,
@@ -203,3 +181,8 @@ class GatewayTargetError(_CodedError):
 _CODED_ERRORS: dict[int, type[_CodedError]] = {
     cls.code: cls for cls in _CodedError.__subclasses__()
 }
+
+# Deprecated alias: the update-aborting error is the typed exception itself,
+# with the refused block on ``block``. Kept so ``except BlockReadError`` and
+# ``isinstance`` checks keep working.
+BlockReadError = ModbusExceptionError
