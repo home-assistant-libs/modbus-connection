@@ -102,6 +102,10 @@ class MockModbusConnection:
         """
         self._establish()
 
+    async def disconnect(self) -> None:
+        """Drop the link without firing callbacks; the next request reconnects."""
+        self._link_up = False
+
     async def close(self) -> None:
         self._closed = True
 

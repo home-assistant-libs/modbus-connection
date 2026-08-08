@@ -15,6 +15,11 @@ Constructing a connection performs no I/O. The first request connects on demand.
 If the link drops, the next request reconnects. `connect()` remains available
 for callers that specifically need to establish the link eagerly.
 
+A link that is up but unresponsive — a peer that keeps the socket open but
+stops answering, common with cheap serial-to-network bridges — never drops on
+its own. Call `disconnect()` to recycle it: the link is torn down and the next
+request establishes a fresh one, over the same unit handles and components.
+
 Only the connection owner should retain this object and call `close()`. Closing
 is permanent: later calls to `connect()` or unit operations raise
 `ClientClosedError`.
