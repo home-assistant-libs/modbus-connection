@@ -13,7 +13,6 @@ from modbus_connection.decode import decode_float32
 from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit, WriteEvent
 from modbus_connection.model import (
-    BitField,
     Component,
     ComponentGroup,
     ManualComponent,
@@ -42,6 +41,7 @@ from modbus_connection.model.fields import (
     IPv4Field,
     NumberField,
     RawField,
+    RegisterField,
 )
 
 
@@ -1818,10 +1818,10 @@ def test_declared_fields_names_every_field_in_declaration_order() -> None:
     assert isinstance(_Mixed.declared_fields["fault"], DiscreteInputField)
 
 
-def test_declared_fields_split_registers_from_bits_via_bitfield() -> None:
-    """BitField is public so declared_fields values can be told apart."""
+def test_declared_fields_narrow_to_the_concrete_classes() -> None:
+    """declared_fields is typed with the concrete classes, so values narrow."""
     kinds = {
-        name: "bit" if isinstance(field, BitField) else "register"
+        name: "register" if isinstance(field, RegisterField) else "bit"
         for name, field in _Mixed.declared_fields.items()
     }
     assert kinds == {
