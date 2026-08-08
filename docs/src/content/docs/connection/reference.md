@@ -287,9 +287,17 @@ ModbusError
 │   └── ClientClosedError           (request on a close()d connection)
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
-└── ModbusExceptionError            (.exception_code)
-    └── IllegalFunctionError … GatewayTargetError   (one per standard code;
-                                    .block set when a component update aborted)
+└── ModbusExceptionError            (.exception_code; .block set when a
+    │                                component update aborted)
+    ├── IllegalFunctionError        (code 1)
+    ├── IllegalDataAddressError     (code 2)
+    ├── IllegalDataValueError       (code 3)
+    ├── ServerDeviceFailureError    (code 4)
+    ├── AcknowledgeError            (code 5)
+    ├── ServerDeviceBusyError       (code 6)
+    ├── MemoryParityError           (code 8)
+    ├── GatewayPathUnavailableError (code 10)
+    └── GatewayTargetError          (code 11)
 ```
 
 ### `ModbusError`
