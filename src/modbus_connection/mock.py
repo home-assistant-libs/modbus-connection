@@ -39,7 +39,6 @@ class WriteEvent:
     address: int
     values: list[int] | list[bool]
     function_code: int
-    """The Modbus function code the write went out as (0x06/0x10, 0x05/0x0F, 0x16)."""
 
 
 @dataclass(frozen=True)
