@@ -39,6 +39,15 @@ if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
 
+async def _optional[C: Component](component: C) -> C | None:
+    """Read an optional sub-system; None if this device does not have it."""
+    try:
+        await component.async_update()
+    except IllegalDataAddressError:
+        return None
+    return component
+
+
 class Trovis557x:
     """A Samson TROVIS 557x heating controller."""
 
@@ -49,23 +58,24 @@ class Trovis557x:
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
-        # Optional: filled in by async_setup() if this model has them.
+        # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
 
         self._group: ComponentGroup | None = None
 
-    async def async_setup(self) -> None:
+    async def _async_setup(self) -> None:
         """Read what never changes, and find which sub-systems this model has.
 
-        The first ``async_update()`` calls this; call it yourself to fail early
-        on an unreachable device. Safe to retry: nothing is kept until the
-        device answers.
+        Runs from the first ``async_update()``, and again on the next one if
+        the device was unreachable — which is why nothing is kept until every
+        probe has answered. Private: a second run after a successful one would
+        rebuild the sub-systems and discard everything polled into them.
         """
         await self.controller.async_update()  # identity: read once, never polled
 
-        heating_circuit_2 = await self._optional(HeatingCircuit(self._unit, index=2))
-        hot_water = await self._optional(HotWater(self._unit))
+        heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
+        hot_water = await _optional(HotWater(self._unit))
 
         self.heating_circuit_2 = heating_circuit_2
         self.hot_water = hot_water
@@ -83,19 +93,11 @@ class Trovis557x:
             ],
         )
 
-    async def _optional[C: Component](self, component: C) -> C | None:
-        """Read an optional sub-system; None if this device does not have it."""
-        try:
-            await component.async_update()
-        except IllegalDataAddressError:
-            return None
-        return component
-
     async def async_update(self) -> None:
         """Refresh all polled sub-systems; the first call sets the device up."""
         if self._group is None:
-            await self.async_setup()
-        assert self._group is not None  # async_setup() always builds it
+            await self._async_setup()
+        assert self._group is not None  # _async_setup() always builds it
         await self._group.async_update()
 ```
 
