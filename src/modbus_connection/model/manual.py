@@ -10,7 +10,7 @@ from ._planning import ReadItem, ReadPlan
 from ._ranges import DeviceRanges
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
-from .fields import BitField, RegisterField
+from .fields import RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -44,7 +44,7 @@ class ManualComponent(_ComponentBase):
             }
         )
         self._registers: dict[str, tuple[RegisterField[Any], RegisterSpace]] = {}
-        self._bits: dict[str, BitField] = {}
+        self._bits: dict[str, _BitField] = {}
         self._values: dict[str, Any] = {}
         # repeating_group support (counts read from holding); groups are added by
         # key like any other target. base_offset stays 0 — addresses are absolute.
@@ -57,7 +57,7 @@ class ManualComponent(_ComponentBase):
     def add(
         self,
         key: str,
-        target: RegisterField[Any] | BitField | RepeatingGroupField[Any],
+        target: RegisterField[Any] | _BitField | RepeatingGroupField[Any],
         *,
         space: RegisterSpace | None = None,
     ) -> None:
@@ -75,7 +75,7 @@ class ManualComponent(_ComponentBase):
                 self._groups[key] = self._build_instances(target, 0, target.count)
             else:
                 self._repeating_fields[key] = target
-        elif isinstance(target, BitField):
+        elif isinstance(target, _BitField):
             if space is not None:
                 raise ValueError(
                     "space is fixed by the field type for bits; "

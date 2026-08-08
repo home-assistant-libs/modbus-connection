@@ -12,7 +12,7 @@ from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
 from ._planning import ReadItem, ReadPlan, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
-from .fields import BitField, RegisterField
+from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -33,9 +33,9 @@ class Component(_ComponentBase):
     """Map a device subsystem to typed register and bit attributes."""
 
     _register_fields: dict[str, RegisterField[Any]] = {}
-    _bit_fields: dict[str, BitField] = {}
+    _bit_fields: dict[str, _BitField] = {}
 
-    declared_fields: Mapping[str, RegisterField[Any] | BitField] = MappingProxyType({})
+    declared_fields: Mapping[str, RegisterField[Any] | _BitField] = MappingProxyType({})
     # repeating_group fields, split by count kind: a fixed ``int`` count is static
     # (its instances fold into the normal read like ordinary fields), a
     # ``RegisterField`` count is read at poll time (the two-phase repeating path).
@@ -74,16 +74,16 @@ class Component(_ComponentBase):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
-        bits: dict[str, BitField] = {}
+        bits: dict[str, _BitField] = {}
         static_groups: dict[str, RepeatingGroupField[Any]] = {}
         repeating: dict[str, RepeatingGroupField[Any]] = {}
-        declared: dict[str, RegisterField[Any] | BitField] = {}
+        declared: dict[str, RegisterField[Any] | _BitField] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
                     registers[name] = value
                     declared[name] = value
-                elif isinstance(value, BitField):
+                elif isinstance(value, (CoilField, DiscreteInputField)):
                     bits[name] = value
                     declared[name] = value
                 elif isinstance(value, RepeatingGroupField):
@@ -137,10 +137,10 @@ class Component(_ComponentBase):
             address += self._instance_offset
         return address
 
-    def _address(self, field: RegisterField[Any] | BitField) -> int:
+    def _address(self, field: RegisterField[Any] | _BitField) -> int:
         return self._declared_address(field) + self._base_offset + self._instance_offset
 
-    def _declared_address(self, field: RegisterField[Any] | BitField) -> int:
+    def _declared_address(self, field: RegisterField[Any] | _BitField) -> int:
         """A field's address in declared coordinates (before ``base_offset``).
 
         This is the coordinate system readable ranges are stated in; ``_address``
@@ -257,8 +257,8 @@ class Component(_ComponentBase):
     def _reshaped_ranges(
         self,
         declared: tuple[Range, ...] | None,
-        kept_fields: Iterable[RegisterField[Any] | BitField],
-        dropped_fields: Iterable[RegisterField[Any] | BitField],
+        kept_fields: Iterable[RegisterField[Any] | _BitField],
+        dropped_fields: Iterable[RegisterField[Any] | _BitField],
     ) -> tuple[Range, ...] | None:
         """Reshape one space's ranges to exclude the dropped fields' addresses.
 

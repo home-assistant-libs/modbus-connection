@@ -12,7 +12,6 @@ from .component import (
 )
 from .component_group import ComponentGroup
 from .fields import (
-    BitField,
     CoilField,
     Converter,
     DiscreteInputField,
@@ -41,7 +40,6 @@ from .fields import (
 from .manual import ManualComponent
 
 __all__ = [
-    "BitField",
     "BitSpace",
     "CoilField",
     "Component",

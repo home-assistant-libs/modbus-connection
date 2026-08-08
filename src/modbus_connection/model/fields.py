@@ -24,7 +24,6 @@ from ..decode import (
 from ..encode import encode_float32, encode_float64, encode_int, encode_string
 
 __all__ = [
-    "BitField",
     "CoilField",
     "Converter",
     "DiscreteInputField",
@@ -394,12 +393,8 @@ class Eui48Field(RegisterField[str]):
         return decode_eui48(words)
 
 
-class BitField:
-    """Expose a bit as a component attribute.
-
-    The shared base of ``CoilField`` and ``DiscreteInputField``; ``space``
-    names the bit space the field reads from.
-    """
+class _BitField:
+    """Expose a bit as a component attribute."""
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
     space: ClassVar[BitSpace]  # which bit space this field's address lives in
@@ -431,7 +426,7 @@ class BitField:
         return obj._bits.get(self.name)
 
 
-class CoilField(BitField):
+class CoilField(_BitField):
     """A coil (FC01) exposed as a ``bool | None`` attribute; may be writable."""
 
     space: ClassVar[BitSpace] = "coil"
@@ -447,7 +442,7 @@ class CoilField(BitField):
         self.writable = writable
 
 
-class DiscreteInputField(BitField):
+class DiscreteInputField(_BitField):
     """Expose a discrete input as a read-only attribute."""
 
     space: ClassVar[BitSpace] = "discrete"
