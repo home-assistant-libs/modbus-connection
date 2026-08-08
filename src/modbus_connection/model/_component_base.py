@@ -124,18 +124,28 @@ class _ComponentBase(_Readable):
         """
         if not self._static_groups:
             return own
-        return DeviceRanges.merged(
-            [
-                own,
-                # an instance's own fixed-count groups are merged into its map
-                *(
-                    instance._resolved_ranges()
-                    for name in self._static_groups
-                    for instance in self._groups[name]
-                ),
-            ],
-            whose="a component and its fixed-count instances",
-        )
+        try:
+            return DeviceRanges.merged(
+                [
+                    own,
+                    # an instance's own fixed-count groups are merged into its map
+                    *(
+                        instance._resolved_ranges()
+                        for name in self._static_groups
+                        for instance in self._groups[name]
+                    ),
+                ],
+                whose="a component and its fixed-count instances",
+            )
+        except ValueError as err:
+            # The usual cause is a sub-component that declares the ranges its
+            # parent already covers, so name the fix rather than only the clash.
+            raise ValueError(
+                f"{err}. A fixed-count repeating_group's instances are read from "
+                f"{type(self).__name__}'s own plan, so the sub-component normally "
+                f"leaves its readable ranges unset and lets the parent's map cover "
+                f"the repeated addresses"
+            ) from err
 
     def _invalidate_caches(self) -> None:
         # Owns the group read-target caches; the plan is the base's.
