@@ -22,18 +22,6 @@ The device object:
 4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
 5. exposes `async_update()` plus typed access to each sub-system.
 
-A component some firmware revisions do not serve is probed at setup, and only
-the ones that answered are pooled. Probing costs nothing: the read that
-decides whether a component exists is the read that fills it. Catch only the
-refusal that means *absent* — usually `IllegalDataAddressError`; a busy or
-failing device is transient, and treating that as absent silently drops
-registers a healthy device serves.
-
-Deciding membership at setup is also what makes an optional component free to
-poll. Probe *during* polling instead and it can never join the pooled read —
-one refusal would fail the whole group and take the required values with it —
-so it costs an extra round trip forever.
-
 ```python
 from __future__ import annotations
 
@@ -42,7 +30,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from modbus_connection import IllegalDataAddressError
-from modbus_connection.model import Component, ComponentGroup
+from modbus_connection.model import ComponentGroup
 
 from .sensors import Sensors
 from .controller import Controller
@@ -74,8 +62,7 @@ class Trovis557x:
         self.heating_circuit_2 = HeatingCircuit(unit, index=2)
         self.hot_water = HotWater(unit)
 
-        # Both built by async_setup, once it knows what this device serves.
-        self._polled: tuple[Component, ...] = ()
+        # Built by async_setup, once it knows what this device serves.
         self._group: ComponentGroup | None = None
 
     async def async_setup(self) -> None:
@@ -90,13 +77,7 @@ class Trovis557x:
                 continue  # this firmware does not serve it
             polled.append(component)
 
-        self._polled = tuple(polled)
-        self._group = ComponentGroup(self._unit, self._polled)
-
-    @property
-    def components(self) -> tuple[Component, ...]:
-        """Every actively polled sub-system."""
-        return self._polled
+        self._group = ComponentGroup(self._unit, polled)
 
     async def async_update(self) -> None:
         """Refresh all polled sub-systems in pooled Modbus reads."""
