@@ -120,9 +120,7 @@ over three.
 ### `BitField`, `CoilField`, and `DiscreteInputField`
 
 Bit fields, constructed by [`coil()`](#field-helpers) and
-[`discrete_input()`](#field-helpers). `BitField` is their shared base — the
-type to `isinstance`-check when telling a bit apart from a register in
-`Component.declared_fields`.
+[`discrete_input()`](#field-helpers). `BitField` is their shared base.
 
 ```python
 CoilField(address, *, writable=False, stride=0)

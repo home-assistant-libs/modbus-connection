@@ -397,9 +397,8 @@ class Eui48Field(RegisterField[str]):
 class BitField:
     """Expose a bit as a component attribute.
 
-    The shared base of ``CoilField`` and ``DiscreteInputField`` — and the type
-    to ``isinstance``-check when telling a bit apart from a register in
-    ``Component.declared_fields``. ``space`` names the bit space it reads from.
+    The shared base of ``CoilField`` and ``DiscreteInputField``; ``space``
+    names the bit space the field reads from.
     """
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
