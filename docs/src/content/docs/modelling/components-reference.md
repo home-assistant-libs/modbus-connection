@@ -47,7 +47,7 @@ All are overridable on a subclass (or set per instance).
 `async` — read every field with pooled block reads, decode the values, and
 notify the listeners — unless `notify=False`, for a caller that notifies them
 itself. The read plan is built and cached on the first call.
-Raises [`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror)
+Raises [`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated)
 if the device rejects a block; the update then applies nothing.
 
 #### `async_update_repeating_groups()`
@@ -116,7 +116,7 @@ ComponentGroup(unit, components)
 `async` — refresh every member with pooled block reads, then size and refresh
 each member's register-counted repeating groups. Fires each member's listeners
 unless `notify=False`. Raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror) if
+[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated) if
 the device rejects any block.
 
 #### `async_read_raw()`
@@ -178,7 +178,7 @@ Property — a copy of all decoded values from the last update as
 `async` — read every target with pooled reads and return the decoded values as
 a `dict`; `notify=False` skips the listeners, for a caller that notifies them
 itself. Raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror) if
+[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated) if
 the device rejects a block.
 
 #### `write(key, value)`

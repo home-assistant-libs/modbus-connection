@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import ClassVar
 
@@ -18,6 +19,15 @@ class ExceptionCode(IntEnum):
     MEMORY_PARITY_ERROR = 0x08
     GATEWAY_PATH_UNAVAILABLE = 0x0A
     GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND = 0x0B
+
+
+@dataclass(frozen=True)
+class ReadBlock:
+    """The planned block read an exception response refused."""
+
+    space: str
+    address: int
+    count: int
 
 
 class ModbusError(Exception):
@@ -49,24 +59,35 @@ class ModbusExceptionError(ModbusError):
     ``exception_code`` against magic numbers.
     """
 
-    def __init__(self, exception_code: int | None, message: str | None = None) -> None:
+    def __init__(
+        self,
+        exception_code: int | None,
+        message: str | None = None,
+        *,
+        block: ReadBlock | None = None,
+    ) -> None:
         if (
             exception_code is not None
             and exception_code in ExceptionCode._value2member_map_
         ):
             exception_code = ExceptionCode(exception_code)
         self.exception_code = exception_code
+        # The planned block read this response refused; None for a raw request.
+        self.block = block
         super().__init__(
             message or f"Device returned Modbus exception code {exception_code}"
         )
 
     @staticmethod
     def from_code(
-        exception_code: int | None, message: str | None = None
+        exception_code: int | None,
+        message: str | None = None,
+        *,
+        block: ReadBlock | None = None,
     ) -> ModbusExceptionError:
         """Build the subclass matching ``exception_code``, or the base class."""
         cls = _CODED_ERRORS.get(exception_code, ModbusExceptionError)  # type: ignore[arg-type]
-        return cls(exception_code, message)
+        return cls(exception_code, message, block=block)
 
 
 class _CodedError(ModbusExceptionError):
@@ -75,10 +96,16 @@ class _CodedError(ModbusExceptionError):
     code: ClassVar[ExceptionCode]
 
     def __init__(
-        self, exception_code: int | None = None, message: str | None = None
+        self,
+        exception_code: int | None = None,
+        message: str | None = None,
+        *,
+        block: ReadBlock | None = None,
     ) -> None:
         super().__init__(
-            self.code if exception_code is None else exception_code, message
+            self.code if exception_code is None else exception_code,
+            message,
+            block=block,
         )
 
 
@@ -144,8 +171,10 @@ _CODED_ERRORS: dict[int, type[_CodedError]] = {
 class BlockReadError(ModbusExceptionError):
     """A device rejected one block of a component read.
 
-    Also an instance of the typed subclass matching its code, so
-    ``except IllegalDataAddressError`` catches the block read it refused.
+    Deprecated as a catch target: catch the typed subclass — the raised error
+    is an instance of the one matching its code — and read ``block`` for the
+    refused block, which every ``ModbusExceptionError`` carries. This class
+    and its per-code combinations will be removed in 5.0.
     """
 
     def __new__(
@@ -165,6 +194,7 @@ class BlockReadError(ModbusExceptionError):
             exception_code,
             f"{space} block read at address {address} (count {count}) "
             f"returned Modbus exception code {exception_code}",
+            block=ReadBlock(space, address, count),
         )
 
 

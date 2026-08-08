@@ -34,6 +34,7 @@ from .exceptions import (
     ModbusExceptionError,
     ModbusProtocolError,
     ModbusTimeoutError,
+    ReadBlock,
     ServerDeviceBusyBlockReadError,
     ServerDeviceBusyError,
     ServerDeviceFailureBlockReadError,
@@ -41,6 +42,7 @@ from .exceptions import (
 )
 
 __all__ = [
+    "ReadBlock",
     "AcknowledgeBlockReadError",
     "GatewayPathUnavailableBlockReadError",
     "GatewayTargetBlockReadError",

@@ -11,6 +11,7 @@ from modbus_connection import (
     IllegalDataAddressError,
     IllegalFunctionError,
     ModbusExceptionError,
+    ReadBlock,
     ServerDeviceBusyError,
 )
 from modbus_connection.exceptions import _CODED_ERRORS
@@ -105,3 +106,32 @@ def test_the_combined_classes_are_public() -> None:
     assert type(err) is IllegalDataAddressBlockReadError
     with pytest.raises(IllegalDataAddressBlockReadError):
         raise BlockReadError("holding", 100, 4, 2)
+
+
+def test_block_read_error_carries_the_block_context() -> None:
+    err = BlockReadError("holding", 100, 4, 2)
+    assert err.block == ReadBlock("holding", 100, 4)
+
+
+def test_raw_request_errors_carry_no_block() -> None:
+    assert IllegalDataAddressError().block is None
+    assert ModbusExceptionError.from_code(2).block is None
+
+
+def test_from_code_accepts_a_block() -> None:
+    err = ModbusExceptionError.from_code(2, block=ReadBlock("coil", 8, 1))
+    assert type(err) is IllegalDataAddressError
+    assert err.block == ReadBlock("coil", 8, 1)
+
+
+def test_the_spec_pattern_reads_the_block_off_the_typed_catch() -> None:
+    # The recommended consumer shape: one taxonomy, block as data.
+    try:
+        raise BlockReadError("holding", 100, 4, 2)
+    except IllegalDataAddressError as err:
+        assert err.block is not None
+        assert (err.block.space, err.block.address, err.block.count) == (
+            "holding",
+            100,
+            4,
+        )

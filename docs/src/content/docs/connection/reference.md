@@ -288,9 +288,8 @@ ModbusError
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
 └── ModbusExceptionError            (.exception_code)
-    ├── IllegalFunctionError … GatewayTargetError   (one per standard code)
-    └── BlockReadError              (.space, .address, .count) — device-modelling
-                                    layer; also typed by its code
+    └── IllegalFunctionError … GatewayTargetError   (one per standard code;
+                                    .block set when a component update aborted)
 ```
 
 ### `ModbusError`
@@ -369,21 +368,21 @@ base `ModbusExceptionError`. Each subclass constructs with its code implied —
 `IllegalDataAddressError()` — which is handy for
 [arming the mock](/modbus-connection/patterns/testing/#simulating-a-read-failure).
 
-### `BlockReadError`
+`.block` says *where* the refusal happened: for an exception response that
+aborted a [component update](/modbus-connection/modelling/overview/#when-a-block-read-fails),
+it is the refused `ReadBlock(space, address, count)`; for a raw unit request it
+is `None`. The code answers the Modbus-level question, the block the
+planner-level one — one exception, both facts.
 
-Raised by the [device-modelling layer](/modbus-connection/modelling/overview/), not
-a backend: when a component's pooled `async_update()` hits a Modbus exception
-response on one of its planned block reads, it surfaces as a `BlockReadError`. It
-**subclasses** `ModbusExceptionError`, so `except ModbusExceptionError` catches it and
-`.exception_code` still says why the device refused the read; it adds `.space`,
-`.address`, and `.count` for which block failed. A block read refused with a standard code raises the combined class for that
-code — `IllegalDataAddressBlockReadError`, `ServerDeviceBusyBlockReadError`,
-and so on, one per row of the [table above](#modbusexceptionerror) — which
-subclasses both `BlockReadError` and the matching typed error. So
-`except IllegalDataAddressError` catches the block read the device refused
-(useful for probing which components a firmware serves), and
-`except IllegalDataAddressBlockReadError` catches exactly that combination. See [When a block read
-fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
+### `BlockReadError` (deprecated)
+
+The pre-4.3 catch target for an aborted component update. Still raised — the
+error from a refused block read is an instance of `BlockReadError` *and* of the
+typed class for its code (via per-code combinations such as
+`IllegalDataAddressBlockReadError`) — so existing `except BlockReadError`
+handlers and `.space` / `.address` / `.count` reads keep working. New code
+should catch the typed class and read `.block` instead. `BlockReadError` and
+the per-code combinations will be removed in 5.0.
 
 ## Backend modules
 
