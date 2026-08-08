@@ -13,8 +13,9 @@ from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import UNIT_ID
 
-# ModbusConnection and ModbusUnit are both runtime_checkable Protocols: the
-# backends and the mock satisfy them structurally, at runtime and statically.
+# ModbusConnection is the abstract connection base class — the backends and
+# the mock all subclass it — while ModbusUnit is a runtime_checkable Protocol
+# checked structurally.
 
 
 def _annotated(conn: ModbusConnection, unit: ModbusUnit) -> None:

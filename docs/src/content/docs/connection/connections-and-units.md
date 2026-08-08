@@ -3,8 +3,8 @@ title: Connections and units
 description: Connection ownership, lifecycle, and per-unit handles — and how to configure the transport, TLS, and request spacing.
 ---
 
-The top-level `modbus_connection` package defines the `ModbusConnection` and
-`ModbusUnit` Protocols. It imports no backend.
+The top-level `modbus_connection` package defines the abstract
+`ModbusConnection` and the `ModbusUnit` Protocol. It imports no backend.
 
 ## `ModbusConnection`
 

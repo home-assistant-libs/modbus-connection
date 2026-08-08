@@ -1,12 +1,15 @@
 """Provide backend-neutral Modbus connections, units, and shared types."""
 
 from ._client import (
+    BaseModbusConnection as ModbusConnection,
+)
+from ._client import (
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
     ModbusUdpParams,
 )
-from ._protocol import ModbusConnection, ModbusUnit
+from ._protocol import ModbusUnit
 from ._types import WordOrder
 from .exceptions import (
     BlockReadError,

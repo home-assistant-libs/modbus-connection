@@ -6,10 +6,11 @@ description: The in-memory mock backend — a pytest plugin that implements the 
 An in-memory **mock backend** ships as a `pytest` plugin. It's auto-registered via
 an entry point — no `conftest` wiring — and it implements the same
 `ModbusConnection` / `ModbusUnit` APIs, so code typed against `ModbusUnit`
-runs against it unchanged — statically too: both APIs are Protocols, so a typed
-codebase passes the mock wherever a real connection or unit is annotated, with
-no cast. This is how you test a device library with no hardware and no Home
-Assistant in the loop.
+runs against it unchanged — statically too: the mock connection subclasses the
+real base and the mock unit satisfies the `ModbusUnit` Protocol, so a typed
+codebase passes them wherever a connection or unit is annotated, with no cast.
+This is how you test a device library with no hardware and no Home Assistant in
+the loop.
 
 ## Fixtures
 
@@ -168,8 +169,13 @@ async def test_read_refused(mock_modbus_unit):
 like a coordinator marking entities unavailable. The drop is transient, as it is
 on a real connection: the next request establishes the link again.
 
+Like the real transport hooks, a loss only counts against a live link — the
+mock connects on demand, so establish the link (a first request, or an eager
+`connect()`) before simulating its loss:
+
 ```python
 async def test_reacts_to_a_drop(mock_modbus_connection, mock_modbus_unit):
+    await mock_modbus_unit.read_holding_registers(0, 1)  # link established
     events = []
     mock_modbus_connection.on_connection_lost(lambda: events.append("lost"))
 

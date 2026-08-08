@@ -376,9 +376,19 @@ async def test_fail_read_applies_per_table(mock_modbus_unit: MockModbusUnit) -> 
 # -- connection lifecycle -----------------------------------------------------
 
 
+async def test_connects_on_demand_like_a_real_connection(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    # Construction performs no I/O; the first request establishes the link.
+    assert mock_modbus_connection.connected is False
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
+    assert mock_modbus_connection.connected is True
+
+
 async def test_close_marks_disconnected_and_io_raises(
     mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
 ) -> None:
+    await mock_modbus_connection.connect()
     assert mock_modbus_connection.connected is True
     assert mock_modbus_unit.connected is True
     await mock_modbus_connection.close()
@@ -408,6 +418,7 @@ async def test_connect_is_a_noop_on_an_open_connection(
 async def test_simulate_connection_lost_fires_callbacks(
     mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
 ) -> None:
+    await mock_modbus_connection.connect()  # a loss only counts on a live link
     calls: list[int] = []
     unsub = mock_modbus_unit.on_connection_lost(lambda: calls.append(1))
     mock_modbus_connection.simulate_connection_lost()

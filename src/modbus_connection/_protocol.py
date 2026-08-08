@@ -1,41 +1,9 @@
-"""The backend-neutral ``ModbusConnection`` and ``ModbusUnit`` Protocols."""
+"""The backend-neutral ``ModbusUnit`` Protocol."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
-
-
-@runtime_checkable
-class ModbusConnection(Protocol):
-    """Represent a shared link to a Modbus network.
-
-    A Protocol, like ``ModbusUnit``: the backends' concrete classes and the
-    mock all satisfy it, statically and at runtime.
-    """
-
-    @property
-    def connected(self) -> bool: ...
-
-    def for_unit(self, unit_id: int) -> ModbusUnit:
-        """Return a stateless unit handle bound to ``unit_id``."""
-        ...
-
-    async def connect(self) -> None:
-        """Establish the connection eagerly; a no-op if already connected."""
-        ...
-
-    async def disconnect(self) -> None:
-        """Drop the link; the next request establishes a new one."""
-        ...
-
-    async def close(self) -> None:
-        """Close the connection permanently."""
-        ...
-
-    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        """Register a callback fired when the link drops; returns an unsubscribe."""
-        ...
 
 
 @runtime_checkable
