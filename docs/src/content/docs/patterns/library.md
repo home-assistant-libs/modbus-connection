@@ -17,16 +17,17 @@ The device object:
    owns the connection and hands you a unit.
 2. constructs its sub-systems as [`Component`](/modbus-connection/modelling/overview/)
    instances,
-3. pools them into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
-4. exposes `async_update()` plus typed access to each sub-system.
+3. sets itself up once — reading everything that never changes and settling
+   which components this device serves — from the first `async_update()`,
+4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
+5. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from modbus_connection import IllegalDataAddressError
 from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
@@ -38,43 +39,63 @@ if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
 
+async def _optional[C: Component](component: C) -> C | None:
+    """Read an optional sub-system; None if this device does not have it."""
+    try:
+        await component.async_update()
+    except IllegalDataAddressError:
+        return None
+    return component
+
+
 class Trovis557x:
     """A Samson TROVIS 557x heating controller."""
 
-    def __init__(
-        self,
-        unit: ModbusUnit,
-        *,
-        model: int = 5578,
-        detected_sensors: Iterable[str] = (),
-    ) -> None:
+    def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
-        self.model = model
-        self.detected_sensors = frozenset(detected_sensors)
 
         # Sub-systems, each a Component. Repeated ones take an index.
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
-        self.heating_circuit_2 = HeatingCircuit(unit, index=2)
-        self.hot_water = HotWater(unit)
+        # Optional: filled in by the first update if this model has them.
+        self.heating_circuit_2: HeatingCircuit | None = None
+        self.hot_water: HotWater | None = None
 
-        # One pooled reader for the whole device.
-        self._group = ComponentGroup(unit, self.components)
+        self._group: ComponentGroup | None = None
 
-    @property
-    def components(self) -> tuple[Component, ...]:
-        """Every actively polled sub-system."""
-        return (
-            self.controller,
-            self.sensors,
-            self.heating_circuit_1,
-            self.heating_circuit_2,
-            self.hot_water,
+    async def _async_setup(self) -> None:
+        """Read what never changes, and find which sub-systems this model has.
+
+        Runs from the first ``async_update()``, and again on the next one if
+        the device was unreachable.
+        """
+        await self.controller.async_update()  # identity: read once, never polled
+
+        heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
+        hot_water = await _optional(HotWater(self._unit))
+
+        self.heating_circuit_2 = heating_circuit_2
+        self.hot_water = hot_water
+        self._group = ComponentGroup(
+            self._unit,
+            [
+                c
+                for c in (
+                    self.sensors,
+                    self.heating_circuit_1,
+                    heating_circuit_2,
+                    hot_water,
+                )
+                if c is not None
+            ],
         )
 
     async def async_update(self) -> None:
-        """Refresh all sub-systems in pooled Modbus reads."""
+        """Refresh all polled sub-systems; the first call sets the device up."""
+        if self._group is None:
+            await self._async_setup()
+        assert self._group is not None  # _async_setup() always builds it
         await self._group.async_update()
 ```
 
@@ -98,78 +119,13 @@ async def main() -> None:
 
         print("Outside temperature:", device.sensors.outside_1)
         print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        if device.hot_water is not None:  # absent on some models
+            print("Hot water:", device.hot_water.temperature)
     finally:
         await connection.close()
 
 
 asyncio.run(main())
-```
-
-## A setup probe
-
-A device whose layout depends on its model shouldn't read everything before it
-knows the model. Expose a lightweight **classmethod probe** that reads only the
-identity registers it needs to configure the full object:
-
-```python
-@dataclass(frozen=True)
-class TrovisProbe:
-    model: int
-    detected_sensors: tuple[str, ...]
-
-
-class Trovis557x:
-    @classmethod
-    async def async_probe(cls, unit: ModbusUnit) -> TrovisProbe:
-        """Read only the safe identity + sensor data needed for setup."""
-        model = (await unit.read_holding_registers(0, 1))[0]
-
-        sensors = Sensors(unit)
-        await sensors.async_update()
-
-        return TrovisProbe(model=model, detected_sensors=sensors.detected_sensor_names)
-```
-
-The consumer probes first, then constructs the full device from the result:
-
-```python
-probe = await Trovis557x.async_probe(unit)
-device = Trovis557x(unit, model=probe.model, detected_sensors=probe.detected_sensors)
-await device.async_update()
-```
-
-## Writes behind a switch
-
-Writing to industrial devices is often gated. A common pattern is a global
-"writing enabled" switch the consumer flips explicitly, so a write can never
-happen by accident. Many devices back this with a **lock register** — write `1`
-to unlock writes, `0` to lock them again — so the switch is just a register write:
-
-```python
-# The device's write-enable register (1 = unlocked, 0 = locked).
-_WRITE_LOCK_ADDRESS = 100
-
-
-class Trovis557x:
-    async def async_enable_writing(self) -> None:
-        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 1)
-        self._writing_enabled = True
-
-    async def async_disable_writing(self) -> None:
-        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 0)
-        self._writing_enabled = False
-```
-
-Some devices instead expect an access code rather than a plain `1`; write that
-value to the same register. Either way it's an ordinary Modbus write — no special
-helper needed.
-
-```python
-await device.async_enable_writing()
-try:
-    await device.heating_circuit_1.write("room_setpoint_day", 21.5)
-finally:
-    await device.async_disable_writing()
 ```
 
 ## Principles
@@ -183,3 +139,6 @@ finally:
   calls instead of one per field.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
+- **Decide once, poll forever.** Everything that cannot change between two polls
+  — the model, the static registers, which optional components exist — belongs
+  to setup, so the polling path stays a single call over a fixed group.
