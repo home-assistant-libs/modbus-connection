@@ -31,25 +31,11 @@ firmware, not of the moment — a device that refuses a block on this poll
 refuses it on every poll.
 
 A component some firmware revisions do not serve is therefore probed at setup,
-and only the ones that answered are pooled:
-
-```python
-    async def async_setup(self) -> None:
-        polled = [self.sensors]
-        for component in (self.solar, self.buffer):  # not on every model
-            try:
-                await component.async_update()
-            except IllegalDataAddressError:
-                continue  # this firmware does not serve it
-            polled.append(component)
-
-        self._group = ComponentGroup(self._unit, polled)
-```
-
-Probing costs nothing: the read that decides whether a component exists is the
-read that fills it. Catch only the refusal that means *absent* — usually
-`IllegalDataAddressError`; a busy or failing device is transient, and treating
-that as absent silently drops registers a healthy device serves.
+and only the ones that answered are pooled. Probing costs nothing: the read that
+decides whether a component exists is the read that fills it. Catch only the
+refusal that means *absent* — usually `IllegalDataAddressError`; a busy or
+failing device is transient, and treating that as absent silently drops
+registers a healthy device serves.
 
 Deciding membership at setup is also what makes an optional component free to
 poll. Probe *during* polling instead and it can never join the pooled read —
@@ -63,6 +49,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from modbus_connection import IllegalDataAddressError
 from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
@@ -95,23 +82,29 @@ class Trovis557x:
         self.heating_circuit_2 = HeatingCircuit(unit, index=2)
         self.hot_water = HotWater(unit)
 
-        # Built by async_setup, once it knows what this device serves.
+        # Both built by async_setup, once it knows what this device serves.
+        self._polled: tuple[Component, ...] = ()
         self._group: ComponentGroup | None = None
 
     async def async_setup(self) -> None:
         """Read what never changes, then pool what this device actually polls."""
         await self.controller.async_update()  # identity: read once, never polled
-        self._group = ComponentGroup(self._unit, self.components)
+
+        polled = [self.sensors, self.heating_circuit_1]
+        for component in (self.heating_circuit_2, self.hot_water):  # not on every model
+            try:
+                await component.async_update()
+            except IllegalDataAddressError:
+                continue  # this firmware does not serve it
+            polled.append(component)
+
+        self._polled = tuple(polled)
+        self._group = ComponentGroup(self._unit, self._polled)
 
     @property
     def components(self) -> tuple[Component, ...]:
         """Every actively polled sub-system."""
-        return (
-            self.sensors,
-            self.heating_circuit_1,
-            self.heating_circuit_2,
-            self.hot_water,
-        )
+        return self._polled
 
     async def async_update(self) -> None:
         """Refresh all polled sub-systems in pooled Modbus reads."""
