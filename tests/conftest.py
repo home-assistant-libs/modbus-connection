@@ -15,7 +15,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from modbus_connection import ModbusConnection
+from modbus_connection._client import BaseModbusConnection
 
 from .modbus_server import Datastore, serve_tcp
 
@@ -50,11 +50,13 @@ def full_store() -> Datastore:
     )
 
 
-async def drop_link(conn: ModbusConnection) -> None:
+async def drop_link(conn: BaseModbusConnection) -> None:
     """Down a live connection the way a transport drop does.
 
     The client is cleared and torn down, so the link is down and the next
-    request has to reconnect.
+    request has to reconnect. Typed against the implementation base, not the
+    ModbusConnection Protocol: it reaches the private client machinery the
+    Protocol deliberately does not carry.
     """
     client, conn._client = conn._client, None
     await conn._close_client(client)

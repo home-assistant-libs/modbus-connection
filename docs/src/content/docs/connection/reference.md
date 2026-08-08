@@ -15,7 +15,9 @@ the same name — `modbus_connection.tmodbus.ModbusConnection` and
 and API, so selecting a backend changes only the import. The Protocol is what
 you type against and `isinstance`-check; the backends and the
 [mock](/modbus-connection/patterns/testing/) all satisfy it, statically and at
-runtime.
+runtime. Code tied to one backend's internals — a subclass, or a quirk that
+reaches into the backend client — should annotate that backend's concrete
+class instead.
 
 ```python
 ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
