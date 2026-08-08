@@ -22,16 +22,8 @@ The device object:
 4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
 5. exposes `async_update()` plus typed access to each sub-system.
 
-Setup and polling are two different jobs. Setup runs once: read the static
-registers — serial number, model, firmware versions — and find out which
-components this firmware serves. Polling runs every interval over the fixed set
-setup settled: one call, no capability checks and no "have I read this yet"
-flags. The line holds because a structural refusal is a property of the
-firmware, not of the moment — a device that refuses a block on this poll
-refuses it on every poll.
-
-A component some firmware revisions do not serve is therefore probed at setup,
-and only the ones that answered are pooled. Probing costs nothing: the read that
+A component some firmware revisions do not serve is probed at setup, and only
+the ones that answered are pooled. Probing costs nothing: the read that
 decides whether a component exists is the read that fills it. Catch only the
 refusal that means *absent* — usually `IllegalDataAddressError`; a busy or
 failing device is transient, and treating that as absent silently drops
