@@ -74,14 +74,7 @@ def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
 
 
 class MockModbusConnection(BaseModbusConnection):
-    """Implement ``ModbusConnection`` in memory.
-
-    A real subclass of the connection base, so the whole lifecycle —
-    connect-on-demand, single-flight ``connect()``, ``disconnect()``,
-    permanent ``close()``, ``connect_delay`` — is the real machinery, and the
-    mock satisfies ``ModbusConnection`` annotations statically. Only the
-    backend hooks are stubbed: the "client" is a plain sentinel.
-    """
+    """Implement ``ModbusConnection`` in memory."""
 
     def __init__(self) -> None:
         super().__init__(ModbusTcpParams(host="mock"))
@@ -143,8 +136,6 @@ class MockModbusUnit:
         self.message_spacing = seconds
 
     async def _ensure_connected(self) -> None:
-        # Connect on demand, as the real request wrappers do, so a dropped
-        # link heals on the next request.
         await self._conn.connect()
 
     # -- test configuration helpers -------------------------------------------

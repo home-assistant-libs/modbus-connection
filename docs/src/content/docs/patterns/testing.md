@@ -6,11 +6,8 @@ description: The in-memory mock backend — a pytest plugin that implements the 
 An in-memory **mock backend** ships as a `pytest` plugin. It's auto-registered via
 an entry point — no `conftest` wiring — and it implements the same
 `ModbusConnection` / `ModbusUnit` APIs, so code typed against `ModbusUnit`
-runs against it unchanged — statically too: the mock connection subclasses the
-real base and the mock unit satisfies the `ModbusUnit` Protocol, so a typed
-codebase passes them wherever a connection or unit is annotated, with no cast.
-This is how you test a device library with no hardware and no Home Assistant in
-the loop.
+runs against it unchanged. This is how you test a device library with no hardware
+and no Home Assistant in the loop.
 
 ## Fixtures
 
