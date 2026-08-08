@@ -77,7 +77,7 @@ def _check(response: ModbusPDU) -> ModbusPDU:
     """Raise a neutral exception for an error response."""
     if response.isError():
         if isinstance(response, ExceptionResponse):
-            raise ModbusExceptionError(response.exception_code)
+            raise ModbusExceptionError.from_code(response.exception_code)
         raise ModbusError(f"Modbus request failed: {response}")
     return response
 

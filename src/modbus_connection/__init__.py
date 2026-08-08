@@ -12,16 +12,38 @@ from ._client import (
 from ._protocol import ModbusUnit
 from ._types import WordOrder
 from .exceptions import (
+    AcknowledgeError,
     BlockReadError,
     ClientClosedError,
+    ExceptionCode,
+    GatewayPathUnavailableError,
+    GatewayTargetError,
+    IllegalDataAddressError,
+    IllegalDataValueError,
+    IllegalFunctionError,
+    MemoryParityError,
     ModbusConnectionError,
     ModbusError,
     ModbusExceptionError,
     ModbusProtocolError,
+    ModbusResponseMismatchError,
     ModbusTimeoutError,
+    ServerDeviceBusyError,
+    ServerDeviceFailureError,
 )
 
 __all__ = [
+    "ServerDeviceFailureError",
+    "ServerDeviceBusyError",
+    "ModbusResponseMismatchError",
+    "MemoryParityError",
+    "IllegalFunctionError",
+    "IllegalDataValueError",
+    "IllegalDataAddressError",
+    "GatewayTargetError",
+    "GatewayPathUnavailableError",
+    "ExceptionCode",
+    "AcknowledgeError",
     "BlockReadError",
     "ClientClosedError",
     "ModbusConnection",

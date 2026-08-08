@@ -285,11 +285,13 @@ Import them from the top-level package:
 ```text
 ModbusError
 ├── ModbusConnectionError
-│   └── ClientClosedError     (request on a close()d connection)
-├── ModbusTimeoutError        (also a builtin TimeoutError)
+│   └── ClientClosedError           (request on a close()d connection)
+├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
-└── ModbusExceptionError      (.exception_code)
-    └── BlockReadError        (.space, .address, .count) — device-modelling layer
+│   └── ModbusResponseMismatchError (an answer to a different request)
+└── ModbusExceptionError            (.exception_code)
+    ├── IllegalFunctionError … GatewayTargetError   (one per standard code)
+    └── BlockReadError              (.space, .address, .count) — device-modelling layer
 ```
 
 ### `ModbusError`
@@ -329,22 +331,51 @@ except TimeoutError:  # catches ModbusTimeoutError
 
 ### `ModbusProtocolError`
 
-A reply arrived but was **not a valid frame** — bad CRC/LRC, framing, or a
-mismatched header.
+A reply arrived but **could not be used** — a corrupt frame (bad CRC/LRC,
+framing), or an answer to a different request.
+
+### `ModbusResponseMismatchError`
+
+`ModbusProtocolError` subclass: a **well-formed response that does not answer
+the request that was sent**. The classic cause is a bridge configured to accept
+several simultaneous clients, whose interleaved requests get each other's
+replies — a configuration problem worth telling the user about, where a corrupt
+frame is just a noisy line. Raised by the tmodbus backend, which can tell the
+two apart; pymodbus cannot and raises plain `ModbusProtocolError` for both.
 
 ### `ModbusExceptionError`
 
 The device returned a Modbus **exception response** — it understood the request
-but refused it (illegal address, illegal value, and so on). The raw code is on
-`.exception_code`:
+but refused it. A code with a standard meaning raises the matching subclass, so
+callers branch without magic numbers:
 
 ```python
 try:
     await unit.write_register(40, 99)
-except ModbusExceptionError as err:
-    if err.exception_code == 3:  # illegal data value
-        ...
+except IllegalDataValueError:
+    ...  # the device rejected the value
+except GatewayTargetError:
+    ...  # the bridge is fine; the device behind it is not answering
 ```
+
+| Subclass | Code | Meaning |
+| --- | --- | --- |
+| `IllegalFunctionError` | 1 | The device does not support the function. |
+| `IllegalDataAddressError` | 2 | The device does not serve the address. |
+| `IllegalDataValueError` | 3 | The device rejected a value in the request. |
+| `ServerDeviceFailureError` | 4 | The device failed performing the request. |
+| `AcknowledgeError` | 5 | Accepted, but the device needs time to process. |
+| `ServerDeviceBusyError` | 6 | The device is busy; retry later. |
+| `MemoryParityError` | 8 | Parity error in the device's memory. |
+| `GatewayPathUnavailableError` | 10 | The gateway has no path to the target. |
+| `GatewayTargetError` | 11 | The gateway's target device did not respond. |
+
+`.exception_code` carries the code as an `ExceptionCode` `IntEnum` member when
+it is a standard one (a plain `int` otherwise), so existing
+`err.exception_code == 2` comparisons keep working. An unknown code raises the
+base `ModbusExceptionError`. Each subclass constructs with its code implied —
+`IllegalDataAddressError()` — which is handy for
+[arming the mock](/modbus-connection/patterns/testing/#simulating-a-read-failure).
 
 ### `BlockReadError`
 
