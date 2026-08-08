@@ -122,9 +122,8 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
 
 Constructing a connection performs no I/O and the probe's first read opens the
 link, so the `finally: close()` covers both the reachable and the unreachable
-case. A [setup probe](/modbus-connection/patterns/library/#a-setup-probe) is also
-where you read a stable identifier — a serial number or MAC — to use as the
-entry's unique id.
+case. A config-flow probe is also where you read a stable identifier — a serial
+number or MAC — to use as the entry's unique id.
 
 ## Setting up the entry
 

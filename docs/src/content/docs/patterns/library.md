@@ -25,8 +25,6 @@ The device object:
 ```python
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from modbus_connection import IllegalDataAddressError
@@ -44,16 +42,8 @@ if TYPE_CHECKING:
 class Trovis557x:
     """A Samson TROVIS 557x heating controller."""
 
-    def __init__(
-        self,
-        unit: ModbusUnit,
-        *,
-        model: int = 5578,
-        detected_sensors: Iterable[str] = (),
-    ) -> None:
+    def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
-        self.model = model
-        self.detected_sensors = frozenset(detected_sensors)
 
         # Sub-systems, each a Component. Repeated ones take an index.
         self.controller = Controller(unit)
@@ -125,7 +115,7 @@ async def main() -> None:
     try:
         unit = connection.for_unit(246)
         device = Trovis557x(unit)
-        await device.async_update()  # sets up on the first call
+        await device.async_update()
 
         print("Outside temperature:", device.sensors.outside_1)
         print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
@@ -136,39 +126,6 @@ async def main() -> None:
 
 
 asyncio.run(main())
-```
-
-## A setup probe
-
-A device whose layout depends on its model shouldn't read everything before it
-knows the model. Expose a lightweight **classmethod probe** that reads only the
-identity registers it needs to configure the full object:
-
-```python
-@dataclass(frozen=True)
-class TrovisProbe:
-    model: int
-    detected_sensors: tuple[str, ...]
-
-
-class Trovis557x:
-    @classmethod
-    async def async_probe(cls, unit: ModbusUnit) -> TrovisProbe:
-        """Read only the safe identity + sensor data needed for setup."""
-        model = (await unit.read_holding_registers(0, 1))[0]
-
-        sensors = Sensors(unit)
-        await sensors.async_update()
-
-        return TrovisProbe(model=model, detected_sensors=sensors.detected_sensor_names)
-```
-
-The consumer probes first, then constructs the full device from the result:
-
-```python
-probe = await Trovis557x.async_probe(unit)
-device = Trovis557x(unit, model=probe.model, detected_sensors=probe.detected_sensors)
-await device.async_update()
 ```
 
 ## Writes behind a switch
