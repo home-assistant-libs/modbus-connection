@@ -9,7 +9,7 @@ from ..decode import decode_int
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from ._const import RegisterSpace
-    from .fields import RegisterField, _BitField
+    from .fields import BitField, RegisterField
 
 
 async def write_register_field(
@@ -50,7 +50,7 @@ async def write_register_field(
 
 async def write_bit_field(
     unit: ModbusUnit,
-    field: _BitField,
+    field: BitField,
     address: int,
     value: Any,
     *,
