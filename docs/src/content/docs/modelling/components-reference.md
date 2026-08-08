@@ -47,8 +47,9 @@ All are overridable on a subclass (or set per instance).
 `async` — read every field with pooled block reads, decode the values, and
 notify the listeners — unless `notify=False`, for a caller that notifies them
 itself. The read plan is built and cached on the first call.
-Raises [`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated)
-if the device rejects a block; the update then applies nothing.
+Raises the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
+for the code if the device rejects a block, the refused block on `.block`; the
+update then applies nothing.
 
 #### `async_update_repeating_groups()`
 
@@ -62,8 +63,8 @@ its second pass; call it directly only to refresh the groups alone.
 `async` — run the same reads as `async_update()` (refreshing the fields and
 firing listeners) and additionally return the raw words and bits as
 `{space: {address: value}}`, keyed by the four Modbus spaces (`"holding"`,
-`"input"`, `"coil"`, `"discrete"`) with addresses ascending. Raises
-`BlockReadError` if the device rejects a block.
+`"input"`, `"coil"`, `"discrete"`) with addresses ascending. Raises the typed
+exception if the device rejects a block, like `async_update()`.
 
 #### `write(field, value)`
 
@@ -116,7 +117,7 @@ ComponentGroup(unit, components)
 `async` — refresh every member with pooled block reads, then size and refresh
 each member's register-counted repeating groups. Fires each member's listeners
 unless `notify=False`. Raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated) if
+the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) if
 the device rejects any block.
 
 #### `async_read_raw()`
@@ -178,7 +179,7 @@ Property — a copy of all decoded values from the last update as
 `async` — read every target with pooled reads and return the decoded values as
 a `dict`; `notify=False` skips the listeners, for a caller that notifies them
 itself. Raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror-deprecated) if
+the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) if
 the device rejects a block.
 
 #### `write(key, value)`
