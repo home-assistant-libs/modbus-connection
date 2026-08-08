@@ -197,22 +197,12 @@ on it.
 
 The one case automatic reconnection cannot see is a link that is **up but
 unresponsive** — a bridge that keeps the socket open while the device behind it
-stops answering, so every poll times out against the same dead link. Call
-`disconnect()` when polls keep failing with `ModbusTimeoutError`; the next poll
-establishes a fresh link over the same units and components, so nothing is
-rebuilt and the entry still is not reloaded:
-
-```python
-async def _async_update_data(self) -> None:
-    try:
-        await self.device.async_update()
-        self._timeouts = 0
-    except ModbusTimeoutError:
-        self._timeouts += 1
-        if self._timeouts >= 3:  # a wedged link, not a slow reply
-            await self.connection.disconnect()
-        raise
-```
+stops answering, so every poll times out against the same dead link. Most
+integrations never hit this and need nothing here. If yours is known to — some
+serial-to-network bridges wedge this way — call `disconnect()` once polls keep
+failing with `ModbusTimeoutError`; the next poll establishes a fresh link over
+the same units and components, so nothing is rebuilt and the entry still is not
+reloaded.
 
 ## Reload when the SunSpec map shifts
 
