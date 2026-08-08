@@ -258,6 +258,46 @@ async def test_next_request_reconnects_after_drop(
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+async def test_disconnect_recycles_the_link(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    # disconnect() drops a link the transport still considers healthy — the
+    # recycle for a peer that is up but unresponsive. The connection stays
+    # usable: the same unit handle reconnects on its next request, and no
+    # on_connection_lost callback fires for a deliberate drop.
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    lost: list[None] = []
+    conn.on_connection_lost(lambda: lost.append(None))
+    try:
+        unit = conn.for_unit(UNIT_ID)
+        assert await unit.read_holding_registers(0, 1) == [1234]
+
+        await conn.disconnect()
+        assert conn.connected is False
+        assert lost == []
+
+        assert await unit.read_holding_registers(0, 1) == [1234]
+        assert conn.connected is True
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_disconnect_without_a_link_is_a_noop(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    host, port = modbus_server
+    conn = await _connect(backend, host, port)
+    try:
+        await conn.disconnect()
+        await conn.disconnect()  # idempotent
+        assert conn.connected is False
+    finally:
+        await conn.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 async def test_close_does_not_fire_on_connection_lost(
     modbus_server: tuple[str, int], backend: str
 ) -> None:

@@ -270,6 +270,32 @@ class BaseModbusConnection(ABC):
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
 
+    async def disconnect(self) -> None:
+        """Drop the link; the next request establishes a new one.
+
+        For recycling a link that is up but unusable — a peer that keeps the
+        socket open but stops answering. Unlike ``close()``, the connection
+        stays usable: existing unit handles and components reconnect on their
+        next request. A connection is *lost* when the transport takes it away;
+        this is tearing it down, so ``on_connection_lost`` callbacks do not
+        fire. A no-op when there is no link.
+
+        Raises ``ModbusConnectionError`` if tearing the old link down fails;
+        the link is dropped regardless.
+        """
+        if (task := self._connect_task) is not None:
+            # Wait a shared connect attempt out (shielded, as in close()) so
+            # its client is published and disposed of here rather than leaked.
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+        client = self._client
+        if client is None:
+            return
+        self._client = None
+        await self._close_client(client)
+
     async def close(self) -> None:
         """Close the connection permanently."""
         self._closed = True

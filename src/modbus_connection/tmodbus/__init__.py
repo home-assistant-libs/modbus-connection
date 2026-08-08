@@ -194,8 +194,11 @@ class ModbusConnection(BaseModbusConnection):
         )
 
     def _on_connection_lost(self, exc: Exception | None) -> None:
-        # Our own close() also triggers this hook, which is not a lost connection.
-        if self._closed:
+        # A connection is lost when the transport takes it from us; close() and
+        # disconnect() are us tearing it down, and also trigger this hook. Both
+        # unpublish the client before tearing down, so a hook that finds no
+        # published client is observing our own teardown.
+        if self._closed or self._client is None:
             return
         self._client = None
         self._unit_clients.clear()

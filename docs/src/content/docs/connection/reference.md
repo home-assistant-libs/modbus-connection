@@ -54,8 +54,18 @@ connection.
 #### `on_connection_lost(callback)`
 
 Register a `Callable[[], None]` fired when the link drops; returns an
-unsubscribe callable. A deliberate `close()` is not a lost connection and never
+unsubscribe callable. A connection is **lost** when the transport takes it
+away; `close()` and `disconnect()` are the owner tearing it down, so neither
 fires the callbacks.
+
+#### `disconnect()`
+
+`async` — drop the link; the next request establishes a new one. For recycling
+a link that is up but unusable — a peer that keeps the socket open but stops
+answering. Unlike `close()`, the connection stays usable: existing unit handles
+and components reconnect on their next request. A no-op when there is no link.
+Raises [`ModbusConnectionError`](#modbusconnectionerror) if tearing the old
+link down fails; the link is dropped regardless.
 
 #### `close()`
 

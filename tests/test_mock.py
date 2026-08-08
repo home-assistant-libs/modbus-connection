@@ -348,6 +348,20 @@ async def test_a_dropped_link_heals_on_the_next_request(
     assert mock_modbus_connection.connected is True
 
 
+async def test_disconnect_drops_without_firing_callbacks(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    calls: list[int] = []
+    mock_modbus_unit.on_connection_lost(lambda: calls.append(1))
+
+    await mock_modbus_connection.disconnect()
+    assert mock_modbus_connection.connected is False
+    assert calls == []  # a deliberate drop is not a lost connection
+
+    assert await mock_modbus_unit.read_holding_registers(0, 1) == [0]
+    assert mock_modbus_connection.connected is True
+
+
 async def test_a_dropped_link_stays_dead_once_closed(
     mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
 ) -> None:

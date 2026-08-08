@@ -117,10 +117,10 @@ Read-only address codecs: an `ipaddress.IPv4Address` over two registers, an
 `ipaddress.IPv6Address` over eight, and a colon-separated EUI-48 / MAC string
 over three.
 
-### `CoilField` and `DiscreteInputField`
+### `BitField`, `CoilField`, and `DiscreteInputField`
 
 Bit fields, constructed by [`coil()`](#field-helpers) and
-[`discrete_input()`](#field-helpers).
+[`discrete_input()`](#field-helpers). `BitField` is their shared base.
 
 ```python
 CoilField(address, *, writable=False, stride=0)

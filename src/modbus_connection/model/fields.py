@@ -24,6 +24,7 @@ from ..decode import (
 from ..encode import encode_float32, encode_float64, encode_int, encode_string
 
 __all__ = [
+    "BitField",
     "CoilField",
     "Converter",
     "DiscreteInputField",
@@ -393,8 +394,12 @@ class Eui48Field(RegisterField[str]):
         return decode_eui48(words)
 
 
-class _BitField:
-    """Expose a bit as a component attribute."""
+class BitField:
+    """Expose a bit as a component attribute.
+
+    The shared base of ``CoilField`` and ``DiscreteInputField``; ``space``
+    names the bit space the field reads from.
+    """
 
     name: str = ""  # set by __set_name__ when used as a class descriptor
     space: ClassVar[BitSpace]  # which bit space this field's address lives in
@@ -426,7 +431,7 @@ class _BitField:
         return obj._bits.get(self.name)
 
 
-class CoilField(_BitField):
+class CoilField(BitField):
     """A coil (FC01) exposed as a ``bool | None`` attribute; may be writable."""
 
     space: ClassVar[BitSpace] = "coil"
@@ -442,7 +447,7 @@ class CoilField(_BitField):
         self.writable = writable
 
 
-class DiscreteInputField(_BitField):
+class DiscreteInputField(BitField):
     """Expose a discrete input as a read-only attribute."""
 
     space: ClassVar[BitSpace] = "discrete"
@@ -530,6 +535,7 @@ def uint32(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -543,6 +549,7 @@ def uint32(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         signed=False,
         stride=stride,
         writable=writable,
@@ -556,6 +563,7 @@ def int32(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -569,6 +577,7 @@ def int32(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         signed=True,
         stride=stride,
         writable=writable,
@@ -582,6 +591,7 @@ def float32(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -595,6 +605,7 @@ def float32(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -607,6 +618,7 @@ def uint64(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -620,6 +632,7 @@ def uint64(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         signed=False,
         stride=stride,
         writable=writable,
@@ -633,6 +646,7 @@ def int64(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -646,6 +660,7 @@ def int64(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         signed=True,
         stride=stride,
         writable=writable,
@@ -659,6 +674,7 @@ def float64(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
@@ -672,6 +688,7 @@ def float64(
         word_order=word_order,
         scale=scale,
         offset=offset,
+        nan=nan,
         stride=stride,
         writable=writable,
         unit=unit,

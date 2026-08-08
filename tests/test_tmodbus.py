@@ -131,6 +131,7 @@ async def test_transport_hook_fires_registered_callbacks(
     connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
     conn = connection_to(_FakeClient())
+    await conn.connect()  # a loss only counts against a live link
     calls: list[int] = []
     conn.on_connection_lost(lambda: calls.append(1))
 

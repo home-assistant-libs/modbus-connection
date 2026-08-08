@@ -9,7 +9,7 @@ from ..decode import decode_int16
 from ..exceptions import BlockReadError, ModbusExceptionError
 from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
 from ._ranges import DeviceRanges, _range_of, _validate_ranges
-from .fields import RegisterField, _BitField
+from .fields import BitField, RegisterField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -19,15 +19,15 @@ class ReadItem(NamedTuple):
     """One read target: where to read, what field, and where to store the value."""
 
     address: int  # absolute start address of the field's own registers/bit
-    field: RegisterField[Any] | _BitField
+    field: RegisterField[Any] | BitField
     store: dict[str, Any]  # the component store decoded values land in
     space: Space  # the address space to read this field from
     scale_address: int | None = None  # absolute address of the scale register
 
 
-def _item_field(item: ReadItem) -> RegisterField[Any] | _BitField:
+def _item_field(item: ReadItem) -> RegisterField[Any] | BitField:
     """Return the field stored in a read item."""
-    return cast("RegisterField[Any] | _BitField", item.field)
+    return cast("RegisterField[Any] | BitField", item.field)
 
 
 def _plan_blocks(

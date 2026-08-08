@@ -428,6 +428,21 @@ async def test_static_instance_ranges_conflicting_with_the_parent_raise() -> Non
         Meter(_unit())._build_plan()
 
 
+async def test_a_conflicting_instance_map_says_how_to_fix_it() -> None:
+    """The clash alone does not say which of the two maps should give way."""
+
+    class Channel(Component):
+        register_ranges = ((0, 1),)
+        a = integer(0)
+
+    class Meter(Component):
+        register_ranges = ((0, 30),)
+        channels = repeating_group(2, Channel, stride=10)
+
+    with pytest.raises(ValueError, match="leaves its readable ranges unset"):
+        Meter(_unit())._build_plan()
+
+
 async def test_static_group_without_ranges_follows_the_parent_map() -> None:
     # An instance that declares nothing adds no constraint, so the parent's map
     # still plans its registers.
