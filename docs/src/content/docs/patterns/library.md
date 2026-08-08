@@ -22,8 +22,39 @@ The device object:
 4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
 5. exposes `async_update()` plus typed access to each sub-system.
 
-Steps 3 and 4 are the [two phases](#two-phases-setup-and-polling) below: setup
-decides what to poll, polling is one call over that fixed set.
+Setup and polling are two different jobs. Setup runs once: read the static
+registers — serial number, model, firmware versions — and find out which
+components this firmware serves. Polling runs every interval over the fixed set
+setup settled: one call, no capability checks and no "have I read this yet"
+flags. The line holds because a structural refusal is a property of the
+firmware, not of the moment — a device that refuses a block on this poll
+refuses it on every poll.
+
+A component some firmware revisions do not serve is therefore probed at setup,
+and only the ones that answered are pooled:
+
+```python
+    async def async_setup(self) -> None:
+        polled = [self.sensors]
+        for component in (self.solar, self.buffer):  # not on every model
+            try:
+                await component.async_update()
+            except IllegalDataAddressError:
+                continue  # this firmware does not serve it
+            polled.append(component)
+
+        self._group = ComponentGroup(self._unit, polled)
+```
+
+Probing costs nothing: the read that decides whether a component exists is the
+read that fills it. Catch only the refusal that means *absent* — usually
+`IllegalDataAddressError`; a busy or failing device is transient, and treating
+that as absent silently drops registers a healthy device serves.
+
+Deciding membership at setup is also what makes an optional component free to
+poll. Probe *during* polling instead and it can never join the pooled read —
+one refusal would fail the whole group and take the required values with it —
+so it costs an extra round trip forever.
 
 ```python
 from __future__ import annotations
@@ -115,75 +146,6 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
-
-## Two phases: setup and polling
-
-A device library does two different jobs, and keeping them apart removes most of
-the branching people end up writing:
-
-**Setup runs once.** Read the static registers — serial number, model, firmware
-and hardware versions — and probe whichever components some firmware revisions
-do not serve. Record what answered.
-
-**Polling runs every interval.** One call over a fixed set of components. No
-capability checks, no "have I read this yet" flags, no branches.
-
-The line matters because a structural refusal is a property of the firmware, not
-of the moment: a device that refuses a block on this poll refuses it on every
-poll. Asking once and remembering the answer is both cheaper and simpler than
-tolerating the refusal forever.
-
-```python
-class Device:
-    async def async_setup(self) -> None:
-        """Runs once: read what never changes, and find out what exists."""
-        await self.info.async_update()  # static: read here, never polled
-
-        polled = [self.realtime]
-        for component in (self.battery, self.meter):  # optional on some firmware
-            try:
-                await component.async_update()
-            except (IllegalFunctionError, IllegalDataAddressError):
-                continue  # this firmware does not serve it
-            polled.append(component)
-
-        self._group = ComponentGroup(self._unit, polled)
-
-    async def async_update(self) -> None:
-        """Runs every interval."""
-        await self._group.async_update()
-```
-
-Two consequences worth stating:
-
-- **Static components stay out of the polled group.** They belong to setup. A
-  separate component that setup reads and polling never touches needs no flag.
-- **Probing a component is free.** The read that decides whether it exists is
-  the same read that fills it, so a component that answers is already populated
-  when setup finishes.
-
-Discovering membership at setup is also why an optional component costs nothing
-per poll. If you instead probe *during* polling, the optional components can
-never join the pooled read — one refusal would fail the whole group and take the
-required values with it — so each costs an extra round trip forever.
-
-### Which refusal means "not served"
-
-The device answers a [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror);
-which ones mean the registers are absent is protocol semantics, not device
-policy:
-
-| Refusal | Meaning | At setup |
-| --- | --- | --- |
-| `IllegalFunctionError` (1) | The device does not implement the function code. | Not served — drop it. |
-| `IllegalDataAddressError` (2) | The device does not serve the address. | Not served — drop it. |
-| `IllegalDataValueError` (3) | The request itself was wrong — usually a quantity the device rejects. | Propagate: a bug in the layout. |
-| `ServerDeviceFailureError` (4), `AcknowledgeError` (5), `ServerDeviceBusyError` (6) | The registers exist; the read went wrong or the device is busy. | Propagate: transient, retry later. |
-| Gateway codes (10, 11) | The gateway could not reach the device. | Propagate: nothing was learned about the map. |
-
-Only codes 1 and 2 say something structural. Treating a transient failure as
-"absent" silently drops registers a healthy device serves — so catch those two,
-and let everything else fail setup.
 
 ## A setup probe
 
