@@ -5,13 +5,23 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from tmodbus.exceptions import InvalidResponseError
+from tmodbus.exceptions import (
+    FunctionCodeError,
+    HeaderMismatchError,
+    InvalidResponseError,
+)
+from tmodbus.exceptions import (
+    IllegalDataAddressError as TIllegalDataAddressError,
+)
 from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import (
+    ExceptionCode,
+    IllegalDataAddressError,
     ModbusConnectionError,
     ModbusProtocolError,
+    ModbusResponseMismatchError,
     ModbusTcpParams,
 )
 from modbus_connection.tmodbus import ModbusConnection
@@ -94,6 +104,17 @@ class _InvalidResponseClient(_FakeClient):
         raise InvalidResponseError("bad CRC", response_bytes=b"\x00")
 
 
+class _MismatchClient(_FakeClient):
+    """A unit client answered by a different request's response."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self._error = error
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        raise self._error
+
+
 async def test_invalid_response_maps_to_protocol_error(
     connection_to: Callable[[_FakeClient], ModbusConnection],
 ) -> None:
@@ -101,6 +122,34 @@ async def test_invalid_response_maps_to_protocol_error(
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        HeaderMismatchError("wrong transaction id", response_bytes=b"\x00"),
+        FunctionCodeError("wrong function code", response_bytes=b"\x00"),
+    ],
+)
+async def test_mismatched_response_maps_to_its_own_error(
+    connection_to: Callable[[_FakeClient], ModbusConnection], error: Exception
+) -> None:
+    # A well-formed answer to a different request — a multi-client bridge
+    # interleaving two consumers — is distinguishable from line noise.
+    unit = connection_to(_MismatchClient(error)).for_unit(1)
+
+    with pytest.raises(ModbusResponseMismatchError):
+        await unit.read_holding_registers(0, 1)
+
+
+async def test_exception_response_maps_to_the_typed_subclass(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    unit = connection_to(_MismatchClient(TIllegalDataAddressError(0x03))).for_unit(1)
+
+    with pytest.raises(IllegalDataAddressError) as excinfo:
+        await unit.read_holding_registers(0, 1)
+    assert excinfo.value.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
 
 
 class _DroppingClient(_FakeClient):

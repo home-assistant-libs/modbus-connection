@@ -9,8 +9,8 @@ import pytest
 
 from modbus_connection import (
     ClientClosedError,
+    IllegalDataAddressError,
     ModbusConnection,
-    ModbusExceptionError,
     ModbusTcpParams,
     ModbusUnit,
 )
@@ -108,9 +108,9 @@ async def test_read_device_identification(unit: tuple[str, ModbusUnit, Any]) -> 
 
 async def test_illegal_address_raises(unit: tuple[str, ModbusUnit, Any]) -> None:
     _, u, _ = unit
-    with pytest.raises(ModbusExceptionError) as excinfo:
+    with pytest.raises(IllegalDataAddressError) as excinfo:
         await u.read_holding_registers(9999, 1)
-    assert excinfo.value.exception_code == 2  # illegal data address
+    assert excinfo.value.exception_code == 2  # the pre-enum idiom keeps working
 
 
 # -- connection surface -------------------------------------------------------

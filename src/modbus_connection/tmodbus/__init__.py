@@ -17,6 +17,8 @@ from tmodbus import (
     create_async_udp_client,
 )
 from tmodbus.exceptions import (
+    FunctionCodeError,
+    HeaderMismatchError,
     InvalidResponseError,
     ModbusResponseError,
     TModbusError,
@@ -39,6 +41,7 @@ from ..exceptions import (
     ModbusError,
     ModbusExceptionError,
     ModbusProtocolError,
+    ModbusResponseMismatchError,
     ModbusTimeoutError,
 )
 
@@ -223,10 +226,14 @@ def _map_errors[**P, R](
             raise ModbusConnectionError(str(err)) from err
         except TimeoutError as err:
             raise ModbusTimeoutError(str(err)) from err
+        except (HeaderMismatchError, FunctionCodeError) as err:
+            # A well-formed frame answering a different request — most often a
+            # bridge serving several clients at once — not a corrupt one.
+            raise ModbusResponseMismatchError(str(err)) from err
         except InvalidResponseError as err:
             raise ModbusProtocolError(str(err)) from err
         except ModbusResponseError as err:
-            raise ModbusExceptionError(int(err.error_code)) from err
+            raise ModbusExceptionError.from_code(int(err.error_code)) from err
         except TModbusError as err:
             raise ModbusError(str(err)) from err
 
