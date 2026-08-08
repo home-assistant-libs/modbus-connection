@@ -143,6 +143,7 @@ class MockModbusUnit:
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
         self._read_failures: dict[tuple[ReadRegisterType, int], Exception] = {}
+        self._request_failure: Exception | None = None
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
         self.read_events: list[ReadEvent] = []
@@ -206,6 +207,21 @@ class MockModbusUnit:
         else:
             self._read_failures[key] = error
 
+    def fail_requests(self, error: Exception | None) -> None:
+        """Set the exception raised by every read and write on this unit.
+
+        Models a device that is not answering at all — powered down, unplugged,
+        behind a dead gateway — where no address is special and a test should
+        not have to know which one its caller happens to reach first. Pass
+        ``None`` to let the unit answer again.
+
+        This is about the device, not the link: ``connected`` still follows the
+        connection, and reads are still recorded in ``read_events`` before they
+        raise, so a test can assert what was attempted. Per-address
+        ``fail_read`` and ``fail_write`` continue to apply on top.
+        """
+        self._request_failure = error
+
     def set_response(self, method: str, value: object) -> None:
         """Set a canned response for an operation."""
         self._responses[method] = value
@@ -228,6 +244,8 @@ class MockModbusUnit:
     def _raise_if_write_fails(
         self, register_type: RegisterType, address: int, count: int = 1
     ) -> None:
+        if self._request_failure is not None:
+            raise self._request_failure
         for offset in range(count):
             error = self._write_failures.get((register_type, address + offset))
             if error is not None:
@@ -236,6 +254,8 @@ class MockModbusUnit:
     def _raise_if_read_fails(
         self, register_type: ReadRegisterType, address: int, count: int
     ) -> None:
+        if self._request_failure is not None:
+            raise self._request_failure
         for offset in range(count):
             error = self._read_failures.get((register_type, address + offset))
             if error is not None:
