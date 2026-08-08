@@ -25,6 +25,7 @@ from modbus_connection.model import (
     float64,
     gauge,
     int32,
+    int64,
     integer,
     raw_register,
     repeating_group,
@@ -126,6 +127,78 @@ async def test_an_empty_nan_iterable_means_no_sentinel() -> None:
     dev = Dev(unit)
     await dev.async_update()
     assert dev.value == 0x8000
+
+
+async def test_nan_sentinels_apply_to_multi_register_fields() -> None:
+    """A 32-bit register has a sentinel too, and it spans both words."""
+
+    class Dev(Component):
+        energy = uint32(0, scale=0.1, nan=0xFFFFFFFF, unit="kWh")
+        power = int32(2, nan=0x80000000, unit="W")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xFFFF, 1: 0xFFFF, 2: 0x8000, 3: 0x0000})
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.energy is None
+    assert dev.power is None
+
+
+async def test_a_signed_sentinel_leaves_a_real_negative_alone() -> None:
+    """0xFFFFFFFF is -1 W to a signed field, not 'no value'."""
+
+    class Dev(Component):
+        power = int32(0, nan=0x80000000, unit="W")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xFFFF, 1: 0xFFFF})
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.power == -1
+
+
+async def test_nan_sentinels_apply_to_float_fields() -> None:
+    """Some devices mark a float unimplemented with all ones rather than a NaN."""
+
+    class Dev(Component):
+        pressure = float32(0, nan=0xFFFFFFFF, unit="bar")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xFFFF, 1: 0xFFFF})
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.pressure is None
+
+
+async def test_nan_sentinels_apply_to_64_bit_fields() -> None:
+    class Dev(Component):
+        counter = uint64(0, nan=0xFFFFFFFFFFFFFFFF)
+        offset = int64(4, nan=0x8000000000000000)
+        reading = float64(8, nan=0xFFFFFFFFFFFFFFFF)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(dict.fromkeys(range(0, 4), 0xFFFF))
+    unit.holding.update({4: 0x8000, 5: 0, 6: 0, 7: 0})
+    unit.holding.update(dict.fromkeys(range(8, 12), 0xFFFF))
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.counter is None
+    assert dev.offset is None
+    assert dev.reading is None
+
+
+async def test_a_sentinel_is_the_assembled_value_not_the_wire_order() -> None:
+    """The sentinel is compared after the words are combined, so it reads the
+    same whichever way round the device sends them."""
+
+    class Dev(Component):
+        energy = uint32(0, word_order="little", nan=0xDEADBEEF)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 0xBEEF, 1: 0xDEAD})  # low word first
+    dev = Dev(unit)
+    await dev.async_update()
+    assert dev.energy is None
 
 
 async def test_fractional_scale_above_one_rounds_not_truncates() -> None:
