@@ -142,7 +142,18 @@ _CODED_ERRORS: dict[int, type[_CodedError]] = {
 
 
 class BlockReadError(ModbusExceptionError):
-    """A device rejected one block of a component read."""
+    """A device rejected one block of a component read.
+
+    Also an instance of the typed subclass matching its code, so
+    ``except IllegalDataAddressError`` catches the block read it refused.
+    """
+
+    def __new__(
+        cls, space: str, address: int, count: int, exception_code: int | None
+    ) -> BlockReadError:
+        if cls is BlockReadError:
+            cls = _BLOCK_READ_ERRORS.get(exception_code, cls)  # type: ignore[arg-type]
+        return super().__new__(cls)
 
     def __init__(
         self, space: str, address: int, count: int, exception_code: int | None
@@ -155,3 +166,15 @@ class BlockReadError(ModbusExceptionError):
             f"{space} block read at address {address} (count {count}) "
             f"returned Modbus exception code {exception_code}",
         )
+
+
+_BLOCK_READ_ERRORS: dict[int, type[BlockReadError]] = {}
+for _code, _cls in _CODED_ERRORS.items():
+    _sub = type(
+        f"_BlockRead{_cls.__name__}",
+        (BlockReadError, _cls),
+        {"__module__": __name__, "__doc__": BlockReadError.__doc__},
+    )
+    globals()[_sub.__name__] = _sub  # importable by name, so pickling works
+    _BLOCK_READ_ERRORS[_code] = _sub
+del _code, _cls, _sub

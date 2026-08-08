@@ -69,3 +69,29 @@ def test_block_read_error_still_carries_its_code() -> None:
 
 def test_coded_registry_covers_every_enum_member() -> None:
     assert set(_CODED_ERRORS) == set(ExceptionCode)
+
+
+def test_block_read_error_is_the_typed_class_for_its_code() -> None:
+    err = BlockReadError("holding", 100, 4, 2)
+    assert isinstance(err, IllegalDataAddressError)
+    assert isinstance(err, BlockReadError)
+    assert err.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
+    assert (err.space, err.address, err.count) == ("holding", 100, 4)
+
+
+def test_block_read_error_is_catchable_as_the_typed_class() -> None:
+    with pytest.raises(IllegalDataAddressError):
+        raise BlockReadError("holding", 100, 4, 2)
+
+
+def test_every_standard_code_types_the_block_read_error() -> None:
+    for code in ExceptionCode:
+        err = BlockReadError("holding", 0, 1, code)
+        assert isinstance(err, _CODED_ERRORS[code]), code
+
+
+def test_block_read_error_with_unknown_code_stays_plain() -> None:
+    for code in (0, 7, 0x55, None):
+        err = BlockReadError("holding", 0, 1, code)
+        assert type(err) is BlockReadError
+        assert err.exception_code == code

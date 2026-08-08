@@ -289,7 +289,8 @@ ModbusError
 ├── ModbusProtocolError
 └── ModbusExceptionError            (.exception_code)
     ├── IllegalFunctionError … GatewayTargetError   (one per standard code)
-    └── BlockReadError              (.space, .address, .count) — device-modelling layer
+    └── BlockReadError              (.space, .address, .count) — device-modelling
+                                    layer; also typed by its code
 ```
 
 ### `ModbusError`
@@ -375,7 +376,10 @@ a backend: when a component's pooled `async_update()` hits a Modbus exception
 response on one of its planned block reads, it surfaces as a `BlockReadError`. It
 **subclasses** `ModbusExceptionError`, so `except ModbusExceptionError` catches it and
 `.exception_code` still says why the device refused the read; it adds `.space`,
-`.address`, and `.count` for which block failed. See [When a block read
+`.address`, and `.count` for which block failed. It is also an instance of the
+[typed subclass](#modbusexceptionerror) matching its code, so
+`except IllegalDataAddressError` catches the block read the device refused —
+useful for probing which components a firmware serves. See [When a block read
 fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
 
 ## Backend modules
