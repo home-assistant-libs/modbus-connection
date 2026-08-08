@@ -52,7 +52,9 @@ Which fields to keep is **up to you** — the library deliberately doesn't decid
 because how a device reveals its layout is device-specific. Two common approaches:
 
 - **Probe once at setup** — read each declared range, falling back to
-  single-register reads on a refusal, and keep the fields that answered.
+  single-register reads on a refusal, and keep the fields that answered. This
+  belongs to a library's [setup phase](/modbus-connection/patterns/library/#two-phases-setup-and-polling),
+  not its polling path.
 - **Look it up** — if the device reports a model or firmware version somewhere, map
   that to a known field set.
 
