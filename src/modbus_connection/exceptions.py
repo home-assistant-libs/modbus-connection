@@ -37,19 +37,8 @@ class ModbusTimeoutError(ModbusError, TimeoutError):
 
 
 class ModbusProtocolError(ModbusError):
-    """A response could not be used: corrupt frame, or an answer to a different
-    request (see ``ModbusResponseMismatchError``)."""
-
-
-class ModbusResponseMismatchError(ModbusProtocolError):
-    """A well-formed response that does not answer the request that was sent.
-
-    The classic cause is a bridge configured to accept several simultaneous
-    clients, whose interleaved requests get each other's replies. Raised by the
-    tmodbus backend, which can tell a mismatched response from a corrupt one;
-    the pymodbus backend cannot and raises plain ``ModbusProtocolError`` for
-    both.
-    """
+    """A response could not be used: a corrupt frame, or a well-formed answer
+    to a different request than the one sent."""
 
 
 class ModbusExceptionError(ModbusError):

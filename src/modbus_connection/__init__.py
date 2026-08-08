@@ -26,7 +26,6 @@ from .exceptions import (
     ModbusError,
     ModbusExceptionError,
     ModbusProtocolError,
-    ModbusResponseMismatchError,
     ModbusTimeoutError,
     ServerDeviceBusyError,
     ServerDeviceFailureError,
@@ -35,7 +34,6 @@ from .exceptions import (
 __all__ = [
     "ServerDeviceFailureError",
     "ServerDeviceBusyError",
-    "ModbusResponseMismatchError",
     "MemoryParityError",
     "IllegalFunctionError",
     "IllegalDataValueError",
