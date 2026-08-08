@@ -13,9 +13,20 @@ from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import UNIT_ID
 
-# ModbusConnection is the abstract connection base class (both backend
-# connections subclass it; the mock is a registered virtual subclass), while
-# ModbusUnit is a runtime_checkable Protocol checked on live instances.
+# ModbusConnection is the abstract connection base class — the backends and
+# the mock all subclass it — while ModbusUnit is a runtime_checkable Protocol
+# checked structurally.
+
+
+def _annotated(conn: ModbusConnection, unit: ModbusUnit) -> None:
+    """Exists to be type-checked: the mock fits the public annotations."""
+
+
+def test_mock_satisfies_the_annotations_statically() -> None:
+    # The body is the assertion — mypy fails this file if the mock stops
+    # fitting the Protocols (issue #121's cast-at-every-seam problem).
+    mock = MockModbusConnection()
+    _annotated(mock, mock.for_unit(1))
 
 
 async def test_pymodbus_instances_satisfy_protocols(

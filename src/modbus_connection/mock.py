@@ -6,9 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ._callbacks import CallbackRegistry
-from ._client import BaseModbusConnection
-from .exceptions import ClientClosedError
+from ._client import BaseModbusConnection, ModbusTcpParams
 
 __all__ = [
     "CoilSpec",
@@ -75,40 +73,23 @@ def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
     return [bool(materialized.get(address + i, False)) for i in range(count)]
 
 
-class MockModbusConnection:
+class MockModbusConnection(BaseModbusConnection):
     """Implement ``ModbusConnection`` in memory."""
 
     def __init__(self) -> None:
+        super().__init__(ModbusTcpParams(host="mock"))
         self._units: dict[int, MockModbusUnit] = {}
-        self._link_up = True
-        self._closed = False
-        self._lost_callbacks = CallbackRegistry()
 
-    @property
-    def connected(self) -> bool:
-        return self._link_up and not self._closed
+    async def _connect_client(self) -> object:
+        return object()
+
+    async def _close_client(self, client: object) -> None:
+        pass
 
     def for_unit(self, unit_id: int) -> MockModbusUnit:
         if unit_id not in self._units:
             self._units[unit_id] = MockModbusUnit(self, unit_id)
         return self._units[unit_id]
-
-    def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
-        return self._lost_callbacks.subscribe(callback)
-
-    async def connect(self) -> None:
-        """Establish the link, as a real connection's eager ``connect()`` does.
-
-        Raises ``ClientClosedError`` if the connection was closed.
-        """
-        self._establish()
-
-    async def disconnect(self) -> None:
-        """Drop the link without firing callbacks; the next request reconnects."""
-        self._link_up = False
-
-    async def close(self) -> None:
-        self._closed = True
 
     def simulate_connection_lost(self) -> None:
         """Drop the link and fire every ``on_connection_lost`` callback.
@@ -116,18 +97,8 @@ class MockModbusConnection:
         The drop is transient, as it is on a real connection: the next request
         establishes the link again.
         """
-        self._link_up = False
+        self._client = None
         self._lost_callbacks.fire()
-
-    def _establish(self) -> None:
-        if self._closed:
-            raise ClientClosedError("connection is closed")
-        self._link_up = True
-
-
-# The mock stands in for a real connection without subclassing the base;
-# registering it keeps isinstance(mock, ModbusConnection) checks working.
-BaseModbusConnection.register(MockModbusConnection)
 
 
 class MockModbusUnit:
@@ -161,9 +132,8 @@ class MockModbusUnit:
             raise ValueError("message_spacing must be non-negative")
         self.message_spacing = seconds
 
-    def _ensure_connected(self) -> None:
-        # Connect on demand, so a dropped link heals on the next request.
-        self._conn._establish()
+    async def _ensure_connected(self) -> None:
+        await self._conn.connect()
 
     # -- test configuration helpers -------------------------------------------
 
@@ -261,11 +231,11 @@ class MockModbusUnit:
             if error is not None:
                 raise error
 
-    def _dispatch_read(
+    async def _dispatch_read(
         self, register_type: ReadRegisterType, address: int, count: int
     ) -> None:
         """Connect, record the block, then apply any configured read failure."""
-        self._ensure_connected()
+        await self._ensure_connected()
         self.read_events.append(ReadEvent(register_type, address, count))
         self._raise_if_read_fails(register_type, address, count)
 
@@ -285,21 +255,21 @@ class MockModbusUnit:
     # -- raw register I/O -----------------------------------------------------
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
-        self._dispatch_read("holding", address, count)
+        await self._dispatch_read("holding", address, count)
         return _read_registers(self.holding, address, count)
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
-        self._dispatch_read("input", address, count)
+        await self._dispatch_read("input", address, count)
         return _read_registers(self.input, address, count)
 
     async def write_register(self, address: int, value: int) -> None:
-        self._ensure_connected()
+        await self._ensure_connected()
         self._raise_if_write_fails("holding", address)
         self.holding[address] = int(value)
         self._fire_write(WriteEvent("holding", address, [int(value)], 0x06))
 
     async def write_registers(self, address: int, values: list[int]) -> None:
-        self._ensure_connected()
+        await self._ensure_connected()
         ints = [int(v) for v in values]
         self._raise_if_write_fails("holding", address, len(ints))
         for offset, value in enumerate(ints):
@@ -309,21 +279,21 @@ class MockModbusUnit:
     # -- raw coil / discrete-input I/O ----------------------------------------
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
-        self._dispatch_read("coil", address, count)
+        await self._dispatch_read("coil", address, count)
         return _read_bits(self.coils, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        self._dispatch_read("discrete_input", address, count)
+        await self._dispatch_read("discrete_input", address, count)
         return _read_bits(self.discrete_inputs, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:
-        self._ensure_connected()
+        await self._ensure_connected()
         self._raise_if_write_fails("coil", address)
         self.coils[address] = bool(value)
         self._fire_write(WriteEvent("coil", address, [bool(value)], 0x05))
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
-        self._ensure_connected()
+        await self._ensure_connected()
         bools = [bool(v) for v in values]
         self._raise_if_write_fails("coil", address, len(bools))
         for offset, value in enumerate(bools):
@@ -335,7 +305,7 @@ class MockModbusUnit:
     async def mask_write_register(
         self, address: int, and_mask: int, or_mask: int
     ) -> None:  # 0x16
-        self._ensure_connected()
+        await self._ensure_connected()
         self._raise_if_write_fails("holding", address)
         current = _read_registers(self.holding, address, 1)[0]
         new = (current & and_mask) | (or_mask & ~and_mask)
@@ -353,43 +323,43 @@ class MockModbusUnit:
         return await self.read_holding_registers(read_address, read_count)
 
     async def read_exception_status(self) -> int:  # 0x07
-        self._ensure_connected()
+        await self._ensure_connected()
         return int(self._canned("read_exception_status"))
 
     async def report_server_id(self) -> bytes:  # 0x11
-        self._ensure_connected()
+        await self._ensure_connected()
         return bytes(self._canned("report_server_id"))
 
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
-        self._ensure_connected()
+        await self._ensure_connected()
         return list(self._canned("read_fifo_queue"))
 
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
-        self._ensure_connected()
+        await self._ensure_connected()
         return dict(self._canned("read_device_identification"))
 
     async def read_file_record(
         self, file: int, record: int, length: int
     ) -> list[int]:  # 0x14
-        self._ensure_connected()
+        await self._ensure_connected()
         return list(self._canned("read_file_record"))
 
     async def write_file_record(
         self, file: int, record: int, values: list[int]
     ) -> None:  # 0x15
-        self._ensure_connected()
+        await self._ensure_connected()
 
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
-        self._ensure_connected()
+        await self._ensure_connected()
         return int(self._canned("diagnostics"))
 
     async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
-        self._ensure_connected()
+        await self._ensure_connected()
         status, count = self._canned("get_comm_event_counter")
         return int(status), int(count)
 
     async def get_comm_event_log(self) -> bytes:  # 0x0C
-        self._ensure_connected()
+        await self._ensure_connected()
         return bytes(self._canned("get_comm_event_log"))
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
