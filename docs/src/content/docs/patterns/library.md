@@ -68,9 +68,7 @@ class Trovis557x:
         """Read what never changes, and find which sub-systems this model has.
 
         Runs from the first ``async_update()``, and again on the next one if
-        the device was unreachable — which is why nothing is kept until every
-        probe has answered. Private: a second run after a successful one would
-        rebuild the sub-systems and discard everything polled into them.
+        the device was unreachable.
         """
         await self.controller.async_update()  # identity: read once, never polled
 
@@ -128,40 +126,6 @@ async def main() -> None:
 
 
 asyncio.run(main())
-```
-
-## Writes behind a switch
-
-Writing to industrial devices is often gated. A common pattern is a global
-"writing enabled" switch the consumer flips explicitly, so a write can never
-happen by accident. Many devices back this with a **lock register** — write `1`
-to unlock writes, `0` to lock them again — so the switch is just a register write:
-
-```python
-# The device's write-enable register (1 = unlocked, 0 = locked).
-_WRITE_LOCK_ADDRESS = 100
-
-
-class Trovis557x:
-    async def async_enable_writing(self) -> None:
-        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 1)
-        self._writing_enabled = True
-
-    async def async_disable_writing(self) -> None:
-        await self._unit.write_register(_WRITE_LOCK_ADDRESS, 0)
-        self._writing_enabled = False
-```
-
-Some devices instead expect an access code rather than a plain `1`; write that
-value to the same register. Either way it's an ordinary Modbus write — no special
-helper needed.
-
-```python
-await device.async_enable_writing()
-try:
-    await device.heating_circuit_1.write("room_setpoint_day", 21.5)
-finally:
-    await device.async_disable_writing()
 ```
 
 ## Principles
