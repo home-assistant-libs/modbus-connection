@@ -180,7 +180,9 @@ async def test_reacts_to_a_drop(mock_modbus_connection, mock_modbus_unit):
 ```
 
 `close()` behaves like the real thing too: it is permanent, does not fire the
-callbacks, and later requests raise `ClientClosedError`.
+callbacks, and later requests raise `ClientClosedError`. `disconnect()` also
+matches the real connection — it drops the link without firing the callbacks,
+and the next request reconnects.
 
 ## Canned responses for the other operations
 

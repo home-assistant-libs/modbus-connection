@@ -188,8 +188,10 @@ class ModbusConnection(BaseModbusConnection):
         )
 
     def _on_connection_lost(self, exc: Exception | None) -> None:
-        # Our own close() also triggers this hook, which is not a lost connection.
-        if self._closed:
+        # Our own close() and disconnect() also trigger this hook; with no
+        # published client there is nothing to lose, so only a drop of the
+        # live link counts.
+        if self._closed or self._client is None:
             return
         self._client = None
         self._unit_clients.clear()

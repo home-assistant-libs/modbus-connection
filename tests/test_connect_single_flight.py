@@ -109,3 +109,25 @@ async def test_close_during_connect_closes_new_client_without_resurrection() -> 
     assert conn.close_calls == 1  # the just-connected client was disposed
     with pytest.raises(ClientClosedError):
         await conn.connect()
+
+
+async def test_disconnect_waits_out_and_drops_an_in_flight_connect() -> None:
+    conn = _GatedConnection()
+    connecting = asyncio.create_task(conn.connect())
+    await conn.started.wait()
+
+    disconnecting = asyncio.create_task(conn.disconnect())
+    await asyncio.sleep(0)
+    assert disconnecting.done() is False  # waits the shared attempt out
+    conn.release.set()
+
+    await connecting  # the flight itself succeeded for its callers
+    await disconnecting
+
+    assert conn.connected is False  # ...but the client was then dropped
+    assert conn.close_calls == 1
+    # Not closed: connecting again establishes a fresh link.
+    conn.release.set()
+    await conn.connect()
+    assert conn.connected is True
+    assert conn.connect_calls == 2
