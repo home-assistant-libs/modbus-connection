@@ -90,7 +90,42 @@ class ModbusExceptionError(ModbusError):
         return cls(exception_code, message, block=block)
 
 
-class _CodedError(ModbusExceptionError):
+class BlockReadError(ModbusExceptionError):
+    """A device rejected one block of a component read.
+
+    Deprecated as a catch target: every typed subclass inherits it, so existing
+    ``except BlockReadError`` handlers keep working, but new code should catch
+    the typed class and read ``block``.
+    """
+
+    def __init__(
+        self, space: str, address: int, count: int, exception_code: int | None
+    ) -> None:
+        ModbusExceptionError.__init__(
+            self,
+            exception_code,
+            f"{space} block read at address {address} (count {count}) "
+            f"returned Modbus exception code {exception_code}",
+            block=ReadBlock(space, address, count),
+        )
+
+    @property
+    def space(self) -> str | None:
+        """Deprecated: read ``block.space``."""
+        return self.block.space if self.block else None
+
+    @property
+    def address(self) -> int | None:
+        """Deprecated: read ``block.address``."""
+        return self.block.address if self.block else None
+
+    @property
+    def count(self) -> int | None:
+        """Deprecated: read ``block.count``."""
+        return self.block.count if self.block else None
+
+
+class _CodedError(BlockReadError):
     """A Modbus exception response with a fixed, standard code."""
 
     code: ClassVar[ExceptionCode]
@@ -102,7 +137,9 @@ class _CodedError(ModbusExceptionError):
         *,
         block: ReadBlock | None = None,
     ) -> None:
-        super().__init__(
+        # Skip BlockReadError's legacy signature; it is only a catch target.
+        ModbusExceptionError.__init__(
+            self,
             self.code if exception_code is None else exception_code,
             message,
             block=block,
@@ -165,86 +202,4 @@ class GatewayTargetError(_CodedError):
 
 _CODED_ERRORS: dict[int, type[_CodedError]] = {
     cls.code: cls for cls in _CodedError.__subclasses__()
-}
-
-
-class BlockReadError(ModbusExceptionError):
-    """A device rejected one block of a component read.
-
-    Deprecated as a catch target: catch the typed subclass — the raised error
-    is an instance of the one matching its code — and read ``block`` for the
-    refused block, which every ``ModbusExceptionError`` carries. This class
-    and its per-code combinations will be removed in 5.0.
-    """
-
-    def __new__(
-        cls, space: str, address: int, count: int, exception_code: int | None
-    ) -> BlockReadError:
-        if cls is BlockReadError:
-            cls = _BLOCK_READ_ERRORS.get(exception_code, cls)  # type: ignore[arg-type]
-        return super().__new__(cls)
-
-    def __init__(
-        self, space: str, address: int, count: int, exception_code: int | None
-    ) -> None:
-        self.space = space
-        self.address = address
-        self.count = count
-        super().__init__(
-            exception_code,
-            f"{space} block read at address {address} (count {count}) "
-            f"returned Modbus exception code {exception_code}",
-            block=ReadBlock(space, address, count),
-        )
-
-
-class IllegalFunctionBlockReadError(BlockReadError, IllegalFunctionError):
-    """A block read refused with code 1."""
-
-
-class IllegalDataAddressBlockReadError(BlockReadError, IllegalDataAddressError):
-    """A block read refused with code 2 — the device does not serve the block."""
-
-
-class IllegalDataValueBlockReadError(BlockReadError, IllegalDataValueError):
-    """A block read refused with code 3."""
-
-
-class ServerDeviceFailureBlockReadError(BlockReadError, ServerDeviceFailureError):
-    """A block read refused with code 4."""
-
-
-class AcknowledgeBlockReadError(BlockReadError, AcknowledgeError):
-    """A block read answered with code 5."""
-
-
-class ServerDeviceBusyBlockReadError(BlockReadError, ServerDeviceBusyError):
-    """A block read refused with code 6."""
-
-
-class MemoryParityBlockReadError(BlockReadError, MemoryParityError):
-    """A block read refused with code 8."""
-
-
-class GatewayPathUnavailableBlockReadError(BlockReadError, GatewayPathUnavailableError):
-    """A block read refused with code 10."""
-
-
-class GatewayTargetBlockReadError(BlockReadError, GatewayTargetError):
-    """A block read refused with code 11 — the gateway's target did not respond."""
-
-
-_BLOCK_READ_ERRORS: dict[int, type[BlockReadError]] = {
-    cls.code: cls
-    for cls in (
-        IllegalFunctionBlockReadError,
-        IllegalDataAddressBlockReadError,
-        IllegalDataValueBlockReadError,
-        ServerDeviceFailureBlockReadError,
-        AcknowledgeBlockReadError,
-        ServerDeviceBusyBlockReadError,
-        MemoryParityBlockReadError,
-        GatewayPathUnavailableBlockReadError,
-        GatewayTargetBlockReadError,
-    )
 }

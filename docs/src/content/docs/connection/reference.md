@@ -288,7 +288,8 @@ ModbusError
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
 └── ModbusExceptionError            (.exception_code)
-    └── IllegalFunctionError … GatewayTargetError   (one per standard code;
+    └── BlockReadError              (deprecated catch target)
+        └── IllegalFunctionError … GatewayTargetError   (one per standard code;
                                     .block set when a component update aborted)
 ```
 
@@ -376,13 +377,10 @@ planner-level one — one exception, both facts.
 
 ### `BlockReadError` (deprecated)
 
-The pre-4.3 catch target for an aborted component update. Still raised — the
-error from a refused block read is an instance of `BlockReadError` *and* of the
-typed class for its code (via per-code combinations such as
-`IllegalDataAddressBlockReadError`) — so existing `except BlockReadError`
-handlers and `.space` / `.address` / `.count` reads keep working. New code
-should catch the typed class and read `.block` instead. `BlockReadError` and
-the per-code combinations will be removed in 5.0.
+The older catch target for an aborted component update. Every typed subclass
+inherits it, so existing `except BlockReadError` handlers keep catching, and
+`.space` / `.address` / `.count` still read (from `.block`; `None` on a raw
+request error). New code should catch the typed class and read `.block`.
 
 ## Backend modules
 
