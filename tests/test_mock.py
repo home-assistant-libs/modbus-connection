@@ -418,7 +418,6 @@ async def test_connect_is_a_noop_on_an_open_connection(
 async def test_simulate_connection_lost_fires_callbacks(
     mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
 ) -> None:
-    await mock_modbus_connection.connect()  # a loss only counts on a live link
     calls: list[int] = []
     unsub = mock_modbus_unit.on_connection_lost(lambda: calls.append(1))
     mock_modbus_connection.simulate_connection_lost()

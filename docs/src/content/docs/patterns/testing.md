@@ -166,12 +166,8 @@ async def test_read_refused(mock_modbus_unit):
 like a coordinator marking entities unavailable. The drop is transient, as it is
 on a real connection: the next request establishes the link again.
 
-Like the real transport hooks, a loss only counts against a live link — the
-mock connects on demand, so establish the link before simulating its loss:
-
 ```python
 async def test_reacts_to_a_drop(mock_modbus_connection, mock_modbus_unit):
-    await mock_modbus_connection.connect()
     events = []
     mock_modbus_connection.on_connection_lost(lambda: events.append("lost"))
 

@@ -95,11 +95,8 @@ class MockModbusConnection(BaseModbusConnection):
         """Drop the link and fire every ``on_connection_lost`` callback.
 
         The drop is transient, as it is on a real connection: the next request
-        establishes the link again. Like the real transport hooks, a loss only
-        counts against a live link — with no link this is a no-op.
+        establishes the link again.
         """
-        if self._closed or self._client is None:
-            return
         self._client = None
         self._lost_callbacks.fire()
 
