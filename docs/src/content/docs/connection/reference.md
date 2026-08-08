@@ -287,7 +287,6 @@ ModbusError
 │   └── ClientClosedError           (request on a close()d connection)
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
-│   └── ModbusResponseMismatchError (an answer to a different request)
 └── ModbusExceptionError            (.exception_code)
     ├── IllegalFunctionError … GatewayTargetError   (one per standard code)
     └── BlockReadError              (.space, .address, .count) — device-modelling layer
@@ -331,16 +330,9 @@ except TimeoutError:  # catches ModbusTimeoutError
 ### `ModbusProtocolError`
 
 A reply arrived but **could not be used** — a corrupt frame (bad CRC/LRC,
-framing), or an answer to a different request.
-
-### `ModbusResponseMismatchError`
-
-`ModbusProtocolError` subclass: a **well-formed response that does not answer
-the request that was sent**. The classic cause is a bridge configured to accept
-several simultaneous clients, whose interleaved requests get each other's
-replies — a configuration problem worth telling the user about, where a corrupt
-frame is just a noisy line. Raised by the tmodbus backend, which can tell the
-two apart; pymodbus cannot and raises plain `ModbusProtocolError` for both.
+framing), or a well-formed answer to a different request than the one sent
+(the signature of a bridge shared by several simultaneous clients). The
+backends cannot tell the two apart today, so both surface as this one class.
 
 ### `ModbusExceptionError`
 
