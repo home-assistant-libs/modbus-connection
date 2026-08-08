@@ -8,12 +8,14 @@ top-level `modbus_connection` package unless stated otherwise.
 
 ## `ModbusConnection`
 
-The abstract connection base class (`modbus_connection.ModbusConnection`). Each
-backend module exports a concrete subclass under the same name —
-`modbus_connection.tmodbus.ModbusConnection` and
+A runtime-checkable `Protocol` (`modbus_connection.ModbusConnection`), like
+[`ModbusUnit`](#modbusunit). Each backend module exports a concrete class under
+the same name — `modbus_connection.tmodbus.ModbusConnection` and
 `modbus_connection.pymodbus.ModbusConnection` — with an identical constructor
-and API, so selecting a backend changes only the import. The abstract class is
-what you type against and `isinstance`-check.
+and API, so selecting a backend changes only the import. The Protocol is what
+you type against and `isinstance`-check; the backends and the
+[mock](/modbus-connection/patterns/testing/) all satisfy it, statically and at
+runtime.
 
 ```python
 ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)

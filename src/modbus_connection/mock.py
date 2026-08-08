@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ._callbacks import CallbackRegistry
-from ._client import BaseModbusConnection
 from .exceptions import ClientClosedError
 
 __all__ = [
@@ -123,11 +122,6 @@ class MockModbusConnection:
         if self._closed:
             raise ClientClosedError("connection is closed")
         self._link_up = True
-
-
-# The mock stands in for a real connection without subclassing the base;
-# registering it keeps isinstance(mock, ModbusConnection) checks working.
-BaseModbusConnection.register(MockModbusConnection)
 
 
 class MockModbusUnit:
