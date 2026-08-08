@@ -65,31 +65,25 @@ build a new component.
 
 An `async_update()` either applies fully or raises — it never applies a block read
 part-way. If the device answers one of the block reads with a Modbus **exception
-response** (an illegal data address, say, because a block it used to serve stopped
-answering), the update raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror). It is a
-[`ModbusExceptionError`](/modbus-connection/connection/reference/#modbusexceptionerror),
-so `.exception_code` says *why* the read was refused, plus `.space`, `.address`, and
-`.count` for *which* block:
+response**, the update raises the
+[typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
+for that code — the *why* — with the refused block on `.block` — the *where*:
 
 ```python
-from modbus_connection import BlockReadError
+from modbus_connection import IllegalDataAddressError, ModbusExceptionError
 
 try:
     await meter.async_update()
-except BlockReadError as err:
-    log.warning(
-        "block read failed at %s %d: code %s",
-        err.space,
-        err.address,
-        err.exception_code,
-    )
+except IllegalDataAddressError as err:
+    ...  # e.g. this firmware does not serve the component
+except ModbusExceptionError as err:
+    log.warning("block read failed at %s: code %s", err.block, err.exception_code)
 ```
 
 If some blocks are legitimately optional on a device, read them on a separate
 component so a missing one doesn't fail the rest of the update. The same applies to
 a [`ComponentGroup`](/modbus-connection/modelling/component-group/): any block
-across its pooled members failing raises `BlockReadError` for the whole group.
+across its pooled members failing fails the whole group's update.
 
 ## Readable address ranges
 

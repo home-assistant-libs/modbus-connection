@@ -11,6 +11,7 @@ from modbus_connection import (
     IllegalDataAddressError,
     IllegalFunctionError,
     ModbusExceptionError,
+    ReadBlock,
     ServerDeviceBusyError,
 )
 from modbus_connection.exceptions import _CODED_ERRORS
@@ -61,11 +62,57 @@ def test_subclasses_are_catchable_as_the_base() -> None:
         raise IllegalFunctionError()
 
 
-def test_block_read_error_still_carries_its_code() -> None:
-    err = BlockReadError("holding", 100, 4, 2)
-    assert isinstance(err, ModbusExceptionError)
-    assert err.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
+def test_block_read_error_is_an_alias() -> None:
+    assert BlockReadError is ModbusExceptionError
 
 
 def test_coded_registry_covers_every_enum_member() -> None:
     assert set(_CODED_ERRORS) == set(ExceptionCode)
+
+
+def test_typed_errors_are_catchable_as_block_read_error() -> None:
+    # The deprecated catch target keeps working: the chain runs through it.
+    with pytest.raises(BlockReadError):
+        raise ModbusExceptionError.from_code(2, block=ReadBlock("holding", 100, 4))
+
+
+def test_a_planner_raise_carries_both_answers() -> None:
+    # from_code(..., block=) is the planner's raise: why on the class, where
+    # on the block — and the legacy attributes still read through.
+    err = ModbusExceptionError.from_code(2, block=ReadBlock("holding", 100, 4))
+    assert type(err) is IllegalDataAddressError
+    assert err.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
+    assert err.block == ReadBlock("holding", 100, 4)
+    assert (err.space, err.address, err.count) == ("holding", 100, 4)
+
+
+def test_an_unknown_code_still_carries_its_block() -> None:
+    err = ModbusExceptionError.from_code(0x55, block=ReadBlock("holding", 0, 1))
+    assert type(err) is ModbusExceptionError
+    assert err.exception_code == 0x55
+    assert err.block == ReadBlock("holding", 0, 1)
+
+
+def test_raw_request_errors_carry_no_block() -> None:
+    err = IllegalDataAddressError()
+    assert err.block is None
+    assert err.space is None  # the legacy attributes read None, not raise
+
+
+def test_from_code_accepts_a_block() -> None:
+    err = ModbusExceptionError.from_code(2, block=ReadBlock("coil", 8, 1))
+    assert type(err) is IllegalDataAddressError
+    assert err.block == ReadBlock("coil", 8, 1)
+
+
+def test_the_spec_pattern_reads_the_block_off_the_typed_catch() -> None:
+    # The recommended consumer shape: one taxonomy, block as data.
+    try:
+        raise ModbusExceptionError.from_code(2, block=ReadBlock("holding", 100, 4))
+    except IllegalDataAddressError as err:
+        assert err.block is not None
+        assert (err.block.space, err.block.address, err.block.count) == (
+            "holding",
+            100,
+            4,
+        )

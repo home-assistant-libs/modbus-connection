@@ -86,7 +86,7 @@ register-count groups. So runtime-counted repeats refresh inside the group too.
 
 Group updates fail the same way individual ones do: if the device answers one of
 the pooled block reads with a Modbus exception response, `async_update()` raises
-[`BlockReadError`](/modbus-connection/connection/reference/#blockreaderror) — here
+the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) for its code — here
 for *any* block across the pooled members. See [When a block read
 fails](/modbus-connection/modelling/overview/#when-a-block-read-fails) for what the
 exception carries.

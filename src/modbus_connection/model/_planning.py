@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from ..decode import decode_int16
-from ..exceptions import BlockReadError, ModbusExceptionError
+from ..exceptions import ModbusExceptionError, ReadBlock
 from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
 from ._ranges import DeviceRanges, _range_of, _validate_ranges
 from .fields import RegisterField, _BitField
@@ -149,8 +149,11 @@ class ReadPlan(NamedTuple):
                 try:
                     got = await read(start, count)
                 except ModbusExceptionError as err:
-                    raise BlockReadError(
-                        space, start, count, err.exception_code
+                    raise ModbusExceptionError.from_code(
+                        err.exception_code,
+                        f"{space} block read at address {start} (count {count}) "
+                        f"returned Modbus exception code {err.exception_code}",
+                        block=ReadBlock(space, start, count),
                     ) from err
                 for offset in range(count):
                     values[(space, start + offset)] = got[offset]

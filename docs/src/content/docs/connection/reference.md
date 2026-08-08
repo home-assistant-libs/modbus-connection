@@ -287,9 +287,17 @@ ModbusError
 │   └── ClientClosedError           (request on a close()d connection)
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
-└── ModbusExceptionError            (.exception_code)
-    ├── IllegalFunctionError … GatewayTargetError   (one per standard code)
-    └── BlockReadError              (.space, .address, .count) — device-modelling layer
+└── ModbusExceptionError            (.exception_code; .block set when a
+    │                                component update aborted)
+    ├── IllegalFunctionError        (code 1)
+    ├── IllegalDataAddressError     (code 2)
+    ├── IllegalDataValueError       (code 3)
+    ├── ServerDeviceFailureError    (code 4)
+    ├── AcknowledgeError            (code 5)
+    ├── ServerDeviceBusyError       (code 6)
+    ├── MemoryParityError           (code 8)
+    ├── GatewayPathUnavailableError (code 10)
+    └── GatewayTargetError          (code 11)
 ```
 
 ### `ModbusError`
@@ -368,15 +376,18 @@ base `ModbusExceptionError`. Each subclass constructs with its code implied —
 `IllegalDataAddressError()` — which is handy for
 [arming the mock](/modbus-connection/patterns/testing/#simulating-a-read-failure).
 
-### `BlockReadError`
+`.block` says *where* the refusal happened: for an exception response that
+aborted a [component update](/modbus-connection/modelling/overview/#when-a-block-read-fails),
+it is the refused `ReadBlock(space, address, count)`; for a raw unit request it
+is `None`. The code answers the Modbus-level question, the block the
+planner-level one — one exception, both facts.
 
-Raised by the [device-modelling layer](/modbus-connection/modelling/overview/), not
-a backend: when a component's pooled `async_update()` hits a Modbus exception
-response on one of its planned block reads, it surfaces as a `BlockReadError`. It
-**subclasses** `ModbusExceptionError`, so `except ModbusExceptionError` catches it and
-`.exception_code` still says why the device refused the read; it adds `.space`,
-`.address`, and `.count` for which block failed. See [When a block read
-fails](/modbus-connection/modelling/overview/#when-a-block-read-fails).
+### `BlockReadError` (deprecated)
+
+A deprecated alias of `ModbusExceptionError`, kept so existing
+`except BlockReadError` handlers keep catching an aborted component update, and
+`.space` / `.address` / `.count` still read (from `.block`; `None` on a raw
+request error). New code should catch the typed class and read `.block`.
 
 ## Backend modules
 

@@ -27,11 +27,13 @@ from .exceptions import (
     ModbusExceptionError,
     ModbusProtocolError,
     ModbusTimeoutError,
+    ReadBlock,
     ServerDeviceBusyError,
     ServerDeviceFailureError,
 )
 
 __all__ = [
+    "ReadBlock",
     "ServerDeviceFailureError",
     "ServerDeviceBusyError",
     "MemoryParityError",
