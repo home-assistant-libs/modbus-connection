@@ -73,21 +73,6 @@ async def test_meter(mock_modbus_unit):
     assert meter.voltage == 230.1  # raw * 0.1
 ```
 
-## Reacting to writes
-
-Register an `on_write` callback to simulate a device that changes state in
-response to a command — e.g. flips a "ready" flag when a command register is
-written:
-
-```python
-def test_command_sets_ready(mock_modbus_unit):
-    def respond(event):
-        if event.address == 0:  # a command was written
-            mock_modbus_unit.holding[100] = 1  # device flips its "ready" flag
-
-    mock_modbus_unit.on_write(respond)
-```
-
 ## Asserting on the reads a poll issued
 
 `read_events` logs every block read the unit received, in order, as a
@@ -107,11 +92,43 @@ async def test_poll_respects_the_controller_limits(mock_modbus_unit):
 
 That is the assertion a device library wants when its controller only answers
 [declared ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
-or caps a request's width — the log is the read-side counterpart of `on_write`,
-and needs no wrapper around the unit.
+or caps a request's width — and it needs no wrapper around the unit.
 
-A read is recorded when it is dispatched, so one the device then rejects (see
-[`fail_read`](#simulating-a-read-failure)) still appears: the request went out.
+A read is recorded when it is dispatched, so one the device then rejects still
+appears: the request went out.
+
+## Simulating a read failure
+
+Arm `fail_read` and any read whose block covers that address raises the given
+error instead of returning values — mirroring a device that refuses a register
+block it doesn't serve, such as an uninstalled module. `register_type` defaults
+to `"holding"` (use `"input"`, `"coil"` or `"discrete_input"` for the other
+tables — they're independent); pass `None` to clear:
+
+```python
+async def test_read_refused(mock_modbus_unit):
+    mock_modbus_unit.fail_read(1100, IllegalDataAddressError())
+    with pytest.raises(IllegalDataAddressError):
+        await mock_modbus_unit.read_holding_registers(1100, 4)
+    await mock_modbus_unit.read_holding_registers(0, 4)  # other blocks unaffected
+
+    mock_modbus_unit.fail_read(1100, None)  # clear it
+```
+
+## Reacting to writes
+
+Register an `on_write` callback to simulate a device that changes state in
+response to a command — e.g. flips a "ready" flag when a command register is
+written:
+
+```python
+def test_command_sets_ready(mock_modbus_unit):
+    def respond(event):
+        if event.address == 0:  # a command was written
+            mock_modbus_unit.holding[100] = 1  # device flips its "ready" flag
+
+    mock_modbus_unit.on_write(respond)
+```
 
 ## Simulating a rejected write
 
@@ -143,24 +160,6 @@ mock_modbus_unit.fail_write(40, IllegalDataValueError())  # device rejects the v
 mock_modbus_unit.fail_write(40, ModbusTimeoutError())  # device doesn't answer
 mock_modbus_unit.fail_write(40, ModbusConnectionError())  # device unreachable
 mock_modbus_unit.fail_write(40, ModbusProtocolError())  # corrupt reply
-```
-
-## Simulating a read failure
-
-Arm `fail_read` and any read whose block covers that address raises the given
-error instead of returning values — mirroring a device that refuses a register
-block it doesn't serve, such as an uninstalled module. `register_type` defaults
-to `"holding"` (use `"input"`, `"coil"` or `"discrete_input"` for the other
-tables — they're independent); pass `None` to clear:
-
-```python
-async def test_read_refused(mock_modbus_unit):
-    mock_modbus_unit.fail_read(1100, IllegalDataAddressError())
-    with pytest.raises(IllegalDataAddressError):
-        await mock_modbus_unit.read_holding_registers(1100, 4)
-    await mock_modbus_unit.read_holding_registers(0, 4)  # other blocks unaffected
-
-    mock_modbus_unit.fail_read(1100, None)  # clear it
 ```
 
 ## Simulating a dropped link
@@ -261,11 +260,3 @@ The frozen dataclass `read_events` collects:
 
 The store value types: `int | list[int] | Callable[[], int | list[int]]` for
 the register stores, and the `bool` equivalent for the bit stores.
-
-## Why it matters
-
-The mock lets a device library's tests cover the hard part — the register map, the
-scaling, the write sequencing, the pooled read plan — with plain `pytest` and no
-device. Keep that library separate from any Home Assistant integration and this is
-where nearly all your coverage lives; see
-[Integration structure](/modbus-connection/home-assistant/integration/).
