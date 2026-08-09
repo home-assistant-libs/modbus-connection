@@ -69,3 +69,8 @@ describing the full declared layout afterwards.
 `restrict_fields` raises `ValueError` for an unknown field name, and on a component
 that declares a [`repeating_group`](/modbus-connection/modelling/repeats/), which is
 not supported.
+
+A [`SunSpecComponent`](/modbus-connection/modelling/sunspec-discovery/) keeps its
+`model_id` and `model_length` fields whichever names you pass: every update
+verifies that header, so a restriction that dropped it would fail each update
+instead of narrowing the component.
