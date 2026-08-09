@@ -41,7 +41,7 @@ returns the decoded value or `None`. See
 | `nan` | Raw sentinel value — an `int` or an iterable of them — that decodes to `None`. |
 | `word_order` | `"big"` (default) or `"little"` for multi-register values. |
 | `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
-| `stride` | Per-index address step for a [repeated sub-unit](/modbus-connection/modelling/repeats/). |
+| `stride` | Per-index address step for a [placed component](/modbus-connection/modelling/placement/). |
 | `writable` | `False` (default), `True`, or a [`WriteValidator`](#writevalidator). |
 | `force_fc16` | Always write with FC16, even a single register. Raises `ValueError` without `writable`. |
 | `scale_register` | Address of a scale-factor register whose signed int16 value scales the field as `10**sf`. |
@@ -54,7 +54,7 @@ fixed `int` (must be `>= 0`; instances fold into the normal read) or a
 `RegisterField` read at poll time (a second read pass sizes the list).
 `stride` is the block length (must be `> 0`, or `ValueError`). Reading the
 attribute returns `list[C]` — the instances built on the last update. See
-[Repeated sub-units](/modbus-connection/modelling/repeats/).
+[Repeating groups](/modbus-connection/modelling/repeats/).
 
 ## Field classes
 

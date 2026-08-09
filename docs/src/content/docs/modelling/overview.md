@@ -115,8 +115,10 @@ caller that notifies them itself.
 - [Built-in fields](/modbus-connection/modelling/fields/) — every generic field type.
 - [Reading a device](/modbus-connection/modelling/reading/) — block pooling,
   readable ranges, failed blocks, and the raw register map.
-- [Repeated sub-units](/modbus-connection/modelling/repeats/) — `stride` / `index`
-  and the runtime-counted `repeating_group`.
+- [Placing a component](/modbus-connection/modelling/placement/) — read the same
+  layout at another address with `index` / `stride` or `base_offset`.
+- [Repeating groups](/modbus-connection/modelling/repeats/) — one sub-unit
+  modelled once, the list sized from a fixed or device-reported count.
 - [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
   component to the subset of a layout a device actually serves.
 - [Component groups](/modbus-connection/modelling/component-group/) — refresh

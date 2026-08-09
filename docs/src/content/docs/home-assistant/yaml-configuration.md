@@ -120,7 +120,7 @@ you translate:
   the `ModbusUnit` with `connection.for_unit(slave)`, not on a field.
 - **`virtual_count` / `slave_count`** — Home Assistant fans one entry out into
   several consecutive entities. Model it with a
-  [repeated sub-unit](/modbus-connection/modelling/repeats/) (`stride`) or one
+  [placed component](/modbus-connection/modelling/placement/) (`stride`) or one
   field per index.
 
 ## Writable entities

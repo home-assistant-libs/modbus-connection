@@ -47,7 +47,7 @@ default `None` for a device with a contiguous map (plain gap-based planning).
 Ranges are part of the **declared layout**, so they are written in the same
 coordinates as the field addresses beside them and move with the component:
 placing the layout somewhere else with
-[`base_offset`](/modbus-connection/modelling/repeats/#base_offset--the-whole-layout-at-another-address)
+[`base_offset`](/modbus-connection/modelling/placement/#base_offset--the-whole-layout-at-another-address)
 shifts the ranges by the same amount. Declaring a layout relative to its block
 start therefore keeps working when the block sits elsewhere on the device:
 

@@ -36,25 +36,10 @@ from modbus_connection.model import (
 
 ## Options shared across register fields
 
-Most register helpers accept these keyword arguments. Not every option applies
-to every helper (a `string` has no `scale`, for instance) — the tables below list
-what each one takes.
-
-| Option | Meaning |
-| --- | --- |
-| `address` | Address of the value's first register word (before `stride`/`base_offset`). |
-| `count` | Number of 16-bit registers the value spans (fixed by most helpers). |
-| `scale` | Affine multiplier: the value decodes as `raw * scale + offset`. |
-| `offset` | Affine addend, for a device that reports a shifted value. |
-| `nan` | Raw sentinel value — or several — that decode to `None` (device "unimplemented"). |
-| `signed` | Interpret the raw integer as two's-complement. |
-| `word_order` | `"big"` (default, ABCD) or `"little"` (CDAB) for multi-register values. |
-| `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
-| `stride` | Per-index address step for a [repeated sub-unit](/modbus-connection/modelling/repeats/). |
-| `writable` | `True`, or a [validator callable](#writable-fields-and-validators). |
-| `force_fc16` | Always write with FC16, even a single register. Requires `writable`. |
-| `scale_register` | Address of a [SunSpec scale-factor register](/modbus-connection/modelling/sunspec/) applied as `10**sf`. |
-| `scale_register_stride` | Per-index step for `scale_register`. |
+Most register helpers accept the same keyword arguments, and not every option
+applies to every helper — a `string` has no `scale`. The
+[field reference](/modbus-connection/modelling/fields-reference/#options-shared-by-the-register-helpers)
+lists all of them; three are worth more than a definition.
 
 ### Affine scaling
 
