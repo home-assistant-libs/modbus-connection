@@ -111,7 +111,7 @@ you translate:
 - **`swap: byte` / `swap: word_byte`** — these swap *bytes within* a register.
   The field helpers model **word** order (`word_order`), not byte order, which
   is fixed big-endian. A byte-swapping device needs a custom
-  [`RegisterField` subclass](/modbus-connection/modelling/fields/#field-classes).
+  [`RegisterField` subclass](/modbus-connection/modelling/fields/#when-the-helpers-dont-fit).
 - **`data_type: float16`** — not a built-in codec; decode the raw word with a
   `raw_register` and convert in a `@property`.
 - **`data_type: custom` + `structure`** — a Python `struct` format string. Read

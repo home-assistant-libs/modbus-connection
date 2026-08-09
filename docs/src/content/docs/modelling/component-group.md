@@ -3,15 +3,14 @@ title: Component groups
 description: Refresh several components that share a unit in one consolidated set of pooled Modbus reads.
 ---
 
-Each `Component` can refresh independently. But a physical device is usually
-several sub-systems on one unit — a water heater, three heating circuits, a set of
-sensors — and polling each one separately means many small Modbus reads where a
-few larger ones would do.
+A **`ComponentGroup`** is a component that declares components instead of
+fields: the same API, over one pooled set of block reads spanning every member.
 
-A **`ComponentGroup`** pools several components on one unit into a single
-consolidated set of block reads: adjacent registers from *different* components
-are fetched in the same Modbus call. Each component's listeners still fire after
-the update.
+A physical device is usually several sub-systems on one unit — a water heater,
+three heating circuits, a set of sensors — and polling each one separately means
+many small Modbus reads where a few larger ones would do. A group fetches
+adjacent registers from *different* components in the same Modbus call, and each
+component's listeners still fire after the update.
 
 ```python
 from modbus_connection.model import ComponentGroup
@@ -32,13 +31,6 @@ Because reads across a group are pooled, `read_holding_registers` is called once
 per contiguous block spanning whichever components fall in it, not once per
 component. For a device with dozens of scattered fields this typically collapses
 tens of reads into a handful.
-
-## Mixing spaces
-
-Components in a group may mix register spaces and bit spaces. An input (FC04)
-sub-system and a holding (FC03) sub-system in the same group are read with
-separate block reads; likewise coils (FC01) and discrete inputs (FC02). Each space
-is planned and read on its own.
 
 ## Shared configuration
 
@@ -75,30 +67,14 @@ group = ComponentGroup(unit, [WaterHeater(unit), Circuit(unit, index=1)])
 await group.async_update()
 ```
 
-## Repeating groups inside a group
-
-If a member declares a [`repeating_group`](/modbus-connection/modelling/repeats/),
-the group handles it: the pooled read fetches each member's own fields plus any
-repeating-group counts, then a second pass sizes and reads each member's
-register-count groups. So runtime-counted repeats refresh inside the group too.
-
 ## When a block read fails
 
 Group updates fail the same way individual ones do: if the device answers one of
 the pooled block reads with a Modbus exception response, `async_update()` raises
 the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) for its code — here
 for *any* block across the pooled members. See [When a block read
-fails](/modbus-connection/modelling/overview/#when-a-block-read-fails) for what the
+fails](/modbus-connection/modelling/reading/#when-a-block-read-fails) for what the
 exception carries.
-
-## Reading without notifying
-
-Pass `notify=False` to read every component without firing their listeners, for a
-caller that notifies them itself:
-
-```python
-await group.async_update(notify=False)
-```
 
 ## When to use which
 

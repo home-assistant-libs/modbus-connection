@@ -44,7 +44,7 @@ A field with the default `stride=0` is at a fixed address shared by every index.
 `base_offset` places the **whole declared layout** at another base address: it
 is added to every address the component touches — fields, bits, group counts,
 `scale_register` addresses and the
-[readable ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+[readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
 — on reads and writes alike. Declare the layout once and instantiate it where the
 block actually sits:
 
@@ -122,7 +122,7 @@ reads the counts in its pooled read, then refreshes each member's groups.
 ### The sub-unit's readable ranges
 
 A sub-unit that declares
-[readable ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+[readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
 constrains the reads of every instance. Each instance's map resolves like its
 fields — shifted by its own place in the repeat — and the maps are merged into
 the plan its instances are read from.

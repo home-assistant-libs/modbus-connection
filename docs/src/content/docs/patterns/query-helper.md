@@ -141,7 +141,7 @@ link can't be opened.
 
 Wrap `connection.for_unit(id)` in a `CountingUnit` before handing it to a
 component. Its `reads` attribute then tallies every block read the update issued —
-a quick sanity check that your [`ranges`](/modbus-connection/modelling/overview/#readable-address-ranges)
+a quick sanity check that your [`ranges`](/modbus-connection/modelling/reading/#readable-address-ranges)
 and `max_gap` are collapsing fields into as few Modbus round-trips as the plan
 allows. It implements `ModbusUnit` in full, so it drops in wherever one is
 expected with **no cast**:
@@ -187,7 +187,7 @@ Sensors
 6 Modbus reads
 ```
 
-The read count is the payoff of [pooled planning](/modbus-connection/modelling/overview/#reads-are-pooled-into-blocks)
+The read count is the payoff of [pooled planning](/modbus-connection/modelling/reading/#reads-are-pooled-into-blocks)
 — dozens of fields read in a handful of Modbus round-trips. If you model your
 device as a [`ComponentGroup`](/modbus-connection/modelling/component-group/),
 loop over its components and `print_component` each one.

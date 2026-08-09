@@ -86,13 +86,14 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "modelling/overview" },
             { label: "Built-in fields", slug: "modelling/fields" },
+            { label: "Reading a device", slug: "modelling/reading" },
             { label: "Repeated sub-units", slug: "modelling/repeats" },
-            { label: "Component groups", slug: "modelling/component-group" },
-            { label: "Manual components", slug: "modelling/manual-component" },
             {
               label: "Restricting fields",
               slug: "modelling/restricting-fields",
             },
+            { label: "Component groups", slug: "modelling/component-group" },
+            { label: "Manual components", slug: "modelling/manual-component" },
             {
               label: "SunSpec",
               items: [

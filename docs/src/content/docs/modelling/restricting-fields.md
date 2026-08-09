@@ -9,7 +9,7 @@ off. The layout is otherwise perfectly typed; only the served subset varies per
 device.
 
 A block read is atomic, so this is a problem: a single unserved register *inside* a
-block [fails the whole read](/modbus-connection/modelling/overview/#when-a-block-read-fails),
+block [fails the whole read](/modbus-connection/modelling/reading/#when-a-block-read-fails),
 taking every other field in that block down with it. Splitting the layout across
 [separate components](/modbus-connection/modelling/component-group/) doesn't help
 when the served and unserved registers are interleaved.
