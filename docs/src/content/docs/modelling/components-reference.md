@@ -233,13 +233,19 @@ the chain does not terminate within 100 models.
 ### `SunSpecModels`
 
 The scan result: a `dict[int, list[SunSpecModel]]` subclass, usable as a
-plain dict, with a lookup helper on top.
+plain dict, with lookup helpers on top.
 
 - **`first(*model_ids)`** — the first discovered [`SunSpecModel`](#sunspecmodel)
   among `model_ids`. The IDs are tried in the order given, so earlier IDs take
   priority (preferred model variants before their fallbacks); for an ID
   discovered more than once, the first location in chain order is returned.
   `None` when no ID matches.
+- **`chain`** — every discovered model in chain order, as a
+  `list[SunSpecModel]` ascending by address. For a device that repeats a model
+  ID, this is what distinguishes the repeats — see
+  [Chain order](/modbus-connection/modelling/sunspec-discovery/#chain-order).
+- **`at(address)`** — the model whose **header** sits at `address`, or `None`.
+  An address inside a model's block is not a match.
 
 ### `SunSpecModel`
 
@@ -249,7 +255,8 @@ A frozen dataclass locating one discovered model:
 | --- | --- | --- |
 | `model_id` | `int` | The SunSpec model ID. |
 | `address` | `int` | The address of the model's two-register header. |
-| `length` | `int` | The data length in registers (excluding the header). |
+| `length` | `int` | The data length in registers, as the header reports it — excluding the header. |
+| `span` | `int` | The registers the whole block occupies (`length + 2`): the count that reads the model, and the step to the next header. |
 
 ### `SunSpecComponent`
 

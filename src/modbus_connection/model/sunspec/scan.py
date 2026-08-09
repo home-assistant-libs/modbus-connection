@@ -23,11 +23,43 @@ class SunSpecModel:
 
     model_id: int
     address: int
+
     length: int
+    """Data length from the header, excluding it; see ``span`` for the block."""
+
+    @property
+    def span(self) -> int:
+        """Registers the whole block occupies: the two header words plus data.
+
+        This is what a read of the model takes as its count, and the step to
+        the next model's header.
+        """
+        return self.length + 2
 
 
 class SunSpecModels(dict[int, list[SunSpecModel]]):
     """The discovered models by ID — a plain dict with lookup helpers."""
+
+    @property
+    def chain(self) -> list[SunSpecModel]:
+        """Return every discovered model in chain order.
+
+        A device may repeat a model ID, and what separates the repeats is
+        their place in the chain: a meter's identity block is the ``1`` that
+        precedes it, whichever meter model follows.
+        """
+        return sorted(
+            (model for found in self.values() for model in found),
+            key=lambda model: model.address,
+        )
+
+    def at(self, address: int) -> SunSpecModel | None:
+        """Return the model whose header sits at ``address``, or ``None``."""
+        for found in self.values():
+            for model in found:
+                if model.address == address:
+                    return model
+        return None
 
     def first(self, *model_ids: int) -> SunSpecModel | None:
         """Return the first discovered model among ``model_ids``.
@@ -58,8 +90,7 @@ async def scan(unit: ModbusUnit, base_address: int) -> SunSpecModels:
         model_id, length = await unit.read_holding_registers(address, 2)
         if model_id == _END_MODEL_ID:
             return models
-        models.setdefault(model_id, []).append(
-            SunSpecModel(model_id=model_id, address=address, length=length)
-        )
-        address += 2 + length
+        model = SunSpecModel(model_id=model_id, address=address, length=length)
+        models.setdefault(model_id, []).append(model)
+        address += model.span
     raise SunSpecError(f"Model chain not terminated after {_MAX_MODELS} models")

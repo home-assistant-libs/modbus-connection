@@ -24,6 +24,32 @@ lookup helper on top. `first(*model_ids)` returns the first discovered model
 among the given IDs, tried in the order given, so preferred model variants
 come before their fallbacks; it returns `None` when no ID matches.
 
+## Chain order
+
+`first()` answers "where is model 103?". A device that repeats a model asks a
+different question: a SolarEdge inverter's chain is the inverter, then one
+identity block (model `1`) and one meter model per meter — so a meter's
+identity is the `1` immediately before it, and the model ID alone cannot say
+which meter that is. `chain` hands back every discovered model in the order
+`scan()` walked them, and `at()` looks one up by its header address:
+
+```python
+chain = models.chain  # list[SunSpecModel], in chain order
+for identity, model in zip(chain, chain[1:], strict=False):
+    if identity.model_id == 1 and model.model_id in (201, 202, 203, 204):
+        ...  # a meter, and the identity block describing it
+
+models.at(40188)  # the model whose header sits there, or None
+```
+
+A model's `length` is the data length its header reports. `span` is the whole
+block, header included — both the count that reads the model and the step to
+the next header:
+
+```python
+words = await unit.read_holding_registers(model.address, model.span)
+```
+
 ## Components at discovered models
 
 Subclass `SunSpecComponent`, declare fields relative to the model header, and

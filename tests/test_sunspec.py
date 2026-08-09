@@ -328,6 +328,61 @@ async def test_scan_repeated_model_id() -> None:
     }
 
 
+def _multi_model_chain() -> dict[int, int]:
+    """A SolarEdge-shaped chain: an inverter, then two identity/meter pairs."""
+    registers = {0: 0x5375, 1: 0x6E53}
+    address = 2
+    for model_id, length in ((1, 4), (103, 2), (1, 4), (203, 1), (1, 4), (201, 1)):
+        registers[address] = model_id
+        registers[address + 1] = length
+        address += 2 + length
+    registers[address] = 0xFFFF
+    registers[address + 1] = 0
+    return registers
+
+
+async def test_scan_result_chain_is_in_chain_order() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_multi_model_chain())
+    models = await ss.scan(unit, 0)
+    assert [(model.model_id, model.address) for model in models.chain] == [
+        (1, 2),
+        (103, 8),
+        (1, 12),
+        (203, 18),
+        (1, 21),
+        (201, 27),
+    ]
+
+
+async def test_scan_result_chain_pairs_a_meter_with_its_identity() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_multi_model_chain())
+    chain = (await ss.scan(unit, 0)).chain
+    # Each meter is the model after an identity block, and the two meters
+    # differ in model ID — so only the order distinguishes their identities.
+    meters = [
+        (identity.address, meter.model_id)
+        for identity, meter in zip(chain, chain[1:], strict=False)
+        if identity.model_id == 1 and meter.model_id != 103
+    ]
+    assert meters == [(12, 203), (21, 201)]
+
+
+async def test_scan_result_at_locates_a_model_by_address() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_multi_model_chain())
+    models = await ss.scan(unit, 0)
+    assert models.at(18) == ss.SunSpecModel(model_id=203, address=18, length=1)
+    assert models.at(19) is None  # inside the block, not its header
+
+
+def test_model_span_covers_the_header() -> None:
+    model = ss.SunSpecModel(model_id=203, address=18, length=1)
+    assert model.span == 3
+    assert model.address + model.span == 21  # the next model's header
+
+
 async def test_scan_result_first_prefers_argument_order() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))
