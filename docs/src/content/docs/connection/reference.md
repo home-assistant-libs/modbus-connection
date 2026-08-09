@@ -379,9 +379,7 @@ base `ModbusExceptionError`. Each subclass constructs with its code implied —
 `.block` says *where* the refusal happened: for an exception response that
 aborted a [component update](/modbus-connection/modelling/overview/#when-a-block-read-fails),
 it is the refused `ReadBlock(space, address, count)`; for a raw unit request it
-is `None` — there the caller chose the addresses, and the message names the
-call that failed (`read_holding_registers(9999, 1): Device returned Modbus
-exception code 2`). The code answers the Modbus-level question, the block the
+is `None`. The code answers the Modbus-level question, the block the
 planner-level one — one exception, both facts.
 
 ### `BlockReadError` (deprecated)
