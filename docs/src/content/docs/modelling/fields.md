@@ -18,6 +18,7 @@ helper lives in `modbus_connection.model`:
 from modbus_connection.model import (
     integer,
     gauge,
+    boolean,
     raw_register,
     uint32,
     int32,
@@ -257,6 +258,9 @@ class Boiler(Component):
     setpoint = integer(0, writable=in_range)
 ```
 
+The library ships no validators of its own; for ready-made ones reach for
+[probatio](https://github.com/frenck/probatio).
+
 For registers, `write()` picks FC06 for a single word and FC16 for multiple. Pass
 `force_fc16=True` for a device that honours only FC16 even for one register.
 
@@ -279,12 +283,32 @@ to `None` and refuses writes the same way. The SunSpec point types declare the
 [SunSpec page](/modbus-connection/modelling/sunspec/) for the pre-wired point
 types built on this.
 
-## Field classes
+## When the helpers don't fit
 
-The helpers return instances of a small set of codec classes —
-`NumberField`, `FloatField`, `StringField`, `RawField`, and the address types
-(`IPv4Field`, `IPv6Field`, `Eui48Field`) — plus `CoilField` / `DiscreteInputField`
-for bits. Reach for a subclass directly only for a codec the helpers don't
-cover; almost everything is expressible with the helpers above. The
+Almost every device map is expressible with the helpers above. For the rest,
+there are two ways out.
+
+**Shape the value in a `@property`** — composing or transforming several fields,
+packed dates and times. Keep the field private and expose the computed value, so
+static typing stays exact:
+
+```python
+from modbus_connection.model import Component, string
+
+
+class Controller(Component):
+    _firmware = string(10, 4)  # 4 registers of ASCII, e.g. "1.23"
+
+    @property
+    def model(self) -> str | None:
+        firmware = self._firmware
+        return f"TROVIS 5576 ({firmware})" if firmware is not None else None
+```
+
+**Construct a field class directly** when the codec itself is the problem — the
+device packs its words in a way no helper decodes. The helpers return instances
+of a small set of classes: `NumberField`, `FloatField`, `StringField`,
+`RawField`, the address types (`IPv4Field`, `IPv6Field`, `Eui48Field`), and
+`CoilField` / `DiscreteInputField` for bits. The
 [field reference](/modbus-connection/modelling/fields-reference/#field-classes)
 documents each class's constructor and attributes.

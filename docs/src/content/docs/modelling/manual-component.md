@@ -87,21 +87,3 @@ left unset falls back to gap-based planning:
 ```python
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))
 ```
-
-## A worked example: config-driven fields
-
-This is exactly the shape you want when mapping a user's configuration onto a
-device. The [Home Assistant YAML page](/modbus-connection/home-assistant/yaml-configuration/)
-builds a full example on top of `ManualComponent`.
-
-```python
-def build(unit, config: list[dict]) -> ManualComponent:
-    mc = ManualComponent(unit)
-    for entry in config:
-        mc.add(
-            entry["name"],
-            gauge(entry["address"], entry.get("scale", 1.0)),
-            space=entry.get("space", "holding"),
-        )
-    return mc
-```

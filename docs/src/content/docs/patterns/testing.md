@@ -39,7 +39,7 @@ callbacks.
 ## Replaying a raw snapshot
 
 A raw dump from
-[`async_read_raw()`](/modbus-connection/modelling/overview/#raw-diagnostics)
+[`async_read_raw()`](/modbus-connection/modelling/reading/#raw-diagnostics)
 — e.g. captured from a real device in a bug report — loads straight into the mock
 with `load_raw()`, so you can reproduce that device and check your model decodes
 it. The dump is keyed by the four Modbus spaces — `holding`, `input`, `coil`,
@@ -106,7 +106,7 @@ async def test_poll_respects_the_controller_limits(mock_modbus_unit):
 ```
 
 That is the assertion a device library wants when its controller only answers
-[declared ranges](/modbus-connection/modelling/overview/#readable-address-ranges)
+[declared ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
 or caps a request's width — the log is the read-side counterpart of `on_write`,
 and needs no wrapper around the unit.
 

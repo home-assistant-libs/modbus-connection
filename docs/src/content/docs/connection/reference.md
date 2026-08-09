@@ -377,7 +377,7 @@ base `ModbusExceptionError`. Each subclass constructs with its code implied —
 [arming the mock](/modbus-connection/patterns/testing/#simulating-a-read-failure).
 
 `.block` says *where* the refusal happened: for an exception response that
-aborted a [component update](/modbus-connection/modelling/overview/#when-a-block-read-fails),
+aborted a [component update](/modbus-connection/modelling/reading/#when-a-block-read-fails),
 it is the refused `ReadBlock(space, address, count)`; for a raw unit request it
 is `None`. The code answers the Modbus-level question, the block the
 planner-level one — one exception, both facts.

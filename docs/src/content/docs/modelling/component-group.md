@@ -20,6 +20,15 @@ group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
 await group.async_update()  # one pooled set of reads; each component notified
 ```
 
+A group is driven exactly like a single component: `async_update()` — with
+`notify=False` when the caller fires the listeners itself — and
+`async_read_raw()` mean the same thing and take the same arguments. Members may
+mix register and bit spaces, and a member declaring a
+[`repeating_group`](/modbus-connection/modelling/repeats/) is sized and read in
+the group's second pass just as it would be on its own. The
+[reference](/modbus-connection/modelling/components-reference/#componentgroup)
+lists the methods.
+
 ## How it plans
 
 The `ComponentGroup` builds its pooled read plan from the components' static
@@ -32,13 +41,6 @@ Because reads across a group are pooled, `read_holding_registers` is called once
 per contiguous block spanning whichever components fall in it, not once per
 component. For a device with dozens of scattered fields this typically collapses
 tens of reads into a handful.
-
-## Mixing spaces
-
-Components in a group may mix register spaces and bit spaces. An input (FC04)
-sub-system and a holding (FC03) sub-system in the same group are read with
-separate block reads; likewise coils (FC01) and discrete inputs (FC02). Each space
-is planned and read on its own.
 
 ## Shared configuration
 
@@ -75,30 +77,14 @@ group = ComponentGroup(unit, [WaterHeater(unit), Circuit(unit, index=1)])
 await group.async_update()
 ```
 
-## Repeating groups inside a group
-
-If a member declares a [`repeating_group`](/modbus-connection/modelling/repeats/),
-the group handles it: the pooled read fetches each member's own fields plus any
-repeating-group counts, then a second pass sizes and reads each member's
-register-count groups. So runtime-counted repeats refresh inside the group too.
-
 ## When a block read fails
 
 Group updates fail the same way individual ones do: if the device answers one of
 the pooled block reads with a Modbus exception response, `async_update()` raises
 the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) for its code — here
 for *any* block across the pooled members. See [When a block read
-fails](/modbus-connection/modelling/overview/#when-a-block-read-fails) for what the
+fails](/modbus-connection/modelling/reading/#when-a-block-read-fails) for what the
 exception carries.
-
-## Reading without notifying
-
-Pass `notify=False` to read every component without firing their listeners, for a
-caller that notifies them itself:
-
-```python
-await group.async_update(notify=False)
-```
 
 ## When to use which
 
