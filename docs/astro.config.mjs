@@ -87,7 +87,8 @@ export default defineConfig({
             { label: "Overview", slug: "modelling/overview" },
             { label: "Built-in fields", slug: "modelling/fields" },
             { label: "Reading a device", slug: "modelling/reading" },
-            { label: "Repeated sub-units", slug: "modelling/repeats" },
+            { label: "Placing a component", slug: "modelling/placement" },
+            { label: "Repeating groups", slug: "modelling/repeats" },
             {
               label: "Restricting fields",
               slug: "modelling/restricting-fields",

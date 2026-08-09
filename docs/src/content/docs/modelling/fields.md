@@ -50,7 +50,7 @@ what each one takes.
 | `signed` | Interpret the raw integer as two's-complement. |
 | `word_order` | `"big"` (default, ABCD) or `"little"` (CDAB) for multi-register values. |
 | `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
-| `stride` | Per-index address step for a [repeated sub-unit](/modbus-connection/modelling/repeats/). |
+| `stride` | Per-index address step for a [placed component](/modbus-connection/modelling/placement/). |
 | `writable` | `True`, or a [validator callable](#writable-fields-and-validators). |
 | `force_fc16` | Always write with FC16, even a single register. Requires `writable`. |
 | `scale_register` | Address of a [SunSpec scale-factor register](/modbus-connection/modelling/sunspec/) applied as `10**sf`. |

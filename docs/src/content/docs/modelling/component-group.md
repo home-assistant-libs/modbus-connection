@@ -40,7 +40,7 @@ they describe one device's address map — so components in a group must agree:
 - Readable ranges apply **per address space**, and the group merges what its
   members declare for each one — resolved to the addresses they actually read, so
   a member placed with
-  [`base_offset`](/modbus-connection/modelling/repeats/) contributes its shifted
+  [`base_offset`](/modbus-connection/modelling/placement/) contributes its shifted
   map. Members at different offsets each describe their own part of the device.
 - Two members whose resolved ranges **overlap without matching** describe the same
   addresses two different ways, and a member that constrains a space cannot be

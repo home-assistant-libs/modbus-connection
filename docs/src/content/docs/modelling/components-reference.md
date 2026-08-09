@@ -22,7 +22,7 @@ Component(unit, index=1, *, base_offset=0)
 | Parameter | Type | Meaning |
 | --- | --- | --- |
 | `unit` | `ModbusUnit` | The unit handle to read from and write to. |
-| `index` | `int`, default `1` | 1-based instance index for a layout with per-field `stride` — see [Repeated sub-units](/modbus-connection/modelling/repeats/). |
+| `index` | `int`, default `1` | 1-based instance index for a layout with per-field `stride` — see [Placing a component](/modbus-connection/modelling/placement/). |
 | `base_offset` | `int`, default `0` | Shift applied to every address the component touches, placing the whole declared layout at another base address. |
 
 ### Class attributes

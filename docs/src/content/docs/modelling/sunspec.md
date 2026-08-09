@@ -175,8 +175,9 @@ class Meter(Component):
     channels = repeating_group(uint16(4), Channel, stride=2)
 ```
 
-See [Repeated sub-units](/modbus-connection/modelling/repeats/) for the full story
-on `base_offset`, `stride`, and `index`.
+See [Repeating groups](/modbus-connection/modelling/repeats/) for the full story
+on counts and nesting, and [Placing a component](/modbus-connection/modelling/placement/)
+for `base_offset`, `stride` and `index`.
 
 Continue with
 [Discovery and generation](/modbus-connection/modelling/sunspec-discovery/) to
