@@ -19,15 +19,6 @@ group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
 await group.async_update()  # one pooled set of reads; each component notified
 ```
 
-A group is driven exactly like a single component: `async_update()` — with
-`notify=False` when the caller fires the listeners itself — and
-`async_read_raw()` mean the same thing and take the same arguments. Members may
-mix register and bit spaces, and a member declaring a
-[`repeating_group`](/modbus-connection/modelling/repeats/) is sized and read in
-the group's second pass just as it would be on its own. The
-[reference](/modbus-connection/modelling/components-reference/#componentgroup)
-lists the methods.
-
 ## How it plans
 
 The `ComponentGroup` builds its pooled read plan from the components' static
