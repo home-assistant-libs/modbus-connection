@@ -3,15 +3,14 @@ title: Component groups
 description: Refresh several components that share a unit in one consolidated set of pooled Modbus reads.
 ---
 
-Each `Component` can refresh independently. But a physical device is usually
-several sub-systems on one unit — a water heater, three heating circuits, a set of
-sensors — and polling each one separately means many small Modbus reads where a
-few larger ones would do.
+A **`ComponentGroup`** is a component that declares components instead of
+fields: the same API, over one pooled set of block reads spanning every member.
 
-A **`ComponentGroup`** pools several components on one unit into a single
-consolidated set of block reads: adjacent registers from *different* components
-are fetched in the same Modbus call. Each component's listeners still fire after
-the update.
+A physical device is usually several sub-systems on one unit — a water heater,
+three heating circuits, a set of sensors — and polling each one separately means
+many small Modbus reads where a few larger ones would do. A group fetches
+adjacent registers from *different* components in the same Modbus call, and each
+component's listeners still fire after the update.
 
 ```python
 from modbus_connection.model import ComponentGroup
@@ -19,15 +18,6 @@ from modbus_connection.model import ComponentGroup
 group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
 await group.async_update()  # one pooled set of reads; each component notified
 ```
-
-A group is driven exactly like a single component: `async_update()` — with
-`notify=False` when the caller fires the listeners itself — and
-`async_read_raw()` mean the same thing and take the same arguments. Members may
-mix register and bit spaces, and a member declaring a
-[`repeating_group`](/modbus-connection/modelling/repeats/) is sized and read in
-the group's second pass just as it would be on its own. The
-[reference](/modbus-connection/modelling/components-reference/#componentgroup)
-lists the methods.
 
 ## How it plans
 
