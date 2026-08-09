@@ -175,10 +175,40 @@ async def _async_update_data(self) -> None:
         raise UpdateFailed(str(err)) from err
 ```
 
-Each entity's native value is then just an attribute read on the device library —
-`self.coordinator.device.sensors.outside_1` — with the field metadata (`unit`,
-enum members) feeding the entity's `native_unit_of_measurement`, `device_class`
-and so on.
+Each entity's native value is then just an attribute read on the device library.
+Put that read in the entity description as a `value_fn`, so a platform is a
+table of descriptions and one entity class:
+
+```python
+@dataclass(frozen=True, kw_only=True)
+class MyDeviceSensorDescription(SensorEntityDescription):
+    """Describe a sensor backed by a device attribute."""
+
+    value_fn: Callable[[MyDevice], float | None]
+
+
+SENSORS: tuple[MyDeviceSensorDescription, ...] = (
+    MyDeviceSensorDescription(
+        key="outside_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        value_fn=lambda device: device.sensors.outside_1,
+    ),
+)
+
+
+class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
+    entity_description: MyDeviceSensorDescription
+
+    @property
+    def native_value(self) -> float | None:
+        return self.entity_description.value_fn(self.coordinator.device)
+```
+
+The `lambda` is type-checked against the device library, so a renamed or
+retyped field fails in CI rather than at runtime. The field's `unit=` and enum
+members tell you which `native_unit_of_measurement` and `device_class` the
+description should carry.
 
 ## Reconnecting is automatic
 
@@ -187,21 +217,34 @@ after a dropped link opens a new one; a link that is down surfaces as a
 `ModbusConnectionError` out of the update, the coordinator marks the entities
 unavailable, and the next successful poll brings them back.
 
-**Do not reload the config entry when the connection is lost.** A reload tears
-down every entity and re-runs setup for a condition that heals itself within one
-update interval, and a device that stays offline for a while turns that into
-repeated setup churn. `on_connection_lost` remains available for callers that
-need to observe the transport, but a device integration has no reason to reload
-on it.
+So don't reload the config entry when the connection is lost — the condition
+heals itself within one update interval.
 
 The one case automatic reconnection cannot see is a link that is **up but
 unresponsive** — a bridge that keeps the socket open while the device behind it
 stops answering, so every poll times out against the same dead link. Most
 integrations never hit this and need nothing here. If yours is known to — some
 serial-to-network bridges wedge this way — call `disconnect()` once polls keep
-failing with `ModbusTimeoutError`; the next poll establishes a fresh link over
-the same units and components, so nothing is rebuilt and the entry still is not
-reloaded.
+failing with `ModbusTimeoutError`:
+
+```python
+async def _async_update_data(self) -> None:
+    try:
+        await self.device.async_update()
+    except ModbusTimeoutError as err:
+        self._timeouts += 1
+        if self._timeouts >= 3:  # a stuck link, not a slow reply
+            await self.connection.disconnect()
+        raise UpdateFailed(str(err)) from err
+    except ModbusError as err:
+        raise UpdateFailed(str(err)) from err
+    self._timeouts = 0
+```
+
+The next poll establishes a fresh link over the same units and components, so
+nothing is rebuilt and the entry still is not reloaded. Hand the coordinator the
+connection alongside the device for this — it is the only place an entity-facing
+layer needs it.
 
 ## Reload when the SunSpec map shifts
 
@@ -282,8 +325,9 @@ wiring.
 - [ ] Device communication lives in a **separate PyPI library**, not the
       integration (a Core requirement).
 - [ ] Device library has no Home Assistant import and is tested against the mock.
-- [ ] The config flow gathers the connection details — plus the unit id when the
-      user can choose it — and validates them by probing the device.
+- [ ] The config flow gathers the connection details and validates them by
+      probing the device. It asks for the unit id only when the device's address
+      can differ; a fixed address is a constant in the integration.
 - [ ] `async_setup_entry` constructs the `ModbusConnection` and registers
       `connection.close` with `entry.async_on_unload`.
 - [ ] Coordinator calls the library's `async_update()` and maps `ModbusError` to
