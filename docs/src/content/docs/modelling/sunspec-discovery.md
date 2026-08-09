@@ -19,36 +19,23 @@ models = await scan(unit, 40000)  # SunSpecModels: dict[int, list[SunSpecModel]]
 50000 as possible locations. Each `SunSpecModel` contains the model ID, header
 address, and data length. A model ID can occur more than once.
 
-The result is a `SunSpecModels` — a plain `dict` keyed by model ID, with a
-lookup helper on top. `first(*model_ids)` returns the first discovered model
-among the given IDs, tried in the order given, so preferred model variants
-come before their fallbacks; it returns `None` when no ID matches.
+## Looking up models
 
-## Chain order
-
-`first()` answers "where is model 103?". A device that repeats a model asks a
-different question: a SolarEdge inverter's chain is the inverter, then one
-identity block (model `1`) and one meter model per meter — so a meter's
-identity is the `1` immediately before it, and the model ID alone cannot say
-which meter that is. `chain` hands back every discovered model in the order
-`scan()` walked them, and `at()` looks one up by its header address:
+The result is a `SunSpecModels` — a plain `dict` keyed by model ID, with three
+lookups on top:
 
 ```python
-chain = models.chain  # list[SunSpecModel], in chain order
-for identity, model in zip(chain, chain[1:], strict=False):
-    if identity.model_id == 1 and model.model_id in (201, 202, 203, 204):
-        ...  # a meter, and the identity block describing it
-
+models.first(103, 101)  # the first ID present, in preference order, or None
+models.chain  # every model in chain order
 models.at(40188)  # the model whose header sits there, or None
 ```
 
-A model's `length` is the data length its header reports. `span` is the whole
-block, header included — both the count that reads the model and the step to
-the next header:
+`chain` is what tells repeats of one ID apart: a SolarEdge meter is identified
+by the model `1` immediately before it, not by its own ID.
 
-```python
-words = await unit.read_holding_registers(model.address, model.span)
-```
+A model's `length` is the data length its header reports. `span` adds the two
+header registers, so it is both the count that reads the whole block and the
+step to the next header.
 
 ## Components at discovered models
 
