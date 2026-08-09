@@ -76,7 +76,7 @@ a new connection to reconnect.
 
 All four are frozen, keyword-only dataclasses importable from
 `modbus_connection`. See
-[Choosing connection parameters](/modbus-connection/connection/connections-and-units/#choosing-connection-parameters)
+[Connection parameters](/modbus-connection/connection/connections-and-units/#connection-parameters)
 for usage guidance.
 
 ### `ModbusTcpParams`

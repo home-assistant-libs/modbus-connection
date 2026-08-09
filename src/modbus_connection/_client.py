@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BaseModbusConnection",
-    "ModbusParams",
     "ModbusSerialParams",
     "ModbusTcpParams",
     "ModbusTlsParams",
@@ -185,10 +184,9 @@ class ModbusSerialParams:
         return ("serial", self.device)
 
 
-ModbusParams = ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
-
-
-def _target(params: ModbusParams) -> str:
+def _target(
+    params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
+) -> str:
     if isinstance(params, ModbusSerialParams):
         return params.device
     return f"{params.host}:{params.port}"
@@ -199,7 +197,9 @@ class BaseModbusConnection(ABC):
 
     def __init__(
         self,
-        params: ModbusParams,
+        params: (
+            ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+        ),
         *,
         timeout: float = 10,
         message_spacing: float = 0.0,

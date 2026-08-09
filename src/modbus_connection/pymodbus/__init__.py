@@ -27,7 +27,6 @@ from pymodbus.pdu.file_message import FileRecord
 
 from .._client import (
     BaseModbusConnection,
-    ModbusParams,
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
@@ -98,7 +97,9 @@ def _safe_close(client: ModbusBaseClient) -> None:
 
 
 def _connect_error(
-    err: Exception | None, params: ModbusParams, target: str
+    err: Exception | None,
+    params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
+    target: str,
 ) -> Exception:
     """Translate a pymodbus construct/connect failure to the neutral type."""
     if isinstance(err, ParameterException):
