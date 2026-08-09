@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 class ExceptionCode(IntEnum):
@@ -19,6 +19,20 @@ class ExceptionCode(IntEnum):
     MEMORY_PARITY_ERROR = 0x08
     GATEWAY_PATH_UNAVAILABLE = 0x0A
     GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND = 0x0B
+
+
+def _describe(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    """Render a unit operation call, e.g. ``read_holding_registers(9, 2)``."""
+    shown = [_short(a) for a in args]
+    shown += [f"{key}={_short(value)}" for key, value in kwargs.items()]
+    return f"{name}({', '.join(shown)})"
+
+
+def _short(value: Any) -> str:
+    """Render one argument, abbreviating a long sequence of values."""
+    if isinstance(value, (list, tuple)) and len(value) > 4:
+        return f"[{', '.join(repr(v) for v in value[:4])}, … {len(value)} values]"
+    return repr(value)
 
 
 @dataclass(frozen=True)

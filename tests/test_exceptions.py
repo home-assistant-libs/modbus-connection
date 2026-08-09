@@ -14,7 +14,7 @@ from modbus_connection import (
     ReadBlock,
     ServerDeviceBusyError,
 )
-from modbus_connection.exceptions import _CODED_ERRORS
+from modbus_connection.exceptions import _CODED_ERRORS, _describe
 
 
 def test_from_code_builds_the_matching_subclass() -> None:
@@ -116,3 +116,18 @@ def test_the_spec_pattern_reads_the_block_off_the_typed_catch() -> None:
             100,
             4,
         )
+
+
+def test_describe_renders_the_call() -> None:
+    assert _describe("read_holding_registers", (9, 2), {}) == (
+        "read_holding_registers(9, 2)"
+    )
+    assert _describe("mask_write_register", (1,), {"and_mask": 0xF2}) == (
+        "mask_write_register(1, and_mask=242)"
+    )
+
+
+def test_describe_abbreviates_a_long_value_list() -> None:
+    assert _describe("write_registers", (42, [1, 2, 3, 4, 5, 6]), {}) == (
+        "write_registers(42, [1, 2, 3, 4, … 6 values])"
+    )

@@ -113,6 +113,17 @@ async def test_illegal_address_raises(unit: tuple[str, ModbusUnit, Any]) -> None
     assert excinfo.value.exception_code == 2  # the pre-enum idiom keeps working
 
 
+async def test_error_message_names_the_operation(
+    unit: tuple[str, ModbusUnit, Any],
+) -> None:
+    """A raw request has no ``block``; the message says what was asked for."""
+    _, u, _ = unit
+    with pytest.raises(IllegalDataAddressError) as excinfo:
+        await u.read_holding_registers(9999, 1)
+    assert "read_holding_registers(9999, 1)" in str(excinfo.value)
+    assert excinfo.value.block is None
+
+
 # -- connection surface -------------------------------------------------------
 
 
