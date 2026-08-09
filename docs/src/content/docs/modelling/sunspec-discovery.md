@@ -22,12 +22,7 @@ address, and data length. A model ID can occur more than once.
 The result is a `SunSpecModels` — a plain `dict` keyed by model ID, with a
 lookup helper on top. `first(*model_ids)` returns the first discovered model
 among the given IDs, tried in the order given, so preferred model variants
-come before their fallbacks; it returns `None` when no ID matches:
-
-```python
-# a float-model inverter if present, else the int+SF variant
-model = models.first(111, 112, 113, 101, 102, 103)
-```
+come before their fallbacks; it returns `None` when no ID matches.
 
 ## Components at discovered models
 
@@ -43,8 +38,9 @@ class Inverter(SunSpecComponent):
     a_sf = sunssf(6)
 
 
-if (found := models.get(103)) is not None:
-    inverter = Inverter(unit, found[0])
+# a three-phase inverter if the device has one, else the single-phase model
+if (found := models.first(103, 101)) is not None:
+    inverter = Inverter(unit, found)
 ```
 
 The header occupies offsets 0 and 1; data begins at offset 2.
