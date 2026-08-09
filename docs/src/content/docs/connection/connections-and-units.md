@@ -1,6 +1,6 @@
 ---
 title: Connections and units
-description: Connection ownership, lifecycle, and per-unit handles — and how to configure the transport, TLS, and request spacing.
+description: The two classes — an owner-held connection and the per-unit handles it hands out — and how to configure the link.
 ---
 
 The top-level `modbus_connection` package defines the abstract
@@ -8,12 +8,22 @@ The top-level `modbus_connection` package defines the abstract
 
 ## `ModbusConnection`
 
-A connection owns one physical link to a Modbus network. One link can serve many
-unit IDs, and all requests on it are serialized.
+One physical link to a Modbus network, shared by every unit id on it. Requests
+are serialized over that link, so two units never interleave frames.
 
-Constructing a connection performs no I/O. The first request connects on demand.
-If the link drops, the next request reconnects. `connect()` remains available
-for callers that specifically need to establish the link eagerly.
+Constructing a connection performs no I/O — pick a backend and hand it a
+[parameter object](#connection-parameters):
+
+```python
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import ModbusConnection
+
+connection = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
+```
+
+The first request connects on demand. If the link drops, the next request
+reconnects. `connect()` remains available for callers that specifically need to
+establish the link eagerly.
 
 A link that is up but unresponsive — a peer that keeps the socket open but
 stops answering, common with cheap serial-to-network bridges — never drops on
@@ -24,47 +34,53 @@ Only the connection owner should retain this object and call `close()`. Closing
 is permanent: later calls to `connect()` or unit operations raise
 `ClientClosedError`.
 
-```python
-from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
-
-connection = ModbusConnection(ModbusTcpParams(host="192.168.1.50", port=502))
-```
-
 ## `ModbusUnit`
 
-`connection.for_unit(unit_id)` returns a stateless handle bound to that unit.
-Consumers should receive this handle rather than the owning connection.
+One device on that link. `connection.for_unit(unit_id)` returns a handle
+carrying every read and write operation for that unit id — see
+[Modbus operations](/modbus-connection/connection/operations/) for the full set:
 
 ```python
 unit = connection.for_unit(1)
 values = await unit.read_holding_registers(9, 2)
 ```
 
-## Choosing connection parameters
+The handle is stateless and cheap, so `for_unit` can be called whenever a unit
+is needed. It is also what a consumer should receive rather than the owning
+connection: it can talk to its own unit without being able to close the link out
+from under the owner.
+
+## Connection parameters
 
 A connection is constructed from one of four frozen, keyword-only dataclasses,
-importable from `modbus_connection` — `ModbusTcpParams`, `ModbusUdpParams`,
-`ModbusSerialParams`, or `ModbusTlsParams`. Because the parameter object is
-shared and backend-neutral, the code that gathers connection details (a config
-flow, a CLI) doesn't need to know which backend will consume them. The
-[reference](/modbus-connection/connection/reference/#parameter-dataclasses)
-lists every field and default.
+importable from `modbus_connection`. Because the parameter object is shared and
+backend-neutral, the code that gathers connection details (a config flow, a CLI)
+doesn't need to know which backend will consume them:
+
+```python
+from modbus_connection import (
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusTlsParams,
+    ModbusUdpParams,
+)
+
+ModbusTcpParams(host="192.168.1.50", port=502)  # native Modbus TCP
+ModbusTcpParams(host="192.168.1.50", framer="rtu")  # RTU over TCP
+ModbusUdpParams(host="192.168.1.50", port=502)
+ModbusSerialParams(device="/dev/ttyUSB0", framer="ascii", baudrate=9600)
+ModbusTlsParams(host="192.168.1.50", port=802, verify="/path/to/ca.pem")
+```
 
 `framer` selects the wire framing. TCP and UDP accept `socket` (native Modbus),
 `rtu`, or `ascii`; serial accepts `rtu` or `ascii`; TLS framing is fixed. Not
 every backend carries every framing — see
 [Choosing a backend](/modbus-connection/getting-started/backends/).
 
-```python
-from modbus_connection import ModbusSerialParams
-from modbus_connection.tmodbus import ModbusConnection
-
-connection = ModbusConnection(
-    ModbusSerialParams(device="/dev/ttyUSB0", framer="ascii", baudrate=9600),
-    timeout=5,
-)
-```
+The [reference](/modbus-connection/connection/reference/#parameter-dataclasses)
+lists every field and default. `timeout`, `message_spacing` and `connect_delay`
+belong to the connection rather than the parameters, and are passed to
+`ModbusConnection` itself.
 
 ### Sharing one connection per device
 
