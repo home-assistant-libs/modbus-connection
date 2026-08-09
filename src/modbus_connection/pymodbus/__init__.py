@@ -39,7 +39,7 @@ from ..exceptions import (
     ModbusError,
     ModbusExceptionError,
     ModbusTimeoutError,
-    _with_call_context,
+    _describe,
 )
 
 __all__ = [
@@ -61,20 +61,21 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         await self._conn.connect()
+        prefix = _describe(func.__name__, args, kwargs)
         try:
-            try:
-                async with self._conn._pacer.paced(self._unit_id):
-                    return await func(self, *args, **kwargs)
-            except ConnectionException as err:
-                raise ModbusConnectionError(str(err)) from err
-            except ModbusIOException as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except ModbusException as err:
-                raise ModbusError(str(err)) from err
-
+            async with self._conn._pacer.paced(self._unit_id):
+                return await func(self, *args, **kwargs)
         except ModbusError as err:
-            _with_call_context(err, func.__name__, args, kwargs)
+            # Raised by _check inside the operation; edit the message in place
+            # so the typed subclass the caller branches on survives.
+            err.args = (f"{prefix}: {err}",)
             raise
+        except ConnectionException as err:
+            raise ModbusConnectionError(f"{prefix}: {err}") from err
+        except ModbusIOException as err:
+            raise ModbusTimeoutError(f"{prefix}: {err}") from err
+        except ModbusException as err:
+            raise ModbusError(f"{prefix}: {err}") from err
 
     return wrapper
 

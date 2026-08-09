@@ -35,18 +35,6 @@ def _short(value: Any) -> str:
     return repr(value)
 
 
-def _with_call_context(
-    err: BaseException, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> None:
-    """Name the operation in an error's message, in place.
-
-    Editing ``args`` rather than raising a new error keeps the exception object
-    and its traceback, which matters for the typed subclasses: their identity
-    is the answer the caller branches on.
-    """
-    err.args = (f"{_describe(name, args, kwargs)}: {err}",)
-
-
 @dataclass(frozen=True)
 class ReadBlock:
     """The planned block read an exception response refused."""

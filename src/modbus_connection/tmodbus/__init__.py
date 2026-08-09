@@ -40,7 +40,7 @@ from ..exceptions import (
     ModbusExceptionError,
     ModbusProtocolError,
     ModbusTimeoutError,
-    _with_call_context,
+    _describe,
 )
 
 __all__ = [
@@ -217,24 +217,27 @@ def _map_errors[**P, R](
     @functools.wraps(func)
     async def wrapper(self: TmodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         await self._conn.connect()
+        prefix = _describe(func.__name__, args, kwargs)
         try:
-            try:
-                async with self._conn._pacer.paced(self._unit_id):
-                    return await func(self, *args, **kwargs)
-            except TModbusConnectionError as err:
-                raise ModbusConnectionError(str(err)) from err
-            except TimeoutError as err:
-                raise ModbusTimeoutError(str(err)) from err
-            except InvalidResponseError as err:
-                raise ModbusProtocolError(str(err)) from err
-            except ModbusResponseError as err:
-                raise ModbusExceptionError.from_code(int(err.error_code)) from err
-            except TModbusError as err:
-                raise ModbusError(str(err)) from err
-
+            async with self._conn._pacer.paced(self._unit_id):
+                return await func(self, *args, **kwargs)
         except ModbusError as err:
-            _with_call_context(err, func.__name__, args, kwargs)
+            # Already ours; edit the message in place so the typed subclass the
+            # caller branches on survives.
+            err.args = (f"{prefix}: {err}",)
             raise
+        except TModbusConnectionError as err:
+            raise ModbusConnectionError(f"{prefix}: {err}") from err
+        except TimeoutError as err:
+            raise ModbusTimeoutError(f"{prefix}: {err}") from err
+        except InvalidResponseError as err:
+            raise ModbusProtocolError(f"{prefix}: {err}") from err
+        except ModbusResponseError as err:
+            raise ModbusExceptionError.from_code(
+                int(err.error_code), f"{prefix}: {err}"
+            ) from err
+        except TModbusError as err:
+            raise ModbusError(f"{prefix}: {err}") from err
 
     return wrapper
 

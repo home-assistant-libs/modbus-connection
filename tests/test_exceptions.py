@@ -14,7 +14,7 @@ from modbus_connection import (
     ReadBlock,
     ServerDeviceBusyError,
 )
-from modbus_connection.exceptions import _CODED_ERRORS, _with_call_context
+from modbus_connection.exceptions import _CODED_ERRORS, _describe
 
 
 def test_from_code_builds_the_matching_subclass() -> None:
@@ -118,29 +118,16 @@ def test_the_spec_pattern_reads_the_block_off_the_typed_catch() -> None:
         )
 
 
-def test_call_context_names_the_operation_and_keeps_the_message() -> None:
-    err = IllegalDataAddressError()
-    _with_call_context(err, "read_holding_registers", (9, 2), {})
-    assert str(err) == (
-        "read_holding_registers(9, 2): Device returned Modbus exception code 2"
+def test_describe_renders_the_call() -> None:
+    assert _describe("read_holding_registers", (9, 2), {}) == (
+        "read_holding_registers(9, 2)"
+    )
+    assert _describe("mask_write_register", (1,), {"and_mask": 0xF2}) == (
+        "mask_write_register(1, and_mask=242)"
     )
 
 
-def test_call_context_keeps_the_exception_identity() -> None:
-    # Editing the message in place, not re-raising, so the typed class the
-    # caller branches on survives — along with the code and the block.
-    err = ModbusExceptionError.from_code(2, block=ReadBlock("holding", 100, 4))
-    _with_call_context(err, "read_holding_registers", (100, 4), {})
-    assert type(err) is IllegalDataAddressError
-    assert err.exception_code is ExceptionCode.ILLEGAL_DATA_ADDRESS
-    assert err.block == ReadBlock("holding", 100, 4)
-
-
-def test_call_context_renders_keywords_and_abbreviates_long_values() -> None:
-    err = ModbusExceptionError(3)
-    _with_call_context(err, "mask_write_register", (1,), {"and_mask": 0xF2})
-    assert "mask_write_register(1, and_mask=242)" in str(err)
-
-    err = ModbusExceptionError(3)
-    _with_call_context(err, "write_registers", (42, [1, 2, 3, 4, 5, 6]), {})
-    assert "write_registers(42, [1, 2, 3, 4, … 6 values])" in str(err)
+def test_describe_abbreviates_a_long_value_list() -> None:
+    assert _describe("write_registers", (42, [1, 2, 3, 4, 5, 6]), {}) == (
+        "write_registers(42, [1, 2, 3, 4, … 6 values])"
+    )
