@@ -6,7 +6,22 @@ description: Build a standalone CLI that reads a real device once and prints eve
 A **query helper** is a small standalone script that connects to a real device,
 reads it once, and dumps every value to the terminal. It's the single most useful
 tool when bringing up a new device library — you can check a physical controller
-without any application around it.
+without any application around it:
+
+```text
+$ python query.py 192.168.1.50 --unit 246 --framer rtu
+
+Sensors
+-------
+  outside_1  4.2 °C
+  flow_1     58.1 °C
+  return_1   41.0 °C
+
+6 Modbus reads
+```
+
+The read count is the payoff of [pooled planning](/modbus-connection/modelling/reading/#reads-are-pooled-into-blocks)
+— dozens of fields read in a handful of Modbus round-trips.
 
 You don't have to hand-roll the plumbing. The library ships the building blocks in
 **`modbus_connection.cli_helper`**, so a query script imports the pieces it needs
@@ -83,8 +98,8 @@ python query.py --help          # works without a backend installed
 
 ## Through an ESPHome serial proxy
 
-An ESPHome device running
-[`serial_proxy`](https://esphome.io/components/serial_proxy/) can expose its
+An ESPHome device running a
+[serial proxy](https://esphome.io/projects/?type=serial) can expose its
 UART to the query helper. Pass an `esphome://` URL as the serial target:
 
 ```bash
@@ -171,23 +186,9 @@ or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
 name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
 status or fault word should not hide a set bit.
 
-If you want to format the output yourself (JSON, a table, grouping by section),
-`field_rows(component)` returns the `(name, value)` rows and you take it from
-there.
+If you model your device as a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/), loop over its
+components and `print_component` each one. To format the output yourself (JSON,
+a table, grouping by section), `field_rows(component)` returns the
+`(name, value)` rows and you take it from there.
 
-## Sample output
-
-```text
-Sensors
--------
-  outside_1  4.2 °C
-  flow_1     58.1 °C
-  return_1   41.0 °C
-
-6 Modbus reads
-```
-
-The read count is the payoff of [pooled planning](/modbus-connection/modelling/reading/#reads-are-pooled-into-blocks)
-— dozens of fields read in a handful of Modbus round-trips. If you model your
-device as a [`ComponentGroup`](/modbus-connection/modelling/component-group/),
-loop over its components and `print_component` each one.
