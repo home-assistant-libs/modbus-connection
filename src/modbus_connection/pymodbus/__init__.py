@@ -39,6 +39,7 @@ from ..exceptions import (
     ModbusError,
     ModbusExceptionError,
     ModbusTimeoutError,
+    _with_call_context,
 )
 
 __all__ = [
@@ -61,14 +62,19 @@ def _map_errors[**P, R](
     async def wrapper(self: PymodbusUnit, *args: P.args, **kwargs: P.kwargs) -> R:
         await self._conn.connect()
         try:
-            async with self._conn._pacer.paced(self._unit_id):
-                return await func(self, *args, **kwargs)
-        except ConnectionException as err:
-            raise ModbusConnectionError(str(err)) from err
-        except ModbusIOException as err:
-            raise ModbusTimeoutError(str(err)) from err
-        except ModbusException as err:
-            raise ModbusError(str(err)) from err
+            try:
+                async with self._conn._pacer.paced(self._unit_id):
+                    return await func(self, *args, **kwargs)
+            except ConnectionException as err:
+                raise ModbusConnectionError(str(err)) from err
+            except ModbusIOException as err:
+                raise ModbusTimeoutError(str(err)) from err
+            except ModbusException as err:
+                raise ModbusError(str(err)) from err
+
+        except ModbusError as err:
+            _with_call_context(err, func.__name__, args, kwargs)
+            raise
 
     return wrapper
 
