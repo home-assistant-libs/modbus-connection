@@ -97,3 +97,22 @@ Layouts whose addresses or strides depend on values read from the device cannot
 always be emitted statically. The generator leaves those repeated-group
 declarations commented for the library author to complete. It raises
 `SunSpecGenerationError` when emitting a static layout would be incorrect.
+
+### Supplying the counts
+
+Those layouts are only unknown because a count point is. Pass what the target
+device reports and the block it sizes is emitted as an ordinary fixed-count
+`repeating_group` — which is what makes the curve models (705, 706, 712) and the
+trip models (707–710) generate at all:
+
+```bash
+python -m modbus_connection.model.sunspec.generate 705 707 \
+    --count 705:NCrv=3 --count 705:NPt=4 \
+    --count 707:NCrvSet=2 --count 707:NPt=5
+```
+
+This bakes one device's counts into the generated classes. A device that reports
+different ones fails on its first read rather than decoding garbage: a curve
+model's length is a function of its counts, so `SunSpecComponent`'s header check
+sees the mismatch. Generating without `--count` keeps the runtime-counted
+behaviour where the layout allows it.
