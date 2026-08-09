@@ -78,13 +78,15 @@ asyncio.run(main())
 
 <CardGrid>
   <Card title="ModbusConnection" icon="random">
-    The shared link to a Modbus network. One physical link addresses many units
-    (1–247). It is **transient and owner-held**: construct a backend connection
-    from shared parameters; the first unit operation connects on demand. Only
-    the owner ever holds it, and only the owner tears it down with `close()`.
+    The link to a Modbus network, shared by every unit on it. It is
+    **owner-held**: construct it from a backend-neutral parameter object, and
+    only the owner tears it down with `close()`. The first request connects on
+    demand, and a dropped link is re-established.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
-    A **stateless per-unit handle** you get from `connection.for_unit(unit_id)`.
+    One device on that link, from `connection.for_unit(unit_id)`. It carries the
+    read and write operations for that unit id and holds no state, so this — not
+    the connection — is what you hand to a device library.
   </Card>
 </CardGrid>
 
