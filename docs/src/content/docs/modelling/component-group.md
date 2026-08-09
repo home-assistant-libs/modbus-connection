@@ -3,15 +3,14 @@ title: Component groups
 description: Refresh several components that share a unit in one consolidated set of pooled Modbus reads.
 ---
 
-Each `Component` can refresh independently. But a physical device is usually
-several sub-systems on one unit — a water heater, three heating circuits, a set of
-sensors — and polling each one separately means many small Modbus reads where a
-few larger ones would do.
+A **`ComponentGroup`** is a component that declares components instead of
+fields: the same API, over one pooled set of block reads spanning every member.
 
-A **`ComponentGroup`** pools several components on one unit into a single
-consolidated set of block reads: adjacent registers from *different* components
-are fetched in the same Modbus call. Each component's listeners still fire after
-the update.
+A physical device is usually several sub-systems on one unit — a water heater,
+three heating circuits, a set of sensors — and polling each one separately means
+many small Modbus reads where a few larger ones would do. A group fetches
+adjacent registers from *different* components in the same Modbus call, and each
+component's listeners still fire after the update.
 
 ```python
 from modbus_connection.model import ComponentGroup

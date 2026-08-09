@@ -191,4 +191,3 @@ If you model your device as a
 components and `print_component` each one. To format the output yourself (JSON,
 a table, grouping by section), `field_rows(component)` returns the
 `(name, value)` rows and you take it from there.
-

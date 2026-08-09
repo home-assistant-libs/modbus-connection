@@ -27,7 +27,6 @@ from tmodbus.exceptions import (
 
 from .._client import (
     BaseModbusConnection,
-    ModbusParams,
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
@@ -74,7 +73,9 @@ class ModbusConnection(BaseModbusConnection):
 
     def __init__(
         self,
-        params: ModbusParams,
+        params: (
+            ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+        ),
         *,
         timeout: float = 10,
         message_spacing: float = 0.0,

@@ -62,11 +62,9 @@ class Boiler(Component):
 boiler = Boiler(unit, base_offset=2000)
 ```
 
-A component at the default `base_offset=0` is unaffected — declared and resolved
-addresses are the same — so a device-wide map applied to unplaced components stays
-correct. A layout addressed by `index` and a per-field `stride` is the exception:
-that shift is per field rather than the whole block, so state the ranges of an
-indexed layout at the addresses it actually reads.
+A per-field `stride` is the exception: an `index` shifts each field on its own
+rather than the whole block, so state an indexed layout's ranges at the addresses
+it actually reads.
 
 ## When a block read fails
 
