@@ -10,7 +10,7 @@ from ._planning import ReadItem, ReadPlan
 from ._ranges import DeviceRanges
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
-from .fields import RegisterField, _BitField
+from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -57,7 +57,12 @@ class ManualComponent(_ComponentBase):
     def add(
         self,
         key: str,
-        target: RegisterField[Any] | _BitField | RepeatingGroupField[Any],
+        target: (
+            RegisterField[Any]
+            | CoilField
+            | DiscreteInputField
+            | RepeatingGroupField[Any]
+        ),
         *,
         space: RegisterSpace | None = None,
     ) -> None:
@@ -75,7 +80,7 @@ class ManualComponent(_ComponentBase):
                 self._groups[key] = self._build_instances(target, 0, target.count)
             else:
                 self._repeating_fields[key] = target
-        elif isinstance(target, _BitField):
+        elif isinstance(target, (CoilField, DiscreteInputField)):
             if space is not None:
                 raise ValueError(
                     "space is fixed by the field type for bits; "
