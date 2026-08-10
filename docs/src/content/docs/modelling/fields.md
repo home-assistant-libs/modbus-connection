@@ -19,6 +19,8 @@ from modbus_connection.model import (
     integer,
     gauge,
     boolean,
+    bit,
+    bits,
     raw_register,
     uint32,
     int32,
@@ -209,6 +211,24 @@ class Relay(Component):
 Pass `nan=` for a device with a "no value" sentinel, which decodes to `None`
 without a warning. For an actual coil or discrete input, use the bit fields
 below — `boolean` reads the component's register space.
+
+## Packed bits in a register
+
+Devices routinely pack several independent settings into one register. `bit`
+exposes one of them as a `bool`, and `bits` a run of them as an `int`:
+
+```python
+class SiteLimit(Component):
+    limit_mode = bits(0xE000, 0, 3, writable=True)  # bits 0-2
+    external_production = bit(0xE000, 10, writable=True)
+    negative_limit = bit(0xE000, 11, writable=True)
+```
+
+Fields at the same address are read together, so this costs one register.
+Writing one of them re-reads the register, replaces that field's bits and
+writes the word back, which leaves every other setting alone — including one
+changed since the last poll, by the device itself or by another writer. A value
+too wide for the run raises `ValueError` instead of being truncated.
 
 ## Bit fields
 

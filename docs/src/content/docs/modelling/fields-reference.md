@@ -28,6 +28,8 @@ returns the decoded value or `None`. See
 | `enum(address, enum_type, *, count=1, signed=False, nan=None, …)` | `NumberField[E]` | `count` | Maps to an `IntEnum`; unknown codes decode to `None`. |
 | `flags(address, flag_type, *, count=1, signed=False, nan=None, …)` | `NumberField[F]` | `count` | Maps to an `IntFlag`; unknown bits are kept. |
 | `boolean(address, *, nan=None, stride=0, writable=False, force_fc16=False)` | `NumberField[bool]` | 1 | A 0/1 register; other values decode to `None`. |
+| `bit(address, index, *, writable=False, stride=0)` | `PackedBitField` | 1 | One bit of a register, as `bool`. |
+| `bits(address, start, width, *, writable=False, stride=0, unit=None)` | `PackedBitsField` | 1 | A run of `width` bits of a register, as `int`. |
 | `coil(address, *, writable=False, stride=0)` | `CoilField` | 1 bit | A coil (FC01). |
 | `discrete_input(address, *, stride=0)` | `DiscreteInputField` | 1 bit | A discrete input (FC02, read-only). |
 
@@ -116,6 +118,23 @@ per word.
 Read-only address codecs: an `ipaddress.IPv4Address` over two registers, an
 `ipaddress.IPv6Address` over eight, and a colon-separated EUI-48 / MAC string
 over three.
+
+### `PackedBitsField` and `PackedBitField`
+
+Part of one register, constructed by [`bits()`](#field-helpers) and
+[`bit()`](#field-helpers).
+
+```python
+PackedBitsField(address, start, width=1, *, writable=False, stride=0, unit=None)
+PackedBitField(address, index, *, writable=False, stride=0)
+```
+
+Instance attributes add `start`, `width` and `mask` to `RegisterField`'s.
+`decode` returns the field's bits as an `int` (`bool` for `PackedBitField`);
+`merge(word, value)` returns `word` with those bits replaced, raising
+`ValueError` for a value wider than `width`. A write re-reads the register and
+merges, so the register's other bits survive it. The constructor raises
+`ValueError` if the run does not fit a 16-bit register.
 
 ### `CoilField` and `DiscreteInputField`
 
