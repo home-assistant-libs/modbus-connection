@@ -634,3 +634,137 @@ def test_factory_validates() -> None:
         repeating_group(uint16(8), Module, stride=0)
     with pytest.raises(ValueError, match="must be >= 0"):
         repeating_group(-1, Module, stride=20)
+
+
+# -- counts and placement resolved from the device ----------------------------
+
+
+async def test_a_nested_count_can_be_read_from_the_owning_layout() -> None:
+    # count_in_block=False states the count's address in the coordinates of the
+    # layout that owns the block, so every instance reads the same register.
+    # This is what SunSpec means everywhere: NPt sits in the model's fixed block
+    # and sizes a group one or two levels down.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20, count_in_block=False)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=100)
+
+    unit = _unit()
+    # one count at 5, shared: 2 leaves per instance, at 11/31 and 111/131
+    unit.holding.update({5: 2, 11: 1, 31: 2, 111: 3, 131: 4})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3, 4]]
+
+
+async def test_a_shared_nested_count_reads_one_address_for_every_instance() -> None:
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20, count_in_block=False)
+
+    class Outer(Component):
+        groups = repeating_group(3, Inner, stride=100)
+
+    inner = _unit()
+    inner.holding.update({5: 1})
+    spy = _Spy(inner)
+    await Outer(spy).async_update()
+    assert all(address != 105 for _, address, _ in spy.reads)
+
+
+async def test_a_dynamic_stride_places_a_block_sized_by_a_count() -> None:
+    # SunSpec model 705's curve block is 10 + NPt * 2 registers wide, so it
+    # cannot be placed until NPt has been read.
+    class Curve(Component):
+        act_pt = integer(10, signed=False)
+        points = repeating_group(uint16(5), Module, stride=2, count_in_block=False)
+
+    class Model(Component):
+        n_pt = uint16(5)
+        curves = repeating_group(
+            uint16(6), Curve, stride=lambda m: 10 + 2 * int(m.n_pt)
+        )
+
+    unit = _unit()
+    unit.holding.update({5: 2, 6: 2})  # NPt = 2, NCrv = 2 -> stride 14
+    unit.holding.update({10: 1, 11: 10, 24: 2, 25: 20})
+    model = Model(unit)
+    await model.async_update()
+    assert [c.act_pt for c in model.curves] == [1, 2]
+    assert [len(c.points) for c in model.curves] == [2, 2]
+
+
+async def test_a_dynamic_offset_places_a_sibling_after_a_sized_block() -> None:
+    # Models 707-710 put three same-shaped trip regions inside each curve, each
+    # 1 + NPt * 3 registers on from the last.
+    class Region(Component):
+        act_pt = integer(10, signed=False)
+
+    class Curve(Component):
+        first = repeating_group(1, Region, stride=1)
+        second = repeating_group(1, Region, stride=1, offset=lambda m: 1 + 3 * int(m.n_pt))
+        third = repeating_group(
+            1, Region, stride=1, offset=lambda m: 2 * (1 + 3 * int(m.n_pt))
+        )
+
+    class Model(Component):
+        n_pt = uint16(5)
+        curves = repeating_group(1, Curve, stride=1)
+
+    unit = _unit()
+    unit.holding.update({5: 2})  # NPt = 2 -> each region is 7 registers
+    unit.holding.update({10: 1, 17: 2, 24: 3})
+    model = Model(unit)
+    await model.async_update()
+    curve = model.curves[0]
+    assert [curve.first[0].act_pt, curve.second[0].act_pt, curve.third[0].act_pt] == [
+        1,
+        2,
+        3,
+    ]
+
+
+async def test_a_dynamic_stride_that_resolves_to_zero_is_rejected() -> None:
+    class Model(Component):
+        n_pt = uint16(5)
+        groups = repeating_group(1, Module, stride=lambda m: int(m.n_pt))
+
+    unit = _unit()
+    unit.holding.update({5: 0})
+    with pytest.raises(ValueError, match="resolved to stride 0"):
+        await Model(unit).async_update()
+
+
+async def test_a_dynamically_placed_group_resizes_on_a_later_poll() -> None:
+    class Curve(Component):
+        act_pt = integer(10, signed=False)
+
+    class Model(Component):
+        n_pt = uint16(5)
+        curves = repeating_group(uint16(6), Curve, stride=lambda m: 2 * int(m.n_pt))
+
+    unit = _unit()
+    unit.holding.update({5: 2, 6: 1, 10: 7})
+    model = Model(unit)
+    await model.async_update()
+    assert len(model.curves) == 1
+
+    unit.holding.update({6: 3, 14: 8, 18: 9})
+    await model.async_update()
+    assert [c.act_pt for c in model.curves] == [7, 8, 9]
+
+
+async def test_a_nested_count_moves_with_the_instance_by_default() -> None:
+    # The pre-existing behaviour, kept as the default: instance i reads its
+    # count from count + i * parent_stride. Only count_in_block=False changes it.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=100)
+
+    unit = _unit()
+    unit.holding.update({5: 2, 11: 1, 31: 2, 105: 1, 111: 3})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3]]

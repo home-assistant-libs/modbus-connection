@@ -31,6 +31,7 @@ class ManualComponent(_ComponentBase):
         discrete_ranges: tuple[Range, ...] | None = None,
     ) -> None:
         self._unit = unit
+        self._root = self  # addresses here are absolute; nothing nests above it
         self._max_gap = max_gap
         self._max_span = max_span
         # Readable address ranges per table; a table left None falls back to
@@ -70,7 +71,7 @@ class ManualComponent(_ComponentBase):
         if isinstance(target, RepeatingGroupField):
             if space is not None:
                 raise ValueError("space does not apply to a repeating_group")
-            if isinstance(target.count, int):
+            if target.is_static:
                 self._static_groups[key] = target
                 self._groups[key] = self._build_instances(target, 0, target.count)
             else:

@@ -7,6 +7,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from ._const import Raw, RegisterSpace
+from .fields import RegisterField as RegisterFieldType
 from ._planning import ReadItem, _merge_raw, _Readable
 from ._ranges import DeviceRanges
 from .component_group import ComponentGroup
@@ -23,6 +24,7 @@ class _ComponentBase(_Readable):
 
     _base_offset: int = 0
     _instance_offset: int = 0
+    _root: Component
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
@@ -75,11 +77,13 @@ class _ComponentBase(_Readable):
         # fields only, so shared scale factors stay in the parent's fixed block —
         # unless the sub-unit sets ``scale_in_block``, which moves each instance's
         # scale registers with its shift too (a block carrying its own factors)
+        stride, offset = field.placement(self._root)
         return [
             field.component_class(
                 self._unit,
                 base_offset=self._base_offset,
-                _instance_offset=self._instance_offset + i * field.stride,
+                _instance_offset=self._instance_offset + offset + i * stride,
+                _root=self._root,
             )
             for i in range(start, stop)
         ]
@@ -91,14 +95,19 @@ class _ComponentBase(_Readable):
         for name, field in self._repeating_fields.items():
             # a register-count group's count is a RegisterField (see the split above)
             count_field = cast("RegisterField[Any]", field.count)
+            if not isinstance(count_field, RegisterFieldType):
+                continue  # a fixed count deferred only for its dynamic placement
             count_field.name = name  # the decoded count lands in ``_counts[name]``
+            # Whose coordinates the count's address is stated in. The default
+            # is the block's, so it moves with the instance — what the library
+            # did before this was an option. ``count_in_block=False`` states it
+            # in the owning layout's coordinates instead, which is what every
+            # SunSpec map means and what a nested group almost always wants.
+            address = count_field.address + self._base_offset
+            if field.count_in_block:
+                address += self._instance_offset
             items.append(
-                ReadItem(
-                    count_field.address + self._base_offset + self._instance_offset,
-                    count_field,
-                    self._counts,
-                    self._count_space,
-                )
+                ReadItem(address, count_field, self._counts, self._count_space)
             )
         return items
 
@@ -172,8 +181,11 @@ class _ComponentBase(_Readable):
         # trimming its instances and dropping the cached pooled group on a change.
         instances: list[Component] = []
         for name, field in self._repeating_fields.items():
-            value = self._counts.get(name)
-            count = max(0, int(value)) if value is not None else 0
+            if isinstance(field.count, int):
+                count = field.count  # deferred only because its placement is
+            else:
+                value = self._counts.get(name)
+                count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
             if len(existing) != count:
                 existing = existing[:count] + self._build_instances(
