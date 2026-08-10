@@ -150,6 +150,27 @@ class Component(_ComponentBase):
         """
         return field.address + field.stride * (self._index - 1)
 
+    @property
+    def modbus_unit(self) -> ModbusUnit:
+        """The unit this component reads from and writes to."""
+        return self._unit
+
+    @cached_property
+    def resolved_fields(self) -> Mapping[str, ResolvedField]:
+        """Every field this component reads, with where it sits on the device.
+
+        In declaration order, like ``declared_fields``, but narrowed by
+        ``restrict_fields`` and resolved per instance: a sub-instance built by
+        a ``repeating_group`` carries its own shift in the addresses.
+        """
+        resolved_map: dict[str, ResolvedField] = {}
+        for name in self.declared_fields:
+            if (register := self._register_fields.get(name)) is not None:
+                resolved_map[name] = self._resolve(register, self.register_space)
+            elif (bit := self._bit_fields.get(name)) is not None:
+                resolved_map[name] = self._resolve(bit, bit.space)
+        return MappingProxyType(resolved_map)
+
     # -- update --------------------------------------------------------------
 
     @cached_property
@@ -158,7 +179,9 @@ class Component(_ComponentBase):
         items = [
             ReadItem(
                 resolved,
-                self._bits if resolved.space in ("coil", "discrete") else self._values,
+                self._values
+                if isinstance(resolved.field, RegisterField)
+                else self._bits,
             )
             for resolved in self.resolved_fields.values()
         ]
@@ -285,27 +308,6 @@ class Component(_ComponentBase):
         await self._refresh(collect_raw=False, notify=notify)
 
     # -- writes --------------------------------------------------------------
-
-    @property
-    def modbus_unit(self) -> ModbusUnit:
-        """The unit this component reads from and writes to."""
-        return self._unit
-
-    @cached_property
-    def resolved_fields(self) -> Mapping[str, ResolvedField]:
-        """Every field this component reads, with where it sits on the device.
-
-        In declaration order, like ``declared_fields``, but narrowed by
-        ``restrict_fields`` and resolved per instance: a sub-instance built by
-        a ``repeating_group`` carries its own shift in the addresses.
-        """
-        resolved_map: dict[str, ResolvedField] = {}
-        for name in self.declared_fields:
-            if (register := self._register_fields.get(name)) is not None:
-                resolved_map[name] = self._resolve(register, self.register_space)
-            elif (bit := self._bit_fields.get(name)) is not None:
-                resolved_map[name] = self._resolve(bit, bit.space)
-        return MappingProxyType(resolved_map)
 
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
