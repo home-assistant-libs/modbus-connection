@@ -331,8 +331,22 @@ def _referenced_scale_factors(group: _Group) -> set[str]:
     return names
 
 
-def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
-    """Place a block's points and nested blocks."""
+def _count_names(raw: Mapping[str, Any]) -> set[str]:
+    """Names of every point a block or its children is repeated by."""
+    names = {raw["count"]} if isinstance(raw.get("count"), str) else set()
+    for sub in raw.get("groups", []):
+        names |= _count_names(sub)
+    return names
+
+
+def _parse_group(
+    raw: Mapping[str, Any], start: int, model_id: int, counts: Mapping[str, int]
+) -> _Group:
+    """Place a block's points and nested blocks.
+
+    ``counts`` supplies a value for a count point the device would otherwise
+    report at poll time, which makes the block it sizes a fixed-count repeat.
+    """
     points = _parse_points(raw.get("points", []), start)
     offset = start + sum(p.size for p in points)
     children: list[_Group] = []
@@ -344,7 +358,7 @@ def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
                 " device-dependent size but is not the last block, so later"
                 " addresses are unknown"
             )
-        child = _parse_group(sub, offset, model_id)
+        child = _parse_group(sub, offset, model_id, counts)
         children.append(child)
         count = _fixed_count(child.raw_count)
         if count is not None and child.size is not None:
@@ -352,7 +366,10 @@ def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
             size = offset - start
         else:
             size = None
-    return _Group(raw.get("name", ""), raw.get("count", 1), points, children, size)
+    raw_count = raw.get("count", 1)
+    if isinstance(raw_count, str):
+        raw_count = counts.get(raw_count, raw_count)
+    return _Group(raw.get("name", ""), raw_count, points, children, size)
 
 
 def _count_expression(
@@ -387,6 +404,14 @@ def _count_expression(
     return None
 
 
+def _unresolved_counts(group: _Group) -> list[str]:
+    """Count points in this block's subtree that no ``--count`` resolved."""
+    names = [group.raw_count] if isinstance(group.raw_count, str) else []
+    for child in group.children:
+        names += _unresolved_counts(child)
+    return names
+
+
 def _wire_child(
     child: _Group,
     child_class: str,
@@ -407,35 +432,28 @@ def _wire_child(
             f" stride={child.size})"
         ]
     lines = []
-    if count_expr is None and isinstance(child.raw_count, str):
-        lines.append(
-            f"    # {child.name!r} is sized by {child.raw_count!r}, which"
-            " lives outside this"
-        )
-        lines.append(
-            "    # block and would shift with the wrong instance; wire it"
-            " with the value"
-        )
-        lines.append("    # read from the device:")
-    elif count_expr is None:
+    needed = list(dict.fromkeys(_unresolved_counts(child)))
+    if not needed:
+        # A block that repeats to fill the model length names no count point,
+        # so there is nothing --count could be keyed on.
         lines.append(
             f"    # {child.name!r} repeats to fill the model length and"
             " defines no count"
         )
         lines.append("    # point; size it from the scanned model.length:")
-    else:
         lines.append(
-            f"    # {child.name!r} has a device-dependent size, so its stride"
-            " (and anything"
+            f"    # {attr} = repeating_group(N, {child_class}, stride={child.size})"
         )
-        lines.append(
-            "    # behind it) is only known at runtime; place it with the sizes read"
-        )
-        lines.append("    # from the device:")
-    stride = child.size if child.size else "<...>"
+        return lines
+    flags = " ".join(f"--count {model_id}:{name}=<n>" for name in needed)
     lines.append(
-        f"    # {attr} = repeating_group({count_expr or 'N'}, {child_class},"
-        f" stride={stride})"
+        f"    # {child.name!r} is sized at poll time by"
+        f" {', '.join(needed)}, which is not supported yet."
+    )
+    lines.append(f"    # Re-run with {flags} to emit it:")
+    lines.append(
+        f"    # {attr} = repeating_group(<n>, {child_class},"
+        f" stride={child.size or '<...>'})"
     )
     return lines
 
@@ -522,12 +540,19 @@ def _emit_group_class(
     return class_name
 
 
-def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
+def _generate_model(
+    model: Mapping[str, Any], module: _ModuleWriter, counts: Mapping[str, int]
+) -> None:
     """Append one model's classes (innermost blocks first) to the module."""
     model_id = int(model["id"])
     module.sources.append(f"json/model_{model_id}.json")
 
-    top = _parse_group(model["group"], 0, model_id)
+    unknown = set(counts) - _count_names(model["group"])
+    if unknown:
+        raise SunSpecGenerationError(
+            f"model {model_id}: no group is repeated by {', '.join(sorted(unknown))}"
+        )
+    top = _parse_group(model["group"], 0, model_id, counts)
     # ID and L are the model header; SunSpecComponent already declares them
     # (model_id / model_length at 0 and 1), so they are parsed for the address
     # walk but not emitted.
@@ -558,11 +583,21 @@ def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
     module.classes.append(writer.render())
 
 
-def generate_source(models: Iterable[Mapping[str, Any]]) -> str:
-    """Render parsed SunSpec model JSON into a Python module's source."""
+def generate_source(
+    models: Iterable[Mapping[str, Any]],
+    counts: Mapping[int, Mapping[str, int]] | None = None,
+) -> str:
+    """Render parsed SunSpec model JSON into a Python module's source.
+
+    ``counts`` maps a model ID to the values of its count points, read from
+    the device the generated classes target. A block sized by one of them is
+    emitted as a fixed-count ``repeating_group`` instead of being left for the
+    author to complete.
+    """
     module = _ModuleWriter()
+    counts = counts or {}
     for model in models:
-        _generate_model(model, module)
+        _generate_model(model, module, counts.get(int(model["id"]), {}))
     if not module.classes:
         raise SunSpecGenerationError("no models given")
     return module.render()
@@ -576,6 +611,17 @@ def _load(spec: str) -> Any:
             return json.load(response)
     with open(spec, encoding="utf-8") as file:
         return json.load(file)
+
+
+def _parse_count(spec: str) -> tuple[int, str, int]:
+    """Parse a ``MODEL:POINT=N`` count override."""
+    model, _, rest = spec.partition(":")
+    point, sep, value = rest.partition("=")
+    if not (model.isdigit() and point and sep and value.isdigit()):
+        raise argparse.ArgumentTypeError(f"expected MODEL:POINT=N, got {spec!r}")
+    if int(value) < 1:
+        raise argparse.ArgumentTypeError(f"count must be 1 or more, got {spec!r}")
+    return int(model), point, int(value)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -598,9 +644,22 @@ def main(argv: list[str] | None = None) -> int:
         "--out",
         help="write the generated module here instead of stdout",
     )
+    parser.add_argument(
+        "--count",
+        action="append",
+        default=[],
+        type=_parse_count,
+        metavar="MODEL:POINT=N",
+        help="the value a count point holds on the target device, e.g."
+        " --count 705:NCrv=3; the block it sizes is then emitted as a"
+        " fixed-count repeating_group. Repeatable.",
+    )
     options = parser.parse_args(argv)
+    counts: dict[int, dict[str, int]] = {}
+    for model_id, point, value in options.count:
+        counts.setdefault(model_id, {})[point] = value
     try:
-        source = generate_source(_load(spec) for spec in options.models)
+        source = generate_source((_load(spec) for spec in options.models), counts)
     except (OSError, SunSpecGenerationError) as err:
         print(f"error: {err}", file=sys.stderr)
         return 1

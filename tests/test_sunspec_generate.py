@@ -17,6 +17,7 @@ from modbus_connection.model.sunspec.generate import (
     _member,
     _snake,
     generate_source,
+    main,
 )
 
 # A vendor-range model exercising every generated construct: header skip,
@@ -305,11 +306,81 @@ def test_device_sized_nested_blocks_generate_classes_and_hints() -> None:
     assert "v = uint16(5)" in source
     assert "class CurvesCrv(Component):" in source
     assert "act_pt = uint16(4)" in source
-    # The inner count lives in the top block, so it cannot be wired (it would
-    # shift with the curve instance); the stride is known.
-    assert "# pt = repeating_group(N, CurvesCrvPt, stride=1)" in source
-    # The outer count wires, but the stride depends on the device's NPt.
-    assert "# crv = repeating_group(uint16(3), CurvesCrv, stride=<...>)" in source
+    # Neither block can be wired without its count, and the hint names the
+    # option that supplies it — the curve's stride depends on NPt too.
+    assert "# Re-run with --count 64222:NPt=<n> to emit it:" in source
+    assert "# pt = repeating_group(<n>, CurvesCrvPt, stride=1)" in source
+    assert (
+        "# Re-run with --count 64222:NCrv=<n> --count 64222:NPt=<n> to emit it:"
+        in source
+    )
+    assert "# crv = repeating_group(<n>, CurvesCrv, stride=<...>)" in source
+
+
+def test_counts_wire_device_sized_nested_blocks() -> None:
+    source = generate_source([NESTED_MODEL_JSON], {64222: {"NPt": 4, "NCrv": 3}})
+    assert "pt = repeating_group(4, CurvesCrvPt, stride=1)" in source
+    # The curve's stride is 1 own point + 4 points of 1 register.
+    assert "crv = repeating_group(3, CurvesCrv, stride=5)" in source
+
+
+async def test_counted_nested_blocks_decode() -> None:
+    """The generated fixed-count classes read a curve model off the wire."""
+    namespace: dict[str, Any] = {}
+    source = generate_source([NESTED_MODEL_JSON], {64222: {"NPt": 2, "NCrv": 2}})
+    exec(compile(source, "<generated>", "exec"), namespace)  # noqa: S102
+    base = 100
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(
+        {
+            base: 64222,
+            base + 1: 10,  # 4 fixed + 2 curves * (1 + 2 * 1)
+            base + 2: 2,  # NPt
+            base + 3: 2,  # NCrv
+            base + 4: 11,  # curve 0: ActPt, then its two points
+            base + 5: 12,
+            base + 6: 13,
+            base + 7: 21,  # curve 1
+            base + 8: 22,
+            base + 9: 23,
+        }
+    )
+    component = namespace["Curves"](
+        unit, SunSpecModel(model_id=64222, address=base, length=10)
+    )
+    await component.async_update()
+    curves = component.crv
+    assert [c.act_pt for c in curves] == [11, 21]
+    assert [[p.v for p in c.pt] for c in curves] == [[12, 13], [22, 23]]
+
+
+def test_counts_place_a_block_that_another_follows() -> None:
+    """A counted block has a known size, so later blocks are placeable."""
+    model = copy.deepcopy(NESTED_MODEL_JSON)
+    model["group"]["groups"].append(
+        {"name": "after", "points": [{"name": "X", "type": "uint16", "size": 1}]}
+    )
+    source = generate_source([model], {64222: {"NPt": 4, "NCrv": 3}})
+    assert "x = uint16(19)" in source  # 4 fixed + 3 curves * 5 registers
+
+
+def test_cli_count_option(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    model = tmp_path / "model_64222.json"
+    model.write_text(json.dumps(NESTED_MODEL_JSON))
+    assert main([str(model), "--count", "64222:NPt=4", "--count", "64222:NCrv=3"]) == 0
+    assert "crv = repeating_group(3, CurvesCrv, stride=5)" in capsys.readouterr().out
+
+
+def test_cli_rejects_a_malformed_count(tmp_path: Path) -> None:
+    model = tmp_path / "model_64222.json"
+    model.write_text(json.dumps(NESTED_MODEL_JSON))
+    with pytest.raises(SystemExit):
+        main([str(model), "--count", "NPt=4"])
+
+
+def test_count_for_an_unrepeated_point_is_rejected() -> None:
+    with pytest.raises(SunSpecGenerationError, match="no group is repeated by Nope"):
+        generate_source([NESTED_MODEL_JSON], {64222: {"Nope": 2}})
 
 
 def test_device_sized_block_must_be_last() -> None:
