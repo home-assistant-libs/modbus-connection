@@ -488,6 +488,23 @@ async def test_group_rows_does_not_report_groups_as_plain_fields() -> None:
     assert "cells" not in dict(field_rows(battery))
 
 
+def test_print_component_skips_component_accessors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A dump lists device values, not the component's own handles."""
+
+    class Meter(Component):
+        voltage = gauge(0, 0.1, unit="V")
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 2301
+    meter = Meter(unit)
+    print_component(meter)
+    out = capsys.readouterr().out
+    assert "voltage" in out
+    assert "modbus_unit" not in out
+
+
 async def test_print_component_renders_a_repeating_group_as_sub_blocks() -> None:
     battery = await _read_battery()
     buffer = io.StringIO()

@@ -319,8 +319,12 @@ class Component(_ComponentBase):
     # -- writes --------------------------------------------------------------
 
     @property
-    def unit(self) -> ModbusUnit:
-        """The unit this component reads from and writes to."""
+    def modbus_unit(self) -> ModbusUnit:
+        """The unit this component reads from and writes to.
+
+        Named for the protocol rather than ``unit``, which a device library
+        is likely to want for a unit-of-measure field.
+        """
         return self._unit
 
     def placement(self, field: str) -> FieldPlacement:

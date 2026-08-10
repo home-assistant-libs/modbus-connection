@@ -777,11 +777,27 @@ def test_placement_rejects_an_unknown_field() -> None:
         _Placed(unit).placement("nope")
 
 
-def test_unit_is_public() -> None:
+def test_modbus_unit_is_public() -> None:
     unit = MockModbusConnection().for_unit(1)
     component = _Placed(unit, base_offset=40000)
-    assert component.unit is unit
-    assert component.pt[0].unit is unit  # including an instance the caller never built
+    assert component.modbus_unit is unit
+    # including on an instance the caller never built
+    assert component.pt[0].modbus_unit is unit
+
+
+async def test_a_field_may_be_named_unit() -> None:
+    """The accessor does not take a name a device library wants."""
+
+    class Sensor(Component):
+        value = integer(0)
+        unit = integer(1)  # a unit-of-measure code
+
+    modbus_unit = MockModbusConnection().for_unit(1)
+    modbus_unit.holding.update({0: 42, 1: 7})
+    sensor = Sensor(modbus_unit)
+    await sensor.async_update()
+    assert (sensor.value, sensor.unit) == (42, 7)
+    assert sensor.modbus_unit is modbus_unit
 
 
 async def test_placement_supports_batching_a_write() -> None:
@@ -796,7 +812,7 @@ async def test_placement_supports_batching_a_write() -> None:
     for placement, value in zip(points, (11, 22), strict=True):
         words.extend(placement.field.encode(value, 0))
         words.extend([0])  # v_sf, untouched between the two points
-    await component.unit.write_registers(points[0].address, words[:3])
+    await component.modbus_unit.write_registers(points[0].address, words[:3])
     assert await unit.read_holding_registers(40000, 3) == [11, 0, 22]
 
 
