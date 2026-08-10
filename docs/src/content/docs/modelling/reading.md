@@ -5,8 +5,9 @@ description: How a component turns its fields into as few Modbus reads as possib
 
 `async_update()` never issues one Modbus request per field. The planner turns a
 component's declared layout into a handful of block reads, and this page covers
-what shapes them: the two pooling knobs, the device's readable ranges, what
-happens when the device refuses a block, and how to get the raw words back.
+what shapes them: the two pooling knobs, the device map you can declare on top
+of them, what happens when the device refuses a block, and how to get the raw
+words back.
 
 ## Reads are pooled into blocks
 
@@ -20,6 +21,10 @@ as `Component` class attributes:
 - **`max_span`** (default `125`, the Modbus per-request ceiling) — the widest a
   single block read may be. Lower it for a gateway that caps reads shorter.
 
+A block covers the registers between the fields it merges, which a device is
+normally happy to serve. Where it is not, or where the blocks should be wider
+than `max_gap` allows, declare the device's map — see below.
+
 In a [`ComponentGroup`](/modbus-connection/modelling/component-group/) the same
 merging runs across the members, but never across the space between two of them.
 
@@ -29,14 +34,23 @@ build a new component.
 
 ## Readable address ranges
 
-Many devices only answer reads inside specific ranges, and a read that crosses a
-gap is rejected. Declare the device's readable ranges and the planner merges
-**only within a range**, never across a boundary:
+`register_ranges` states which addresses the **device** answers — its map, not
+your layout's. **Most libraries never declare one**: gap planning already reads
+a device that serves anything inside its documented blocks. Reach for a map when
+the device is fussier than that, or when you want fewer round trips, because a
+map does two things `max_gap` cannot:
+
+- **It licenses a wider read.** Inside a range the planner merges freely, up to
+  `max_span`, over registers no field claims — one read of a whole block instead
+  of one per cluster of fields. `max_gap` no longer applies where a map does.
+- **It forbids a merge.** A block never crosses a range boundary, however small
+  the gap. This is the only way to keep reads off registers the device refuses:
+  the default `max_gap` of 16 will bridge a two-register hole without hesitating.
 
 ```python
 class Thermostat(Component):
     # (low, high) inclusive. The device answers 0–6 and 9–40 but nothing in
-    # between, so 7–8 are never read and a 0..40 block is split at the gap.
+    # between: 7–8 are never read, and everything from 9 to 40 may share one.
     register_ranges = ((0, 6), (9, 40))
     coil_ranges = ((0, 15),)
 
@@ -44,8 +58,9 @@ class Thermostat(Component):
     outside = gauge(9, 0.1, unit="°C")
 ```
 
-With `register_ranges` declared, `max_gap` is ignored. Leave the ranges as the
-default `None` for a device with a contiguous map (plain gap-based planning).
+Each space has its own map — `register_ranges` for the component's register
+space, `coil_ranges` for coils, `discrete_ranges` for discrete inputs — and each
+is independent: a map for one space says nothing about another.
 
 Ranges are part of the **declared layout**, so they are written in the same
 coordinates as the field addresses beside them and move with the component:

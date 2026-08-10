@@ -32,7 +32,7 @@ All are overridable on a subclass (or set per instance).
 | Attribute | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `register_space` | `"holding" \| "input"` | `"holding"` | The register space this component's register fields are read from (FC03 / FC04). |
-| `register_ranges` | `tuple[Range, ...] \| None` | `None` | The device's readable address ranges in the component's register space; `None` falls back to gap-based planning. Stated in declared coordinates, so they shift with `base_offset`. |
+| `register_ranges` | `tuple[Range, ...] \| None` | `None` | The addresses the device answers in the component's register space: a read may merge freely inside a range and never crosses a boundary. `None` falls back to gap-based planning. Stated in declared coordinates, so they shift with `base_offset`. |
 | `coil_ranges` | `tuple[Range, ...] \| None` | `None` | Readable ranges in the coil space (FC01). |
 | `discrete_ranges` | `tuple[Range, ...] \| None` | `None` | Readable ranges in the discrete-input space (FC02). |
 | `max_gap` | `int` | `16` | Gap-based planning only: spans within this many addresses merge into one read. |
