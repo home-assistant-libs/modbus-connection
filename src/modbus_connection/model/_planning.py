@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class FieldPlacement:
+class ResolvedField:
     """Where a component's field sits on the device.
 
     The addresses are absolute: the declared address plus everything that
@@ -43,7 +43,7 @@ class FieldPlacement:
 class ReadItem(NamedTuple):
     """One read target: a placed field, and where its value is stored."""
 
-    placement: FieldPlacement
+    resolved: ResolvedField
     store: dict[str, Any]  # the component store decoded values land in
 
 
@@ -110,12 +110,10 @@ def own_ranges(
     cannot bridge into addresses no component claims.
     """
     spans: dict[Space, list[tuple[int, int]]] = {}
-    for placement in (item.placement for item in items):
-        spans.setdefault(placement.space, []).append(
-            (placement.address, placement.count)
-        )
-        if placement.scale_address is not None:
-            spans[placement.space].append((placement.scale_address, 1))
+    for resolved in (item.resolved for item in items):
+        spans.setdefault(resolved.space, []).append((resolved.address, resolved.count))
+        if resolved.scale_address is not None:
+            spans[resolved.space].append((resolved.scale_address, 1))
     return {
         space: tuple(
             (start, start + count - 1)
@@ -160,12 +158,12 @@ class ReadPlan(NamedTuple):
         """Plan block reads covering ``items``."""
         items = list(items)
         spans: dict[Space, list[tuple[int, int]]] = {}
-        for placement in (item.placement for item in items):
-            spans.setdefault(placement.space, []).append(
-                (placement.address, placement.count)
+        for resolved in (item.resolved for item in items):
+            spans.setdefault(resolved.space, []).append(
+                (resolved.address, resolved.count)
             )
-            if placement.scale_address is not None:
-                spans[placement.space].append((placement.scale_address, 1))
+            if resolved.scale_address is not None:
+                spans[resolved.space].append((resolved.scale_address, 1))
         return cls(
             items,
             {
@@ -202,17 +200,17 @@ class ReadPlan(NamedTuple):
                 for offset in range(count):
                     values[(space, start + offset)] = got[offset]
         for item in self.items:
-            placement = item.placement
+            resolved = item.resolved
             words = [
-                values[(placement.space, placement.address + offset)]
-                for offset in range(placement.count)
+                values[(resolved.space, resolved.address + offset)]
+                for offset in range(resolved.count)
             ]
             scale_exponent: int | None = None
-            if placement.scale_address is not None:
+            if resolved.scale_address is not None:
                 scale_exponent = decode_int16(
-                    [values[(placement.space, placement.scale_address)]]
+                    [values[(resolved.space, resolved.scale_address)]]
                 )
-            field = placement.field
+            field = resolved.field
             item.store[field.name] = field.decode(words, scale_exponent)
         if not collect_raw:
             return {}

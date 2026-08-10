@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from ._const import Raw, RegisterSpace
-from ._planning import FieldPlacement, ReadItem, _merge_raw, _Readable
+from ._planning import ReadItem, ResolvedField, _merge_raw, _Readable
 from ._ranges import DeviceRanges
 from .component_group import ComponentGroup
 
@@ -94,7 +94,7 @@ class _ComponentBase(_Readable):
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
                 ReadItem(
-                    FieldPlacement(
+                    ResolvedField(
                         count_field,
                         count_field.address + self._base_offset + self._instance_offset,
                         count_field.count,

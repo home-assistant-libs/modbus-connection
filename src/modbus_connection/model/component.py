@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast, overload
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
-from ._planning import FieldPlacement, ReadItem, ReadPlan, _plan_blocks
+from ._planning import ReadItem, ReadPlan, ResolvedField, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
@@ -157,10 +157,10 @@ class Component(_ComponentBase):
         """Return this component's read targets."""
         items = [
             ReadItem(
-                placement,
-                self._bits if placement.space in ("coil", "discrete") else self._values,
+                resolved,
+                self._bits if resolved.space in ("coil", "discrete") else self._values,
             )
-            for placement in self.resolved_fields.values()
+            for resolved in self.resolved_fields.values()
         ]
         return items + self._count_items + self._static_items
 
@@ -292,17 +292,17 @@ class Component(_ComponentBase):
         return self._unit
 
     @cached_property
-    def resolved_fields(self) -> Mapping[str, FieldPlacement]:
+    def resolved_fields(self) -> Mapping[str, ResolvedField]:
         """Every field this component reads, with where it sits on the device.
 
         In declaration order, like ``declared_fields``, but narrowed by
         ``restrict_fields`` and resolved per instance: a sub-instance built by
         a ``repeating_group`` carries its own shift in the addresses.
         """
-        placements: dict[str, FieldPlacement] = {}
+        resolved_map: dict[str, ResolvedField] = {}
         for name in self.declared_fields:
             if (register := self._register_fields.get(name)) is not None:
-                placements[name] = FieldPlacement(
+                resolved_map[name] = ResolvedField(
                     register,
                     self._address(register),
                     register.count,
@@ -314,10 +314,10 @@ class Component(_ComponentBase):
             elif (bit := self._bit_fields.get(name)) is not None:
                 # _bit_fields only ever holds these two; the base is private.
                 concrete = cast("CoilField | DiscreteInputField", bit)
-                placements[name] = FieldPlacement(
+                resolved_map[name] = ResolvedField(
                     concrete, self._address(bit), 1, None, bit.space
                 )
-        return MappingProxyType(placements)
+        return MappingProxyType(resolved_map)
 
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
@@ -325,22 +325,22 @@ class Component(_ComponentBase):
         Raises ``AttributeError`` for an unknown or read-only field and
         ``ValueError`` if the value cannot be scaled.
         """
-        placement = self.resolved_fields.get(field)
-        if placement is None:
+        resolved = self.resolved_fields.get(field)
+        if resolved is None:
             raise AttributeError(f"unknown field {field!r}")
-        if isinstance(placement.field, RegisterField):
+        if isinstance(resolved.field, RegisterField):
             await write_register_field(
                 self._unit,
-                placement.field,
-                placement.address,
+                resolved.field,
+                resolved.address,
                 self.register_space,
                 value,
                 label=field,
-                scale_address=placement.scale_address,
+                scale_address=resolved.scale_address,
             )
         else:
             await write_bit_field(
-                self._unit, placement.field, placement.address, value, label=field
+                self._unit, resolved.field, resolved.address, value, label=field
             )
 
 

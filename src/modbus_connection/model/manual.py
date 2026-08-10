@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
-from ._planning import FieldPlacement, ReadItem, ReadPlan
+from ._planning import ReadItem, ReadPlan, ResolvedField
 from ._ranges import DeviceRanges
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
@@ -131,7 +131,7 @@ class ManualComponent(_ComponentBase):
     def _build_plan(self) -> ReadPlan:
         items = [
             ReadItem(
-                FieldPlacement(
+                ResolvedField(
                     field, field.address, field.count, field.scale_register, space
                 ),
                 self._values,
@@ -140,7 +140,7 @@ class ManualComponent(_ComponentBase):
         ]
         items += [
             ReadItem(
-                FieldPlacement(field, field.address, 1, None, field.space), self._values
+                ResolvedField(field, field.address, 1, None, field.space), self._values
             )
             for field in self._bits.values()
         ]

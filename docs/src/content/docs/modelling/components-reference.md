@@ -39,7 +39,7 @@ All are overridable on a subclass (or set per instance).
 | `max_span` | `int` | `125` | The widest a single block read may be (125 is the Modbus per-request ceiling). |
 | `scale_in_block` | `bool` | `False` | On a repeating sub-unit: shift `scale_register` addresses with each instance instead of keeping them in the parent's fixed block. |
 | `declared_fields` | `Mapping[str, RegisterField \| CoilField \| DiscreteInputField]` | — | Read-only mapping of attribute name to declared field object, in declaration order; available on the class and its instances, and never narrowed by `restrict_fields`. |
-| `resolved_fields` | `Mapping[str, FieldPlacement]` | — | Read-only mapping of attribute name to [where the field sits on the device](#fieldplacement), in declaration order. Per instance, so it carries a repeated sub-unit's shift, and narrowed by `restrict_fields` to what the component reads. |
+| `resolved_fields` | `Mapping[str, ResolvedField]` | — | Read-only mapping of attribute name to [where the field sits on the device](#resolvedfield), in declaration order. Per instance, so it carries a repeated sub-unit's shift, and narrowed by `restrict_fields` to what the component reads. |
 
 ### Methods
 
@@ -207,7 +207,7 @@ unknown or read-only key).
 
 `tuple[int, int]` — an inclusive `(low, high)` readable address range.
 
-### `FieldPlacement`
+### `ResolvedField`
 
 A frozen dataclass locating one field, returned in
 [`resolved_fields`](#class-attributes):

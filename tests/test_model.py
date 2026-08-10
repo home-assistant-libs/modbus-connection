@@ -20,8 +20,8 @@ from modbus_connection.mock import (
 from modbus_connection.model import (
     Component,
     ComponentGroup,
-    FieldPlacement,
     ManualComponent,
+    ResolvedField,
     bit,
     bits,
     boolean,
@@ -718,7 +718,7 @@ def test_packed_bits_must_fit_a_register() -> None:
         bit(0, 16)
 
 
-# -- field placement ----------------------------------------------------------
+# -- resolved fields ----------------------------------------------------------
 
 
 class _Point(Component):
@@ -736,10 +736,10 @@ def test_resolved_fields_resolve_addresses() -> None:
     unit = MockModbusConnection().for_unit(1)
     component = _Placed(unit, base_offset=40000)
     resolved = component.resolved_fields
-    assert resolved["energy"] == FieldPlacement(
+    assert resolved["energy"] == ResolvedField(
         component.declared_fields["energy"], 40010, 2, None, "holding"
     )
-    assert resolved["relay"] == FieldPlacement(
+    assert resolved["relay"] == ResolvedField(
         component.declared_fields["relay"], 40003, 1, None, "coil"
     )
     assert list(resolved) == ["energy", "relay"]  # declaration order
@@ -749,8 +749,8 @@ def test_resolved_fields_of_a_sub_instance() -> None:
     """The instance shift is in the address; a shared scale factor is not."""
     unit = MockModbusConnection().for_unit(1)
     component = _Placed(unit, base_offset=40000)
-    placement = component.pt[1].resolved_fields["v"]
-    assert (placement.address, placement.scale_address) == (40002, 40001)
+    resolved = component.pt[1].resolved_fields["v"]
+    assert (resolved.address, resolved.scale_address) == (40002, 40001)
 
 
 def test_resolved_fields_of_a_sub_instance_with_scale_in_block() -> None:
@@ -761,8 +761,8 @@ def test_resolved_fields_of_a_sub_instance_with_scale_in_block() -> None:
         pt = repeating_group(2, _OwnScale, stride=2)
 
     unit = MockModbusConnection().for_unit(1)
-    placement = _Owner(unit, base_offset=100).pt[1].resolved_fields["v"]
-    assert (placement.address, placement.scale_address) == (102, 103)
+    resolved = _Owner(unit, base_offset=100).pt[1].resolved_fields["v"]
+    assert (resolved.address, resolved.scale_address) == (102, 103)
 
 
 def test_resolved_fields_follow_index_and_stride() -> None:
@@ -823,8 +823,8 @@ async def test_resolved_fields_support_batching_a_write() -> None:
     assert [p.address for p in points] == [40000, 40002]  # stride 2, one word each
 
     words: list[int] = []
-    for placement, value in zip(points, (11, 22), strict=True):
-        words.extend(placement.field.encode(value, 0))
+    for resolved, value in zip(points, (11, 22), strict=True):
+        words.extend(resolved.field.encode(value, 0))
         words.extend([0])  # v_sf, untouched between the two points
     await component.modbus_unit.write_registers(points[0].address, words[:3])
     assert await unit.read_holding_registers(40000, 3) == [11, 0, 22]
