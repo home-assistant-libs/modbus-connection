@@ -306,11 +306,15 @@ def test_device_sized_nested_blocks_generate_classes_and_hints() -> None:
     assert "v = uint16(5)" in source
     assert "class CurvesCrv(Component):" in source
     assert "act_pt = uint16(4)" in source
-    # The inner count lives in the top block, so it cannot be wired (it would
-    # shift with the curve instance); the stride is known.
-    assert "# pt = repeating_group(N, CurvesCrvPt, stride=1)" in source
-    # The outer count wires, but the stride depends on the device's NPt.
-    assert "# crv = repeating_group(uint16(3), CurvesCrv, stride=<...>)" in source
+    # Neither block can be wired without its count, and the hint names the
+    # option that supplies it — the curve's stride depends on NPt too.
+    assert "# Re-run with --count 64222:NPt=<n> to emit it:" in source
+    assert "# pt = repeating_group(<n>, CurvesCrvPt, stride=1)" in source
+    assert (
+        "# Re-run with --count 64222:NCrv=<n> --count 64222:NPt=<n> to emit it:"
+        in source
+    )
+    assert "# crv = repeating_group(<n>, CurvesCrv, stride=<...>)" in source
 
 
 def test_counts_wire_device_sized_nested_blocks() -> None:

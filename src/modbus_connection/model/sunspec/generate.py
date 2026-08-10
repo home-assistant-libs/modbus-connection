@@ -404,6 +404,14 @@ def _count_expression(
     return None
 
 
+def _unresolved_counts(group: _Group) -> list[str]:
+    """Count points in this block's subtree that no ``--count`` resolved."""
+    names = [group.raw_count] if isinstance(group.raw_count, str) else []
+    for child in group.children:
+        names += _unresolved_counts(child)
+    return names
+
+
 def _wire_child(
     child: _Group,
     child_class: str,
@@ -424,35 +432,28 @@ def _wire_child(
             f" stride={child.size})"
         ]
     lines = []
-    if count_expr is None and isinstance(child.raw_count, str):
-        lines.append(
-            f"    # {child.name!r} is sized by {child.raw_count!r}, which"
-            " lives outside this"
-        )
-        lines.append(
-            "    # block and would shift with the wrong instance; wire it"
-            " with the value"
-        )
-        lines.append("    # read from the device:")
-    elif count_expr is None:
+    needed = list(dict.fromkeys(_unresolved_counts(child)))
+    if not needed:
+        # A block that repeats to fill the model length names no count point,
+        # so there is nothing --count could be keyed on.
         lines.append(
             f"    # {child.name!r} repeats to fill the model length and"
             " defines no count"
         )
         lines.append("    # point; size it from the scanned model.length:")
-    else:
         lines.append(
-            f"    # {child.name!r} has a device-dependent size, so its stride"
-            " (and anything"
+            f"    # {attr} = repeating_group(N, {child_class}, stride={child.size})"
         )
-        lines.append(
-            "    # behind it) is only known at runtime; place it with the sizes read"
-        )
-        lines.append("    # from the device:")
-    stride = child.size if child.size else "<...>"
+        return lines
+    flags = " ".join(f"--count {model_id}:{name}=<n>" for name in needed)
     lines.append(
-        f"    # {attr} = repeating_group({count_expr or 'N'}, {child_class},"
-        f" stride={stride})"
+        f"    # {child.name!r} is sized at poll time by"
+        f" {', '.join(needed)}, which is not supported yet."
+    )
+    lines.append(f"    # Re-run with {flags} to emit it:")
+    lines.append(
+        f"    # {attr} = repeating_group(<n>, {child_class},"
+        f" stride={child.size or '<...>'})"
     )
     return lines
 
