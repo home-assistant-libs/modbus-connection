@@ -732,26 +732,28 @@ class _Placed(Component):
     pt = repeating_group(2, _Point, stride=2)
 
 
-def test_placement_resolves_addresses() -> None:
+def test_resolved_fields_resolve_addresses() -> None:
     unit = MockModbusConnection().for_unit(1)
     component = _Placed(unit, base_offset=40000)
-    assert component.placement("energy") == FieldPlacement(
+    resolved = component.resolved_fields
+    assert resolved["energy"] == FieldPlacement(
         component.declared_fields["energy"], 40010, 2, None, "holding"
     )
-    assert component.placement("relay") == FieldPlacement(
+    assert resolved["relay"] == FieldPlacement(
         component.declared_fields["relay"], 40003, 1, None, "coil"
     )
+    assert list(resolved) == ["energy", "relay"]  # declaration order
 
 
-def test_placement_of_a_sub_instance() -> None:
+def test_resolved_fields_of_a_sub_instance() -> None:
     """The instance shift is in the address; a shared scale factor is not."""
     unit = MockModbusConnection().for_unit(1)
     component = _Placed(unit, base_offset=40000)
-    placement = component.pt[1].placement("v")
+    placement = component.pt[1].resolved_fields["v"]
     assert (placement.address, placement.scale_address) == (40002, 40001)
 
 
-def test_placement_of_a_sub_instance_with_scale_in_block() -> None:
+def test_resolved_fields_of_a_sub_instance_with_scale_in_block() -> None:
     class _OwnScale(_Point):
         scale_in_block = True
 
@@ -759,22 +761,34 @@ def test_placement_of_a_sub_instance_with_scale_in_block() -> None:
         pt = repeating_group(2, _OwnScale, stride=2)
 
     unit = MockModbusConnection().for_unit(1)
-    placement = _Owner(unit, base_offset=100).pt[1].placement("v")
+    placement = _Owner(unit, base_offset=100).pt[1].resolved_fields["v"]
     assert (placement.address, placement.scale_address) == (102, 103)
 
 
-def test_placement_follows_index_and_stride() -> None:
+def test_resolved_fields_follow_index_and_stride() -> None:
     class _Channel(Component):
         temperature = gauge(12, 0.1, stride=4)
 
     unit = MockModbusConnection().for_unit(1)
-    assert _Channel(unit, index=3).placement("temperature").address == 20
+    assert _Channel(unit, index=3).resolved_fields["temperature"].address == 20
 
 
-def test_placement_rejects_an_unknown_field() -> None:
+async def test_write_rejects_an_unknown_field() -> None:
     unit = MockModbusConnection().for_unit(1)
     with pytest.raises(AttributeError, match="unknown field"):
-        _Placed(unit).placement("nope")
+        await _Placed(unit).write("nope", 1)
+
+
+def test_resolved_fields_narrow_with_restrict_fields() -> None:
+    class Meter(Component):
+        voltage = gauge(0, 0.1)
+        current = gauge(1, 0.1)
+
+    unit = MockModbusConnection().for_unit(1)
+    component = Meter(unit)
+    component.restrict_fields(["current"])
+    assert list(component.resolved_fields) == ["current"]
+    assert "voltage" in component.declared_fields  # the declared layout is intact
 
 
 def test_modbus_unit_is_public() -> None:
@@ -800,12 +814,12 @@ async def test_a_field_may_be_named_unit() -> None:
     assert sensor.modbus_unit is modbus_unit
 
 
-async def test_placement_supports_batching_a_write() -> None:
+async def test_resolved_fields_support_batching_a_write() -> None:
     """Two adjacent fields, encoded and written in one request."""
     unit = MockModbusConnection().for_unit(1)
     unit.holding[1] = 0  # the shared scale factor
     component = _Placed(unit, base_offset=40000)
-    points = [component.pt[0].placement("v"), component.pt[1].placement("v")]
+    points = [c.resolved_fields["v"] for c in component.pt]
     assert [p.address for p in points] == [40000, 40002]  # stride 2, one word each
 
     words: list[int] = []

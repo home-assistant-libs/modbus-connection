@@ -184,21 +184,18 @@ class Component(_ComponentBase):
             ReadItem(
                 placement.address,
                 placement.field,
-                self._values,
+                self._bits if placement.space in ("coil", "discrete") else self._values,
                 placement.space,
                 placement.scale_address,
             )
-            for placement in map(self.placement, self._register_fields)
-        ]
-        items += [
-            ReadItem(placement.address, placement.field, self._bits, placement.space)
-            for placement in map(self.placement, self._bit_fields)
+            for placement in self.resolved_fields.values()
         ]
         return items + self._count_items + self._static_items
 
     def _invalidate_caches(self) -> None:
         # _read_items composes the base's group targets, so it goes when they do
-        self.__dict__.pop("_read_items", None)
+        for attr in ("_read_items", "resolved_fields"):
+            self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
     def _resolved_ranges(self) -> DeviceRanges:
@@ -322,29 +319,33 @@ class Component(_ComponentBase):
         """The unit this component reads from and writes to."""
         return self._unit
 
-    def placement(self, field: str) -> FieldPlacement:
-        """Resolve a declared field to where it sits on the device.
+    @cached_property
+    def resolved_fields(self) -> Mapping[str, FieldPlacement]:
+        """Every field this component reads, with where it sits on the device.
 
-        Works on a sub-instance built by a ``repeating_group``, whose shift is
-        part of the resolved address.
-
-        Raises ``AttributeError`` for an unknown field name.
+        In declaration order, like ``declared_fields``, but narrowed by
+        ``restrict_fields`` and resolved per instance: a sub-instance built by
+        a ``repeating_group`` carries its own shift in the addresses.
         """
-        if (register := self._register_fields.get(field)) is not None:
-            return FieldPlacement(
-                register,
-                self._address(register),
-                register.count,
-                self._scale_address(register)
-                if register.scale_register is not None
-                else None,
-                self.register_space,
-            )
-        if (bit := self._bit_fields.get(field)) is not None:
-            # _bit_fields only ever holds these two; the base is private.
-            concrete = cast("CoilField | DiscreteInputField", bit)
-            return FieldPlacement(concrete, self._address(bit), 1, None, bit.space)
-        raise AttributeError(f"unknown field {field!r}")
+        placements: dict[str, FieldPlacement] = {}
+        for name in self.declared_fields:
+            if (register := self._register_fields.get(name)) is not None:
+                placements[name] = FieldPlacement(
+                    register,
+                    self._address(register),
+                    register.count,
+                    self._scale_address(register)
+                    if register.scale_register is not None
+                    else None,
+                    self.register_space,
+                )
+            elif (bit := self._bit_fields.get(name)) is not None:
+                # _bit_fields only ever holds these two; the base is private.
+                concrete = cast("CoilField | DiscreteInputField", bit)
+                placements[name] = FieldPlacement(
+                    concrete, self._address(bit), 1, None, bit.space
+                )
+        return MappingProxyType(placements)
 
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.
@@ -352,7 +353,9 @@ class Component(_ComponentBase):
         Raises ``AttributeError`` for an unknown or read-only field and
         ``ValueError`` if the value cannot be scaled.
         """
-        placement = self.placement(field)  # raises for an unknown name
+        placement = self.resolved_fields.get(field)
+        if placement is None:
+            raise AttributeError(f"unknown field {field!r}")
         if isinstance(placement.field, RegisterField):
             await write_register_field(
                 self._unit,
