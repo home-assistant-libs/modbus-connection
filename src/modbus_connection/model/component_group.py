@@ -32,9 +32,9 @@ class ComponentGroup(_Readable):
         """The readable ranges per space, merged over the member components.
 
         Members describe one device, so their maps must fit together. A member
-        that declares nothing for a space is not disagreeing with one that
-        does — it stands for the addresses it reads by itself, which keeps a
-        pooled read from bridging into addresses no member claims.
+        that declares nothing for a space stands for the addresses it reads by
+        itself, which keeps a pooled read from bridging into addresses no
+        member claims.
 
         Raises ``ValueError`` if the maps conflict.
         """
@@ -55,9 +55,8 @@ class ComponentGroup(_Readable):
     def _claimed_by_undeclared(self) -> dict[Space, tuple[Range, ...]]:
         """What the members that declared no map read on their own, per space.
 
-        These are claims, not a device map, so they only ever widen what the
-        plan may cover — unlike declared maps, two of them overlapping is not
-        a disagreement.
+        These are claims, not a device map: they only widen what the plan may
+        cover, so unlike declared maps they are not checked against each other.
         """
         claimed: dict[Space, tuple[Range, ...]] = {}
         for component in self._components:
