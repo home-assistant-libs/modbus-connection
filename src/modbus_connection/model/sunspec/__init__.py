@@ -20,6 +20,8 @@ from .errors import SunSpecError, SunSpecMapShiftError
 from .scan import SunSpecModel, SunSpecModels, scan
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ..._protocol import ModbusUnit
 
 __all__ = [
@@ -563,6 +565,14 @@ class SunSpecComponent(Component):
         """Initialize the component at the discovered model's address."""
         super().__init__(unit, base_offset=model.address)
         self._model = model
+
+    def restrict_fields(self, names: Iterable[str]) -> None:
+        """Narrow this component, keeping the model header fields.
+
+        Every update verifies the header, so a restriction that dropped it
+        would fail each update instead of narrowing the component.
+        """
+        super().restrict_fields({*names, "model_id", "model_length"})
 
     def _verify_read(self) -> None:
         """Verify the read-back model header against the discovered model.

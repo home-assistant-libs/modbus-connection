@@ -435,6 +435,39 @@ async def test_sunspec_component_at_discovered_model() -> None:
     assert component.value == pytest.approx(123.4)  # 1234 * 10**-1
 
 
+async def test_restrict_fields_keeps_the_model_header() -> None:
+    """The header is read whatever the restriction says, so updates still pass."""
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    (model,) = (await ss.scan(unit, 1000))[103]
+    component = _Discovered(unit, model)
+    component.restrict_fields(["value", "value_sf"])  # header not listed
+    await component.async_update()
+    assert component.value == pytest.approx(123.4)
+    assert component.model_id == 103
+
+
+async def test_restrict_fields_still_detects_a_shifted_map() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    (model,) = (await ss.scan(unit, 1000))[103]
+    component = _Discovered(unit, model)
+    component.restrict_fields(["value", "value_sf"])
+    unit.holding[1008] = 111  # the map shifts
+    with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
+        await component.async_update()
+
+
+async def test_restrict_fields_drops_the_fields_it_excludes() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(_chain(1000))
+    (model,) = (await ss.scan(unit, 1000))[103]
+    component = _Discovered(unit, model)
+    component.restrict_fields(["value_sf"])
+    await component.async_update()
+    assert component.value is None  # excluded, and the header did not save it
+
+
 async def test_sunspec_component_header_check() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(_chain(1000))

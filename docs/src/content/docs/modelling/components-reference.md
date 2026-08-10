@@ -273,6 +273,9 @@ component's `base_offset`. Every read verifies the read-back header against
 the discovered model and raises
 [`SunSpecMapShiftError`](#sunspecmapshifterror) on a mismatch.
 
+`restrict_fields(names)` keeps `model_id` and `model_length` whether or not
+`names` lists them, since the header is what that verification reads.
+
 ### Exceptions
 
 #### `SunSpecError`
