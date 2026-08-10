@@ -100,6 +100,20 @@ class DeviceRanges:
             )
         return DeviceRanges(shifted)
 
+    def widened(self, claims: Mapping[Space, tuple[Range, ...]]) -> DeviceRanges:
+        """Return these maps with ``claims`` folded into the spaces they cover.
+
+        A claim says only that something reads those addresses, not that the
+        device serves the span they sit in, so it is added to a map rather
+        than checked against it.
+        """
+        if not claims:
+            return self
+        widened: dict[Space, tuple[Range, ...] | None] = dict(self.maps)
+        for space, ranges in claims.items():
+            widened[space] = _coalesce(tuple(widened.get(space) or ()) + ranges)
+        return DeviceRanges(widened)
+
     @classmethod
     def merged(
         cls,

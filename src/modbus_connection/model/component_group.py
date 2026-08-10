@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ._const import _MAX_SPAN, Range, Raw, Space
 from ._planning import ReadPlan, _merge_raw, _Readable, own_ranges
-from ._ranges import DeviceRanges, _coalesce
+from ._ranges import DeviceRanges
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -37,19 +37,10 @@ class ComponentGroup(_Readable):
 
         Raises ``ValueError`` if the maps conflict.
         """
-        declared = DeviceRanges.merged(
+        return DeviceRanges.merged(
             [component._resolved_ranges() for component in self._components],
             whose=lambda space: f"every {space}-space component in a ComponentGroup",
-        )
-        claimed = self._claimed_by_undeclared()
-        maps: dict[Space, tuple[Range, ...] | None] = {}
-        for space in {*declared.maps, *claimed}:
-            ranges = declared.for_space(space)
-            if ranges is None and space not in claimed:
-                maps[space] = None
-                continue
-            maps[space] = _coalesce(tuple(ranges or ()) + claimed.get(space, ()))
-        return DeviceRanges(maps)
+        ).widened(self._claimed_by_undeclared())
 
     def _claimed_by_undeclared(self) -> dict[Space, tuple[Range, ...]]:
         """What the members that declared no map read on their own, per space.
