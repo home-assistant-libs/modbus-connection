@@ -94,10 +94,7 @@ await meter.write("relay", True)
 The field must be marked
 [`writable`](/modbus-connection/modelling/fields/#writable-fields-and-validators)
 — optionally with a validator that vets the value before it reaches the device.
-Override `write()` in a subclass for any device-specific write sequencing; for a
-device that wants several fields in one request,
-[`placement()`](/modbus-connection/modelling/components-reference/#placementfield)
-resolves each field to the address it would be written at.
+Override `write()` in a subclass for any device-specific write sequencing.
 
 ## Listeners
 
