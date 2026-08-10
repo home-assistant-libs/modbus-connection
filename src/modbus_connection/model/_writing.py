@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..decode import decode_int
+from .fields import PackedBitsField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -37,6 +38,14 @@ async def write_register_field(
         # The validator vets/coerces the value and returns what to write,
         # or raises to reject it.
         value = field.writable(value)
+    if isinstance(field, PackedBitsField):
+        # The register carries settings this field does not own, so read it
+        # back and merge. Reading here rather than trusting the last poll is
+        # the point: it narrows the window in which another writer's change
+        # is lost to one round trip.
+        (word,) = await unit.read_holding_registers(address, 1)
+        await unit.write_register(address, field.merge(word, value))
+        return
     scale_exponent = None
     if field.scale_register is not None and scale_address is not None:
         (word,) = await unit.read_holding_registers(scale_address, 1)

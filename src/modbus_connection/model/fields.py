@@ -448,6 +448,75 @@ class DiscreteInputField(_BitField):
     space: ClassVar[BitSpace] = "discrete"
 
 
+class PackedBitsField(RegisterField[int]):
+    """Expose a run of bits inside one register as an ``int``.
+
+    Writing one packed field must leave the register's other bits alone, so
+    the write reads the register back first and merges — see ``merge``.
+    """
+
+    def __init__(
+        self,
+        address: int,
+        start: int,
+        width: int = 1,
+        *,
+        writable: bool | WriteValidator = False,
+        stride: int = 0,
+        unit: str | None = None,
+    ) -> None:
+        """Initialize a packed-bits field.
+
+        Raises ``ValueError`` if the run does not fit a 16-bit register.
+        """
+        if start < 0 or width < 1 or start + width > 16:
+            raise ValueError(
+                f"bits {start}..{start + width - 1} do not fit a 16-bit register"
+            )
+        super().__init__(address, writable=writable, stride=stride, unit=unit)
+        self.start = start
+        self.width = width
+        self.mask = ((1 << width) - 1) << start
+
+    def decode(self, words: list[int], scale_exponent: int | None = None) -> int:
+        """Decode this field's bits out of the register word."""
+        return (words[0] & self.mask) >> self.start
+
+    def merge(self, word: int, value: Any) -> int:
+        """Return ``word`` with this field's bits replaced by ``value``.
+
+        Raises ``ValueError`` for a value too wide for the run.
+        """
+        raw = int(value)
+        if not 0 <= raw < (1 << self.width):
+            raise ValueError(
+                f"{raw} does not fit the {self.width} bit(s) of {self.name or 'field'}"
+            )
+        return (word & ~self.mask) | (raw << self.start)
+
+
+class PackedBitField(PackedBitsField):
+    """Expose a single bit inside a register as a ``bool``."""
+
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(self, obj: None, objtype: Any = ...) -> PackedBitField: ...
+
+        @overload
+        def __get__(self, obj: object, objtype: Any = ...) -> bool | None: ...
+
+        def __get__(self, obj: Any, objtype: Any = None) -> Any: ...
+
+    def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
+        """Decode this field's bit as a ``bool``."""
+        return bool(super().decode(words))
+
+    def merge(self, word: int, value: Any) -> int:
+        """Return ``word`` with this field's bit set to ``value``."""
+        return super().merge(word, bool(value))
+
+
 # -- typed field helpers ------------------------------------------------------
 
 
@@ -788,6 +857,39 @@ def boolean(
         stride=stride,
         writable=writable,
         force_fc16=force_fc16,
+    )
+
+
+def bit(
+    address: int,
+    index: int,
+    *,
+    writable: bool | WriteValidator = False,
+    stride: int = 0,
+) -> PackedBitField:
+    """One bit of a register, as ``bool``.
+
+    For a device that packs several settings into one register. A write
+    re-reads the register and merges, leaving the other bits alone.
+    """
+    return PackedBitField(address, index, writable=writable, stride=stride)
+
+
+def bits(
+    address: int,
+    start: int,
+    width: int,
+    *,
+    writable: bool | WriteValidator = False,
+    stride: int = 0,
+    unit: str | None = None,
+) -> PackedBitsField:
+    """A run of ``width`` bits of a register starting at ``start``, as ``int``.
+
+    Like :func:`bit`, a write re-reads the register and merges.
+    """
+    return PackedBitsField(
+        address, start, width, writable=writable, stride=stride, unit=unit
     )
 
 

@@ -11,11 +11,18 @@ import pytest
 
 from modbus_connection.decode import decode_float32
 from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
-from modbus_connection.mock import MockModbusConnection, MockModbusUnit, WriteEvent
+from modbus_connection.mock import (
+    MockModbusConnection,
+    MockModbusUnit,
+    ReadEvent,
+    WriteEvent,
+)
 from modbus_connection.model import (
     Component,
     ComponentGroup,
     ManualComponent,
+    bit,
+    bits,
     boolean,
     coil,
     discrete_input,
@@ -613,6 +620,101 @@ async def test_write_rejects_readonly() -> None:
     meter = _meter({})
     with pytest.raises(AttributeError):
         await meter.write("temperature", 20.0)
+
+
+# -- packed bit fields --------------------------------------------------------
+
+
+class SiteLimit(Component):
+    """Five independent settings packed into one register."""
+
+    limit_mode = bits(0, 0, 3, writable=True)
+    external_production = bit(0, 10, writable=True)
+    negative_limit = bit(0, 11, writable=True)
+    reserved = bits(0, 12, 4)
+
+
+def _site_limit(word: int) -> SiteLimit:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = word
+    return SiteLimit(unit)
+
+
+async def test_packed_bits_decode_from_one_read() -> None:
+    component = _site_limit(0b0011_1100_0000_0010)
+    await component.async_update()
+    assert component.limit_mode == 2
+    assert component.external_production is True
+    assert component.negative_limit is True
+    assert component.reserved == 0b0011
+    # Four fields over one register cost one block read.
+    assert component._unit.read_events == [
+        ReadEvent(register_type="holding", address=0, count=1)
+    ]
+
+
+async def test_packed_write_keeps_a_bit_changed_since_the_last_poll() -> None:
+    """The write re-reads, so a concurrent change survives it."""
+    component = _site_limit(0b0000_0000_0000_0010)
+    await component.async_update()
+    assert component.negative_limit is False
+
+    # Something else sets bit 11 after that poll: the installer app, the
+    # device itself, another entity in the same tick.
+    component._unit.holding[0] = 0b0000_1000_0000_0010
+
+    await component.write("external_production", True)
+    assert component._unit.holding[0] == 0b0000_1100_0000_0010
+
+
+async def test_packed_write_sets_a_bit_run() -> None:
+    component = _site_limit(0b0000_1000_0000_0111)
+    await component.write("limit_mode", 2)
+    assert component._unit.holding[0] == 0b0000_1000_0000_0010
+
+
+async def test_packed_write_clears_a_bit() -> None:
+    component = _site_limit(0b0000_1100_0000_0010)
+    await component.write("external_production", False)
+    assert component._unit.holding[0] == 0b0000_1000_0000_0010
+
+
+async def test_packed_write_rejects_a_value_too_wide() -> None:
+    component = _site_limit(0)
+    with pytest.raises(ValueError, match="does not fit the 3 bit"):
+        await component.write("limit_mode", 8)
+    assert component._unit.holding[0] == 0  # nothing written
+
+
+async def test_packed_write_rejects_a_read_only_field() -> None:
+    component = _site_limit(0)
+    with pytest.raises(AttributeError):
+        await component.write("reserved", 1)
+
+
+async def test_packed_write_runs_its_validator() -> None:
+    def only_two(value: int) -> int:
+        if value != 2:
+            raise ValueError("only mode 2")
+        return value
+
+    class Guarded(Component):
+        mode = bits(0, 0, 3, writable=only_two)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[0] = 0
+    component = Guarded(unit)
+    with pytest.raises(ValueError, match="only mode 2"):
+        await component.write("mode", 1)
+    await component.write("mode", 2)
+    assert unit.holding[0] == 2
+
+
+def test_packed_bits_must_fit_a_register() -> None:
+    with pytest.raises(ValueError, match="do not fit"):
+        bits(0, 14, 4)
+    with pytest.raises(ValueError, match="do not fit"):
+        bit(0, 16)
 
 
 # -- dynamically-scaled writes -------------------------------------------------
