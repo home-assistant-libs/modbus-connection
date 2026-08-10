@@ -82,8 +82,7 @@ read-only field (input registers and discrete inputs are always read-only) and
 
 The [`ModbusUnit`](/modbus-connection/connection/reference/#modbusunit) this
 component reads from and writes to, including on a sub-instance a
-`repeating_group` built. Not `unit`, which a component is free to declare as a
-field for a unit-of-measure code.
+`repeating_group` built.
 
 #### `placement(field)`
 

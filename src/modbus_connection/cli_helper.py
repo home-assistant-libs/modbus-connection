@@ -380,8 +380,7 @@ def _format_value(value: object) -> str:
     return str(value)
 
 
-# What ``Component`` itself defines: accessors and planning knobs, not values
-# read from a device. A subclass's own fields and properties are never in it.
+# What ``Component`` itself defines, which a device value never is.
 _BASE_ATTRS = frozenset(dir(Component))
 
 

@@ -26,8 +26,7 @@ class FieldPlacement:
 
     The addresses are absolute: the declared address plus everything that
     places the layout — ``base_offset``, a repeated instance's shift, and a
-    per-field ``stride``. This is what the read planner resolves for itself,
-    exposed so a caller can address a field without repeating that arithmetic.
+    per-field ``stride``.
     """
 
     field: RegisterField[Any] | CoilField | DiscreteInputField
@@ -320,11 +319,7 @@ class Component(_ComponentBase):
 
     @property
     def modbus_unit(self) -> ModbusUnit:
-        """The unit this component reads from and writes to.
-
-        Named for the protocol rather than ``unit``, which a device library
-        is likely to want for a unit-of-measure field.
-        """
+        """The unit this component reads from and writes to."""
         return self._unit
 
     def placement(self, field: str) -> FieldPlacement:
