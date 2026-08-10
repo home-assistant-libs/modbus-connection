@@ -6,10 +6,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
+from .._types import BitSpace
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
 from ._planning import ReadItem, ReadPlan, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
@@ -29,7 +30,7 @@ class FieldPlacement:
     exposed so a caller can address a field without repeating that arithmetic.
     """
 
-    field: RegisterField[Any] | _BitField
+    field: RegisterField[Any] | CoilField | DiscreteInputField
     address: int
     """Absolute address of the field's first register or bit."""
 
@@ -39,7 +40,7 @@ class FieldPlacement:
     scale_address: int | None
     """Absolute address of the field's scale register, if it has one."""
 
-    space: Space
+    space: RegisterSpace | BitSpace
     """The address space the field is read from and written to."""
 
 
@@ -345,7 +346,9 @@ class Component(_ComponentBase):
                 self.register_space,
             )
         if (bit := self._bit_fields.get(field)) is not None:
-            return FieldPlacement(bit, self._address(bit), 1, None, bit.space)
+            # _bit_fields only ever holds these two; the base is private.
+            concrete = cast("CoilField | DiscreteInputField", bit)
+            return FieldPlacement(concrete, self._address(bit), 1, None, bit.space)
         raise AttributeError(f"unknown field {field!r}")
 
     async def write(self, field: str, value: Any) -> None:

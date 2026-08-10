@@ -225,7 +225,7 @@ A frozen dataclass locating one field, returned by
 | `address` | `int` | Absolute address of its first register or bit. |
 | `count` | `int` | Registers it spans; always `1` for a bit. |
 | `scale_address` | `int \| None` | Absolute address of its scale register, or `None`. |
-| `space` | `Space` | The space it is read from and written to. |
+| `space` | `RegisterSpace \| BitSpace` | The space it is read from and written to. |
 
 ### `RegisterSpace`
 
