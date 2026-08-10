@@ -35,7 +35,9 @@ class Component(_ComponentBase):
     _register_fields: dict[str, RegisterField[Any]] = {}
     _bit_fields: dict[str, _BitField] = {}
 
-    declared_fields: Mapping[str, RegisterField[Any] | _BitField] = MappingProxyType({})
+    declared_fields: Mapping[
+        str, RegisterField[Any] | CoilField | DiscreteInputField
+    ] = MappingProxyType({})
     # repeating_group fields, split by count kind: a fixed ``int`` count is static
     # (its instances fold into the normal read like ordinary fields), a
     # ``RegisterField`` count is read at poll time (the two-phase repeating path).
@@ -77,7 +79,7 @@ class Component(_ComponentBase):
         bits: dict[str, _BitField] = {}
         static_groups: dict[str, RepeatingGroupField[Any]] = {}
         repeating: dict[str, RepeatingGroupField[Any]] = {}
-        declared: dict[str, RegisterField[Any] | _BitField] = {}
+        declared: dict[str, RegisterField[Any] | CoilField | DiscreteInputField] = {}
         for klass in reversed(cls.__mro__):
             for name, value in vars(klass).items():
                 if isinstance(value, RegisterField):
