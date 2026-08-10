@@ -78,6 +78,20 @@ scale factor fresh in the same write. Raises `AttributeError` for an unknown or
 read-only field (input registers and discrete inputs are always read-only) and
 `ValueError` if the value cannot be scaled.
 
+#### `unit`
+
+The [`ModbusUnit`](/modbus-connection/connection/reference/#modbusunit) this
+component reads from and writes to, including on a sub-instance a
+`repeating_group` built.
+
+#### `placement(field)`
+
+Resolve a declared field to a [`FieldPlacement`](#fieldplacement) — where it
+sits on the device, with `base_offset`, a repeated instance's shift and a
+per-field `stride` already applied. Raises `AttributeError` for an unknown
+field name. Use it to address fields the component's own `write()` would take
+one at a time, such as writing a run of adjacent registers in one request.
+
 #### `restrict_fields(names)`
 
 Narrow this component to the fields in `names` and reshape its read plan so no
@@ -199,6 +213,19 @@ unknown or read-only key).
 ### `Range`
 
 `tuple[int, int]` — an inclusive `(low, high)` readable address range.
+
+### `FieldPlacement`
+
+A frozen dataclass locating one field, returned by
+[`placement()`](#placementfield):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `field` | `RegisterField \| CoilField \| DiscreteInputField` | The declared field object, carrying `encode()`, `writable` and the rest. |
+| `address` | `int` | Absolute address of its first register or bit. |
+| `count` | `int` | Registers it spans; always `1` for a bit. |
+| `scale_address` | `int \| None` | Absolute address of its scale register, or `None`. |
+| `space` | `Space` | The space it is read from and written to. |
 
 ### `RegisterSpace`
 

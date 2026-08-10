@@ -20,6 +20,7 @@ from modbus_connection.mock import (
 from modbus_connection.model import (
     Component,
     ComponentGroup,
+    FieldPlacement,
     ManualComponent,
     bit,
     bits,
@@ -715,6 +716,88 @@ def test_packed_bits_must_fit_a_register() -> None:
         bits(0, 14, 4)
     with pytest.raises(ValueError, match="do not fit"):
         bit(0, 16)
+
+
+# -- field placement ----------------------------------------------------------
+
+
+class _Point(Component):
+    v = integer(0, scale_register=1, writable=True)
+    v_sf = integer(1)
+
+
+class _Placed(Component):
+    energy = uint32(10)
+    relay = coil(3)
+    pt = repeating_group(2, _Point, stride=2)
+
+
+def test_placement_resolves_addresses() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    component = _Placed(unit, base_offset=40000)
+    assert component.placement("energy") == FieldPlacement(
+        component.declared_fields["energy"], 40010, 2, None, "holding"
+    )
+    assert component.placement("relay") == FieldPlacement(
+        component.declared_fields["relay"], 40003, 1, None, "coil"
+    )
+
+
+def test_placement_of_a_sub_instance() -> None:
+    """The instance shift is in the address; a shared scale factor is not."""
+    unit = MockModbusConnection().for_unit(1)
+    component = _Placed(unit, base_offset=40000)
+    placement = component.pt[1].placement("v")
+    assert (placement.address, placement.scale_address) == (40002, 40001)
+
+
+def test_placement_of_a_sub_instance_with_scale_in_block() -> None:
+    class _OwnScale(_Point):
+        scale_in_block = True
+
+    class _Owner(Component):
+        pt = repeating_group(2, _OwnScale, stride=2)
+
+    unit = MockModbusConnection().for_unit(1)
+    placement = _Owner(unit, base_offset=100).pt[1].placement("v")
+    assert (placement.address, placement.scale_address) == (102, 103)
+
+
+def test_placement_follows_index_and_stride() -> None:
+    class _Channel(Component):
+        temperature = gauge(12, 0.1, stride=4)
+
+    unit = MockModbusConnection().for_unit(1)
+    assert _Channel(unit, index=3).placement("temperature").address == 20
+
+
+def test_placement_rejects_an_unknown_field() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(AttributeError, match="unknown field"):
+        _Placed(unit).placement("nope")
+
+
+def test_unit_is_public() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    component = _Placed(unit, base_offset=40000)
+    assert component.unit is unit
+    assert component.pt[0].unit is unit  # including an instance the caller never built
+
+
+async def test_placement_supports_batching_a_write() -> None:
+    """Two adjacent fields, encoded and written in one request."""
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding[1] = 0  # the shared scale factor
+    component = _Placed(unit, base_offset=40000)
+    points = [component.pt[0].placement("v"), component.pt[1].placement("v")]
+    assert [p.address for p in points] == [40000, 40002]  # stride 2, one word each
+
+    words: list[int] = []
+    for placement, value in zip(points, (11, 22), strict=True):
+        words.extend(placement.field.encode(value, 0))
+        words.extend([0])  # v_sf, untouched between the two points
+    await component.unit.write_registers(points[0].address, words[:3])
+    assert await unit.read_holding_registers(40000, 3) == [11, 0, 22]
 
 
 # -- dynamically-scaled writes -------------------------------------------------

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
 from ._planning import ReadItem, ReadPlan, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
@@ -16,6 +17,30 @@ from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+
+
+@dataclass(frozen=True)
+class FieldPlacement:
+    """Where a component's field sits on the device.
+
+    The addresses are absolute: the declared address plus everything that
+    places the layout — ``base_offset``, a repeated instance's shift, and a
+    per-field ``stride``. This is what the read planner resolves for itself,
+    exposed so a caller can address a field without repeating that arithmetic.
+    """
+
+    field: RegisterField[Any] | _BitField
+    address: int
+    """Absolute address of the field's first register or bit."""
+
+    count: int
+    """Registers the field spans (always 1 for a bit)."""
+
+    scale_address: int | None
+    """Absolute address of the field's scale register, if it has one."""
+
+    space: Space
+    """The address space the field is read from and written to."""
 
 
 def _partition[F](
@@ -295,6 +320,33 @@ class Component(_ComponentBase):
         await self._refresh(collect_raw=False, notify=notify)
 
     # -- writes --------------------------------------------------------------
+
+    @property
+    def unit(self) -> ModbusUnit:
+        """The unit this component reads from and writes to."""
+        return self._unit
+
+    def placement(self, field: str) -> FieldPlacement:
+        """Resolve a declared field to where it sits on the device.
+
+        Works on a sub-instance built by a ``repeating_group``, whose shift is
+        part of the resolved address.
+
+        Raises ``AttributeError`` for an unknown field name.
+        """
+        if (register := self._register_fields.get(field)) is not None:
+            return FieldPlacement(
+                register,
+                self._address(register),
+                register.count,
+                self._scale_address(register)
+                if register.scale_register is not None
+                else None,
+                self.register_space,
+            )
+        if (bit := self._bit_fields.get(field)) is not None:
+            return FieldPlacement(bit, self._address(bit), 1, None, bit.space)
+        raise AttributeError(f"unknown field {field!r}")
 
     async def write(self, field: str, value: Any) -> None:
         """Write a writable register or coil by attribute name.

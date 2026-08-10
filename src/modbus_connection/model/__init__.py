@@ -7,6 +7,7 @@ from ._component_base import UpdateListener
 from ._const import Range, RegisterSpace
 from .component import (
     Component,
+    FieldPlacement,
     RepeatingGroupField,
     repeating_group,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "ComponentGroup",
     "Converter",
     "DiscreteInputField",
+    "FieldPlacement",
     "FloatField",
     "ManualComponent",
     "NumberField",
