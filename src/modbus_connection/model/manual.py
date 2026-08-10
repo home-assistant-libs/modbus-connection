@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
-from ._planning import ReadItem, ReadPlan
+from ._planning import FieldPlacement, ReadItem, ReadPlan
 from ._ranges import DeviceRanges
 from ._writing import write_bit_field, write_register_field
 from .component import RepeatingGroupField
-from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
+from .fields import CoilField, DiscreteInputField, RegisterField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -44,7 +44,7 @@ class ManualComponent(_ComponentBase):
             }
         )
         self._registers: dict[str, tuple[RegisterField[Any], RegisterSpace]] = {}
-        self._bits: dict[str, _BitField] = {}
+        self._bits: dict[str, CoilField | DiscreteInputField] = {}
         self._values: dict[str, Any] = {}
         # repeating_group support (counts read from holding); groups are added by
         # key like any other target. base_offset stays 0 — addresses are absolute.
@@ -130,11 +130,18 @@ class ManualComponent(_ComponentBase):
 
     def _build_plan(self) -> ReadPlan:
         items = [
-            ReadItem(field.address, field, self._values, space, field.scale_register)
+            ReadItem(
+                FieldPlacement(
+                    field, field.address, field.count, field.scale_register, space
+                ),
+                self._values,
+            )
             for field, space in self._registers.values()
         ]
         items += [
-            ReadItem(field.address, field, self._values, field.space)
+            ReadItem(
+                FieldPlacement(field, field.address, 1, None, field.space), self._values
+            )
             for field in self._bits.values()
         ]
         # Fold in each group's count register and any fixed-count instances, so

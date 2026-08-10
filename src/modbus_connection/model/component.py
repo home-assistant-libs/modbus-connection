@@ -3,44 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, overload
 
-from .._types import BitSpace
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
-from ._planning import ReadItem, ReadPlan, _plan_blocks
+from ._planning import FieldPlacement, ReadItem, ReadPlan, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
-
-
-@dataclass(frozen=True)
-class FieldPlacement:
-    """Where a component's field sits on the device.
-
-    The addresses are absolute: the declared address plus everything that
-    places the layout — ``base_offset``, a repeated instance's shift, and a
-    per-field ``stride``.
-    """
-
-    field: RegisterField[Any] | CoilField | DiscreteInputField
-    address: int
-    """Absolute address of the field's first register or bit."""
-
-    count: int
-    """Registers the field spans (always 1 for a bit)."""
-
-    scale_address: int | None
-    """Absolute address of the field's scale register, if it has one."""
-
-    space: RegisterSpace | BitSpace
-    """The address space the field is read from and written to."""
 
 
 def _partition[F](
@@ -182,11 +157,8 @@ class Component(_ComponentBase):
         """Return this component's read targets."""
         items = [
             ReadItem(
-                placement.address,
-                placement.field,
+                placement,
                 self._bits if placement.space in ("coil", "discrete") else self._values,
-                placement.space,
-                placement.scale_address,
             )
             for placement in self.resolved_fields.values()
         ]

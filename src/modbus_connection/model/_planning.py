@@ -3,31 +3,48 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+from .._types import BitSpace
 from ..decode import decode_int16
 from ..exceptions import ModbusExceptionError, ReadBlock
-from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
+from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, RegisterSpace, Space
 from ._ranges import DeviceRanges, _range_of, _validate_ranges
-from .fields import RegisterField, _BitField
+from .fields import CoilField, DiscreteInputField, RegisterField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
 
+@dataclass(frozen=True)
+class FieldPlacement:
+    """Where a component's field sits on the device.
+
+    The addresses are absolute: the declared address plus everything that
+    places the layout — ``base_offset``, a repeated instance's shift, and a
+    per-field ``stride``.
+    """
+
+    field: RegisterField[Any] | CoilField | DiscreteInputField
+    address: int
+    """Absolute address of the field's first register or bit."""
+
+    count: int
+    """Registers the field spans (always 1 for a bit)."""
+
+    scale_address: int | None
+    """Absolute address of the field's scale register, if it has one."""
+
+    space: RegisterSpace | BitSpace
+    """The address space the field is read from and written to."""
+
+
 class ReadItem(NamedTuple):
-    """One read target: where to read, what field, and where to store the value."""
+    """One read target: a placed field, and where its value is stored."""
 
-    address: int  # absolute start address of the field's own registers/bit
-    field: RegisterField[Any] | _BitField
+    placement: FieldPlacement
     store: dict[str, Any]  # the component store decoded values land in
-    space: Space  # the address space to read this field from
-    scale_address: int | None = None  # absolute address of the scale register
-
-
-def _item_field(item: ReadItem) -> RegisterField[Any] | _BitField:
-    """Return the field stored in a read item."""
-    return cast("RegisterField[Any] | _BitField", item.field)
 
 
 def _plan_blocks(
@@ -93,10 +110,12 @@ def own_ranges(
     cannot bridge into addresses no component claims.
     """
     spans: dict[Space, list[tuple[int, int]]] = {}
-    for item in items:
-        spans.setdefault(item.space, []).append((item.address, _item_field(item).count))
-        if item.scale_address is not None:
-            spans[item.space].append((item.scale_address, 1))
+    for placement in (item.placement for item in items):
+        spans.setdefault(placement.space, []).append(
+            (placement.address, placement.count)
+        )
+        if placement.scale_address is not None:
+            spans[placement.space].append((placement.scale_address, 1))
     return {
         space: tuple(
             (start, start + count - 1)
@@ -141,12 +160,12 @@ class ReadPlan(NamedTuple):
         """Plan block reads covering ``items``."""
         items = list(items)
         spans: dict[Space, list[tuple[int, int]]] = {}
-        for item in items:
-            spans.setdefault(item.space, []).append(
-                (item.address, _item_field(item).count)
+        for placement in (item.placement for item in items):
+            spans.setdefault(placement.space, []).append(
+                (placement.address, placement.count)
             )
-            if item.scale_address is not None:
-                spans[item.space].append((item.scale_address, 1))
+            if placement.scale_address is not None:
+                spans[placement.space].append((placement.scale_address, 1))
         return cls(
             items,
             {
@@ -183,16 +202,17 @@ class ReadPlan(NamedTuple):
                 for offset in range(count):
                     values[(space, start + offset)] = got[offset]
         for item in self.items:
-            field = _item_field(item)
+            placement = item.placement
             words = [
-                values[(item.space, item.address + offset)]
-                for offset in range(field.count)
+                values[(placement.space, placement.address + offset)]
+                for offset in range(placement.count)
             ]
             scale_exponent: int | None = None
-            if item.scale_address is not None:
+            if placement.scale_address is not None:
                 scale_exponent = decode_int16(
-                    [values[(item.space, item.scale_address)]]
+                    [values[(placement.space, placement.scale_address)]]
                 )
+            field = placement.field
             item.store[field.name] = field.decode(words, scale_exponent)
         if not collect_raw:
             return {}

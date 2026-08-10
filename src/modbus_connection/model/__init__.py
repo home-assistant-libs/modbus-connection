@@ -5,9 +5,9 @@ from __future__ import annotations
 from .._types import BitSpace
 from ._component_base import UpdateListener
 from ._const import Range, RegisterSpace
+from ._planning import FieldPlacement
 from .component import (
     Component,
-    FieldPlacement,
     RepeatingGroupField,
     repeating_group,
 )
