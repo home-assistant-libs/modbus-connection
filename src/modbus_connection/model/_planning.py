@@ -41,7 +41,7 @@ class ResolvedField:
 
 
 class ReadItem(NamedTuple):
-    """One read target: a placed field, and where its value is stored."""
+    """One read target: a resolved field, and where its value is stored."""
 
     resolved: ResolvedField
     store: dict[str, Any]  # the component store decoded values land in
