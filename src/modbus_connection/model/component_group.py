@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
+from ._const import _MAX_SPAN, Range, Raw, Space
 from ._planning import ReadPlan, _merge_raw, _Readable, own_ranges
 from ._ranges import DeviceRanges, _coalesce
 
@@ -25,7 +25,6 @@ class ComponentGroup(_Readable):
         self._unit = unit
         self._components = list(components)
         self._ranges = self._ranges_by_space()
-        self._max_gap: int = self._shared("max_gap", _MAX_GAP)
         self._max_span: int = self._shared("max_span", _MAX_SPAN)
 
     def _ranges_by_space(self) -> DeviceRanges:
@@ -85,7 +84,9 @@ class ComponentGroup(_Readable):
         return ReadPlan.build(
             [item for c in self._components for item in c._read_items],
             self._ranges,
-            max_gap=self._max_gap,
+            # Every space a member reads carries a map here — its own if it
+            # declared none — so gap bridging has nothing left to decide.
+            max_gap=0,
             max_span=self._max_span,
         )
 

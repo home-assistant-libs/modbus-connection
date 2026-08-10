@@ -48,7 +48,7 @@ they describe one device's address map — so components in a group must agree:
   map. Members at different offsets each describe their own part of the device.
 - Two members whose resolved ranges **overlap without matching** describe the same
   addresses two different ways, which raises `ValueError`.
-- Every component must share `max_gap` and `max_span`.
+- Every component must share `max_span`, which caps a pooled block's width.
 
 The range rules are a guard: a group is one device, so its members can't disagree
 about that device's map.

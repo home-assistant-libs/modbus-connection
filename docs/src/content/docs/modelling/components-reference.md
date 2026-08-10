@@ -108,7 +108,7 @@ ComponentGroup(unit, components)
 | Parameter | Type | Meaning |
 | --- | --- | --- |
 | `unit` | `ModbusUnit` | The unit every component is read from. |
-| `components` | `Iterable[Component]` | The members. Their resolved readable ranges must agree per space where they overlap, and all must share `max_gap` and `max_span` — a conflict raises `ValueError`. |
+| `components` | `Iterable[Component]` | The members. Their resolved readable ranges must agree per space where they overlap, and all must share `max_span` — a conflict raises `ValueError`. |
 
 ### Methods
 

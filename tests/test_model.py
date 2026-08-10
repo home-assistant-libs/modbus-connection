@@ -947,17 +947,41 @@ async def test_component_rejects_field_past_its_readable_range() -> None:
         await Wide(unit).async_update()
 
 
-async def test_group_rejects_mismatched_max_gap() -> None:
+async def test_group_members_may_differ_in_max_gap() -> None:
+    """Each member's own max_gap shapes its own blocks, so they need not agree."""
+
+    class Wide(Component):
+        max_gap = 16
+        a = integer(0)
+        b = integer(10)  # bridged
+
+    class Narrow(Component):
+        max_gap = 0
+        a = integer(100)
+        b = integer(110)  # not bridged
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Wide(unit), Narrow(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 0, 11),
+        ("holding", 100, 1),
+        ("holding", 110, 1),
+    ]
+
+
+async def test_group_rejects_mismatched_max_span() -> None:
     class A(Component):
-        max_gap = 8
+        max_span = 40
         x = integer(0)
 
     class B(Component):
-        max_gap = 16
+        max_span = 125
         y = integer(0)
 
     unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="max_gap"):
+    with pytest.raises(ValueError, match="max_span"):
         ComponentGroup(unit, [A(unit), B(unit)])
 
 
