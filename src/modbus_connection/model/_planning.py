@@ -83,6 +83,31 @@ def _plan_blocks(
     return blocks
 
 
+def own_ranges(
+    items: Iterable[ReadItem], *, max_gap: int, max_span: int
+) -> dict[Space, tuple[Range, ...]]:
+    """The addresses these items cover when read on their own, per space.
+
+    This stands in for a readable map a component did not declare: it claims
+    exactly what the component reads by itself, so pooling it with others
+    cannot bridge into addresses no component claims.
+    """
+    spans: dict[Space, list[tuple[int, int]]] = {}
+    for item in items:
+        spans.setdefault(item.space, []).append((item.address, _item_field(item).count))
+        if item.scale_address is not None:
+            spans[item.space].append((item.scale_address, 1))
+    return {
+        space: tuple(
+            (start, start + count - 1)
+            for start, count in _plan_blocks(
+                space_spans, None, max_gap=max_gap, max_span=max_span
+            )
+        )
+        for space, space_spans in spans.items()
+    }
+
+
 def _reader(
     unit: ModbusUnit, space: Space
 ) -> Callable[[int, int], Awaitable[Sequence[int | bool]]]:

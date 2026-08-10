@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._const import _MAX_GAP, _MAX_SPAN, Raw
-from ._planning import ReadPlan, _merge_raw, _Readable
+from ._const import _MAX_SPAN, Range, Raw, Space
+from ._planning import ReadPlan, _merge_raw, _Readable, own_ranges
 from ._ranges import DeviceRanges
 
 if TYPE_CHECKING:
@@ -25,23 +25,41 @@ class ComponentGroup(_Readable):
         self._unit = unit
         self._components = list(components)
         self._ranges = self._ranges_by_space()
-        self._max_gap: int = self._shared("max_gap", _MAX_GAP)
         self._max_span: int = self._shared("max_span", _MAX_SPAN)
 
     def _ranges_by_space(self) -> DeviceRanges:
         """The readable ranges per space, merged over the member components.
 
-        Members describe one device, so their maps must fit together — and a
-        member that constrains a space cannot be pooled with one that leaves it
-        open, hence ``require_declared``.
+        Members describe one device, so their maps must fit together. A member
+        that declares nothing for a space stands for the addresses it reads by
+        itself, which keeps a pooled read from bridging into addresses no
+        member claims.
 
         Raises ``ValueError`` if the maps conflict.
         """
         return DeviceRanges.merged(
-            [c._resolved_ranges() for c in self._components],
+            [component._resolved_ranges() for component in self._components],
             whose=lambda space: f"every {space}-space component in a ComponentGroup",
-            require_declared=True,
-        )
+        ).widened(self._claimed_by_undeclared())
+
+    def _claimed_by_undeclared(self) -> dict[Space, tuple[Range, ...]]:
+        """What the members that declared no map read on their own, per space.
+
+        These are claims, not a device map: they only widen what the plan may
+        cover, so unlike declared maps they are not checked against each other.
+        """
+        claimed: dict[Space, tuple[Range, ...]] = {}
+        for component in self._components:
+            resolved = component._resolved_ranges()
+            own = own_ranges(
+                component._read_items,
+                max_gap=component.max_gap,
+                max_span=component.max_span,
+            )
+            for space, ranges in own.items():
+                if resolved.for_space(space) is None:
+                    claimed[space] = claimed.get(space, ()) + ranges
+        return claimed
 
     def _shared[V](self, attr: str, default: V) -> V:
         """The value of ``attr`` shared by every component, or raise if they differ."""
@@ -57,7 +75,9 @@ class ComponentGroup(_Readable):
         return ReadPlan.build(
             [item for c in self._components for item in c._read_items],
             self._ranges,
-            max_gap=self._max_gap,
+            # Every space a member reads carries a map here — its own if it
+            # declared none — so gap bridging has nothing left to decide.
+            max_gap=0,
             max_span=self._max_span,
         )
 

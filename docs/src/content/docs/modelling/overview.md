@@ -81,8 +81,7 @@ class IO(Component):
 
 `coil` fields are read/written via FC01; `discrete_input` fields are read from
 FC02 (read-only). A single component may declare both — coil 12 ≠ discrete input
-12, so they are planned and read separately. `coil_ranges` constrains coils and
-`discrete_ranges` constrains discrete inputs.
+12, so they are planned and read separately.
 
 ## Writing
 

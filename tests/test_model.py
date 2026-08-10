@@ -1049,17 +1049,41 @@ async def test_component_rejects_field_past_its_readable_range() -> None:
         await Wide(unit).async_update()
 
 
-async def test_group_rejects_mismatched_max_gap() -> None:
+async def test_group_members_may_differ_in_max_gap() -> None:
+    """Each member's own max_gap shapes its own blocks, so they need not agree."""
+
+    class Wide(Component):
+        max_gap = 16
+        a = integer(0)
+        b = integer(10)  # bridged
+
+    class Narrow(Component):
+        max_gap = 0
+        a = integer(100)
+        b = integer(110)  # not bridged
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Wide(unit), Narrow(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 0, 11),
+        ("holding", 100, 1),
+        ("holding", 110, 1),
+    ]
+
+
+async def test_group_rejects_mismatched_max_span() -> None:
     class A(Component):
-        max_gap = 8
+        max_span = 40
         x = integer(0)
 
     class B(Component):
-        max_gap = 16
+        max_span = 125
         y = integer(0)
 
     unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="max_gap"):
+    with pytest.raises(ValueError, match="max_span"):
         ComponentGroup(unit, [A(unit), B(unit)])
 
 
@@ -1576,13 +1600,73 @@ async def test_group_rejects_ranges_that_overlap_without_agreeing() -> None:
         ComponentGroup(unit, [_RangedBlock(unit), _RangedBlock(unit, base_offset=3)])
 
 
-async def test_group_rejects_mixing_declared_and_unset_ranges() -> None:
+async def test_group_pools_a_member_that_declares_no_ranges() -> None:
+    """A member with no map stands for what it reads, rather than raising."""
+
     class Unconstrained(Component):
+        value = integer(100)
+        other = integer(102)
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(  # type: ignore[list-item]
+        unit, [_RangedBlock(unit), Unconstrained(unit)]
+    )
+    await group.async_update()
+    assert sorted(unit.reads) == [
+        ("holding", 0, 3),  # the ranged member, per its own map
+        ("holding", 50, 1),
+        ("holding", 100, 3),  # the unconstrained member, gap-planned as usual
+    ]
+
+
+async def test_group_does_not_bridge_between_members() -> None:
+    """A gap no member claims is not read, even when max_gap would allow it."""
+
+    class Low(Component):
         value = integer(0)
 
-    unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="register_ranges"):
-        ComponentGroup(unit, [_RangedBlock(unit), Unconstrained(unit)])
+    class High(Component):
+        value = integer(10)  # 10 - 0 <= the default max_gap of 16
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Low(unit), High(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert sorted(unit.reads) == [("holding", 0, 1), ("holding", 10, 1)]
+
+
+async def test_group_still_merges_adjacent_members() -> None:
+    """Members whose blocks touch are read as one: nothing is unclaimed."""
+
+    class First(Component):
+        a = integer(0)
+        b = integer(1)
+
+    class Second(Component):
+        c = integer(2)
+        d = integer(3)
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [First(unit), Second(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert unit.reads == [("holding", 0, 4)]
+
+
+async def test_group_merges_within_a_member_as_it_would_alone() -> None:
+    """Gap planning inside a member is unchanged by pooling."""
+
+    class Sparse(Component):
+        a = integer(0)
+        b = integer(8)  # within max_gap: one read
+        c = integer(40)  # beyond it: its own read
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Sparse(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert sorted(unit.reads) == [("holding", 0, 9), ("holding", 40, 1)]
 
 
 # -- diagnostics: raw registers keyed by address ------------------------------
