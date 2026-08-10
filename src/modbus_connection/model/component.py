@@ -181,24 +181,20 @@ class Component(_ComponentBase):
     @cached_property
     def _read_items(self) -> list[ReadItem]:
         """Return this component's read targets."""
-        items = []
-        for field in self._register_fields.values():
-            scale_address = (
-                self._scale_address(field) if field.scale_register is not None else None
+        items = [
+            ReadItem(
+                placement.address,
+                placement.field,
+                self._values,
+                placement.space,
+                placement.scale_address,
             )
-            items.append(
-                ReadItem(
-                    self._address(field),
-                    field,
-                    self._values,
-                    self.register_space,
-                    scale_address,
-                )
-            )
-        items.extend(
-            ReadItem(self._address(field), field, self._bits, field.space)
-            for field in self._bit_fields.values()
-        )
+            for placement in map(self.placement, self._register_fields)
+        ]
+        items += [
+            ReadItem(placement.address, placement.field, self._bits, placement.space)
+            for placement in map(self.placement, self._bit_fields)
+        ]
         return items + self._count_items + self._static_items
 
     def _invalidate_caches(self) -> None:
@@ -357,29 +353,21 @@ class Component(_ComponentBase):
         Raises ``AttributeError`` for an unknown or read-only field and
         ``ValueError`` if the value cannot be scaled.
         """
-        if field in self._register_fields:
-            register = self._register_fields[field]
-            scale_address = (
-                self._scale_address(register)
-                if register.scale_register is not None
-                else None
-            )
+        placement = self.placement(field)  # raises for an unknown name
+        if isinstance(placement.field, RegisterField):
             await write_register_field(
                 self._unit,
-                register,
-                self._address(register),
+                placement.field,
+                placement.address,
                 self.register_space,
                 value,
                 label=field,
-                scale_address=scale_address,
-            )
-        elif field in self._bit_fields:
-            bit_field = self._bit_fields[field]
-            await write_bit_field(
-                self._unit, bit_field, self._address(bit_field), value, label=field
+                scale_address=placement.scale_address,
             )
         else:
-            raise AttributeError(f"unknown field {field!r}")
+            await write_bit_field(
+                self._unit, placement.field, placement.address, value, label=field
+            )
 
 
 class RepeatingGroupField[C: Component]:
