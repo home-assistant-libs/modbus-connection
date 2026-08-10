@@ -100,6 +100,16 @@ def _plan_blocks(
     return blocks
 
 
+def _spans(items: Iterable[ReadItem]) -> dict[Space, list[tuple[int, int]]]:
+    """The addresses these items cover, per space, scale registers included."""
+    spans: dict[Space, list[tuple[int, int]]] = {}
+    for resolved in (item.resolved for item in items):
+        spans.setdefault(resolved.space, []).append((resolved.address, resolved.count))
+        if resolved.scale_address is not None:
+            spans[resolved.space].append((resolved.scale_address, 1))
+    return spans
+
+
 def own_ranges(
     items: Iterable[ReadItem], *, max_gap: int, max_span: int
 ) -> dict[Space, tuple[Range, ...]]:
@@ -109,11 +119,6 @@ def own_ranges(
     exactly what the component reads by itself, so pooling it with others
     cannot bridge into addresses no component claims.
     """
-    spans: dict[Space, list[tuple[int, int]]] = {}
-    for resolved in (item.resolved for item in items):
-        spans.setdefault(resolved.space, []).append((resolved.address, resolved.count))
-        if resolved.scale_address is not None:
-            spans[resolved.space].append((resolved.scale_address, 1))
     return {
         space: tuple(
             (start, start + count - 1)
@@ -121,7 +126,7 @@ def own_ranges(
                 space_spans, None, max_gap=max_gap, max_span=max_span
             )
         )
-        for space, space_spans in spans.items()
+        for space, space_spans in _spans(items).items()
     }
 
 
@@ -157,13 +162,6 @@ class ReadPlan(NamedTuple):
     ) -> ReadPlan:
         """Plan block reads covering ``items``."""
         items = list(items)
-        spans: dict[Space, list[tuple[int, int]]] = {}
-        for resolved in (item.resolved for item in items):
-            spans.setdefault(resolved.space, []).append(
-                (resolved.address, resolved.count)
-            )
-            if resolved.scale_address is not None:
-                spans[resolved.space].append((resolved.scale_address, 1))
         return cls(
             items,
             {
@@ -173,7 +171,7 @@ class ReadPlan(NamedTuple):
                     max_gap=max_gap,
                     max_span=max_span,
                 )
-                for space, space_spans in spans.items()
+                for space, space_spans in _spans(items).items()
             },
         )
 
