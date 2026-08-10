@@ -20,6 +20,10 @@ as `Component` class attributes:
 - **`max_span`** (default `125`, the Modbus per-request ceiling) — the widest a
   single block read may be. Lower it for a gateway that caps reads shorter.
 
+In a [`ComponentGroup`](/modbus-connection/modelling/component-group/) the same
+merging runs across the members, but only where their addresses meet: the space
+between two components belongs to neither, so no block covers it.
+
 The read plan is derived from the static field layout and **cached on the first
 `async_update`**. The fields and ranges are read once then; to change the layout,
 build a new component.

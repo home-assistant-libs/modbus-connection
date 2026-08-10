@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._const import _MAX_GAP, _MAX_SPAN, Raw
-from ._planning import ReadPlan, _merge_raw, _Readable
-from ._ranges import DeviceRanges
+from ._const import _MAX_GAP, _MAX_SPAN, Range, Raw, Space
+from ._planning import ReadPlan, _merge_raw, _Readable, own_ranges
+from ._ranges import DeviceRanges, _coalesce
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -31,17 +31,46 @@ class ComponentGroup(_Readable):
     def _ranges_by_space(self) -> DeviceRanges:
         """The readable ranges per space, merged over the member components.
 
-        Members describe one device, so their maps must fit together — and a
-        member that constrains a space cannot be pooled with one that leaves it
-        open, hence ``require_declared``.
+        Members describe one device, so their maps must fit together. A member
+        that declares nothing for a space is not disagreeing with one that
+        does — it stands for the addresses it reads by itself, which keeps a
+        pooled read from bridging into addresses no member claims.
 
         Raises ``ValueError`` if the maps conflict.
         """
-        return DeviceRanges.merged(
-            [c._resolved_ranges() for c in self._components],
+        declared = DeviceRanges.merged(
+            [component._resolved_ranges() for component in self._components],
             whose=lambda space: f"every {space}-space component in a ComponentGroup",
-            require_declared=True,
         )
+        claimed = self._claimed_by_undeclared()
+        maps: dict[Space, tuple[Range, ...] | None] = {}
+        for space in {*declared.maps, *claimed}:
+            ranges = declared.for_space(space)
+            if ranges is None and space not in claimed:
+                maps[space] = None
+                continue
+            maps[space] = _coalesce(tuple(ranges or ()) + claimed.get(space, ()))
+        return DeviceRanges(maps)
+
+    def _claimed_by_undeclared(self) -> dict[Space, tuple[Range, ...]]:
+        """What the members that declared no map read on their own, per space.
+
+        These are claims, not a device map, so they only ever widen what the
+        plan may cover — unlike declared maps, two of them overlapping is not
+        a disagreement.
+        """
+        claimed: dict[Space, tuple[Range, ...]] = {}
+        for component in self._components:
+            resolved = component._resolved_ranges()
+            own = own_ranges(
+                component._read_items,
+                max_gap=component.max_gap,
+                max_span=component.max_span,
+            )
+            for space, ranges in own.items():
+                if resolved.for_space(space) is None:
+                    claimed[space] = claimed.get(space, ()) + ranges
+        return claimed
 
     def _shared[V](self, attr: str, default: V) -> V:
         """The value of ``attr`` shared by every component, or raise if they differ."""

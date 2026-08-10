@@ -32,6 +32,11 @@ per contiguous block spanning whichever components fall in it, not once per
 component. For a device with dozens of scattered fields this typically collapses
 tens of reads into a handful.
 
+A pooled block never reaches past what its members describe. Inside a member,
+addresses merge as they would if it refreshed alone; between members, a block
+spans two of them only where their addresses meet, so the space between two
+components is not read on spec.
+
 ## Shared configuration
 
 The readable address ranges and planning limits come from the **components** —
@@ -43,8 +48,10 @@ they describe one device's address map — so components in a group must agree:
   [`base_offset`](/modbus-connection/modelling/placement/) contributes its shifted
   map. Members at different offsets each describe their own part of the device.
 - Two members whose resolved ranges **overlap without matching** describe the same
-  addresses two different ways, and a member that constrains a space cannot be
-  pooled with one that leaves it unset. Either raises `ValueError`.
+  addresses two different ways, which raises `ValueError`.
+- A member that declares nothing for a space has no opinion about the device's
+  map, not a conflicting one: it stands for the addresses it reads by itself, so
+  it pools with members that do declare.
 - Every component must share `max_gap` and `max_span`.
 
 The range rules are a guard: a group is one device, so its members can't disagree

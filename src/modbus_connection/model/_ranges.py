@@ -34,6 +34,22 @@ def _validate_ranges(ranges: tuple[Range, ...]) -> None:
             )
 
 
+def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
+    """Join ranges that touch or overlap.
+
+    Two ranges with nothing between them describe one readable run, so a read
+    may span both. Only called on maps whose parts have already been checked
+    for conflicts.
+    """
+    joined: list[Range] = []
+    for low, high in sorted(ranges):
+        if joined and low <= joined[-1][1] + 1:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], high))
+        else:
+            joined.append((low, high))
+    return tuple(joined)
+
+
 def _ranges_excluding(
     intervals: Iterable[Range], excluded: set[int]
 ) -> tuple[Range, ...]:
@@ -90,15 +106,12 @@ class DeviceRanges:
         maps: Iterable[DeviceRanges],
         *,
         whose: str | Callable[[Space], str],
-        require_declared: bool = False,
     ) -> DeviceRanges:
         """Merge several devices' maps into the map they jointly describe.
 
         Per space, unset maps add no constraint and the rest merge — parts of
         one device at different offsets fit together — but maps covering the
-        same addresses differently conflict. With ``require_declared``, a space
-        one map constrains and another leaves unset is also a conflict (used by
-        ``ComponentGroup``, whose members must agree on what the device serves).
+        same addresses differently conflict.
 
         Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
         are being merged in the error — a callable receives the conflicting
@@ -112,11 +125,6 @@ class DeviceRanges:
                 by_space.setdefault(space, set()).add(ranges)
         merged: dict[Space, tuple[Range, ...] | None] = {}
         for space, declared in by_space.items():
-            if require_declared and len(declared) > 1 and None in declared:
-                raise ValueError(
-                    f"{describe(space)} must declare {_RANGE_ATTR[space]} "
-                    f"if any does, but some left it unset"
-                )
             constrained = {ranges for ranges in declared if ranges is not None}
             if len(constrained) <= 1:
                 merged[space] = next(iter(constrained), None)
