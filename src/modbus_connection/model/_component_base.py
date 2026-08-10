@@ -6,10 +6,11 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._const import Raw, RegisterSpace
-from ._planning import ReadItem, _merge_raw, _Readable
+from ._const import Raw, RegisterSpace, Space
+from ._planning import ReadItem, ResolvedField, _merge_raw, _Readable
 from ._ranges import DeviceRanges
 from .component_group import ComponentGroup
+from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .component import Component, RepeatingGroupField
@@ -84,6 +85,30 @@ class _ComponentBase(_Readable):
             for i in range(start, stop)
         ]
 
+    def _address(self, field: RegisterField[Any] | _BitField) -> int:
+        """Where a field of this component's own block is read."""
+        return field.address + self._base_offset + self._instance_offset
+
+    def _scale_address(self, field: RegisterField[Any]) -> int:
+        """Where a field's scale register is read."""
+        assert field.scale_register is not None
+        return field.scale_register
+
+    def _resolve(
+        self,
+        field: RegisterField[Any] | CoilField | DiscreteInputField,
+        space: Space,
+    ) -> ResolvedField:
+        """Resolve one of this component's fields to a read target."""
+        scale_address = (
+            self._scale_address(field)
+            if isinstance(field, RegisterField) and field.scale_register is not None
+            else None
+        )
+        return ResolvedField(
+            field, self._address(field), field.count, scale_address, space
+        )
+
     @cached_property
     def _count_items(self) -> list[ReadItem]:
         """Read targets for each register-count group's count register."""
@@ -93,12 +118,7 @@ class _ComponentBase(_Readable):
             count_field = cast("RegisterField[Any]", field.count)
             count_field.name = name  # the decoded count lands in ``_counts[name]``
             items.append(
-                ReadItem(
-                    count_field.address + self._base_offset + self._instance_offset,
-                    count_field,
-                    self._counts,
-                    self._count_space,
-                )
+                ReadItem(self._resolve(count_field, self._count_space), self._counts)
             )
         return items
 

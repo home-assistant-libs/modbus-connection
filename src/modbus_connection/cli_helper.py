@@ -380,12 +380,16 @@ def _format_value(value: object) -> str:
     return str(value)
 
 
+# What ``Component`` itself defines, which a device value never is.
+_BASE_ATTRS = frozenset(dir(Component))
+
+
 def field_rows(component: Component) -> list[tuple[str, str]]:
     """Return display rows for every field on ``component``."""
     cls = type(component)
     rows: list[tuple[str, str]] = []
     for name in dir(component):
-        if name.startswith("_"):
+        if name.startswith("_") or name in _BASE_ATTRS:
             continue
         descriptor = inspect.getattr_static(cls, name, None)
         if not isinstance(
@@ -412,7 +416,7 @@ def group_rows(component: Component) -> list[tuple[str, list[Component]]]:
     cls = type(component)
     groups: list[tuple[str, list[Component]]] = []
     for name in dir(component):
-        if name.startswith("_"):
+        if name.startswith("_") or name in _BASE_ATTRS:
             continue
         if isinstance(inspect.getattr_static(cls, name, None), RepeatingGroupField):
             groups.append((name, list(getattr(component, name))))

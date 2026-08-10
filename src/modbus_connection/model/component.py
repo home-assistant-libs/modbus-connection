@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
-from ._planning import ReadItem, ReadPlan, _plan_blocks
+from ._planning import ReadItem, ReadPlan, ResolvedField, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
@@ -33,7 +33,7 @@ class Component(_ComponentBase):
     """Map a device subsystem to typed register and bit attributes."""
 
     _register_fields: dict[str, RegisterField[Any]] = {}
-    _bit_fields: dict[str, _BitField] = {}
+    _bit_fields: dict[str, CoilField | DiscreteInputField] = {}
 
     declared_fields: Mapping[
         str, RegisterField[Any] | CoilField | DiscreteInputField
@@ -76,7 +76,7 @@ class Component(_ComponentBase):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
-        bits: dict[str, _BitField] = {}
+        bits: dict[str, CoilField | DiscreteInputField] = {}
         static_groups: dict[str, RepeatingGroupField[Any]] = {}
         repeating: dict[str, RepeatingGroupField[Any]] = {}
         declared: dict[str, RegisterField[Any] | CoilField | DiscreteInputField] = {}
@@ -128,7 +128,7 @@ class Component(_ComponentBase):
         return self.register_space
 
     def _scale_address(self, field: RegisterField[Any]) -> int:
-        """Resolve a field's scale-register address."""
+        """Where a field's scale register is read, shifted with the layout."""
         assert field.scale_register is not None
         address = (
             field.scale_register
@@ -150,34 +150,47 @@ class Component(_ComponentBase):
         """
         return field.address + field.stride * (self._index - 1)
 
+    @property
+    def modbus_unit(self) -> ModbusUnit:
+        """The unit this component reads from and writes to."""
+        return self._unit
+
+    @cached_property
+    def resolved_fields(self) -> Mapping[str, ResolvedField]:
+        """Every field this component reads, with where it sits on the device.
+
+        In declaration order, like ``declared_fields``, but narrowed by
+        ``restrict_fields`` and resolved per instance: a sub-instance built by
+        a ``repeating_group`` carries its own shift in the addresses.
+        """
+        resolved_map: dict[str, ResolvedField] = {}
+        for name in self.declared_fields:
+            if (register := self._register_fields.get(name)) is not None:
+                resolved_map[name] = self._resolve(register, self.register_space)
+            elif (bit := self._bit_fields.get(name)) is not None:
+                resolved_map[name] = self._resolve(bit, bit.space)
+        return MappingProxyType(resolved_map)
+
     # -- update --------------------------------------------------------------
 
     @cached_property
     def _read_items(self) -> list[ReadItem]:
         """Return this component's read targets."""
-        items = []
-        for field in self._register_fields.values():
-            scale_address = (
-                self._scale_address(field) if field.scale_register is not None else None
+        items = [
+            ReadItem(
+                resolved,
+                self._values
+                if isinstance(resolved.field, RegisterField)
+                else self._bits,
             )
-            items.append(
-                ReadItem(
-                    self._address(field),
-                    field,
-                    self._values,
-                    self.register_space,
-                    scale_address,
-                )
-            )
-        items.extend(
-            ReadItem(self._address(field), field, self._bits, field.space)
-            for field in self._bit_fields.values()
-        )
+            for resolved in self.resolved_fields.values()
+        ]
         return items + self._count_items + self._static_items
 
     def _invalidate_caches(self) -> None:
         # _read_items composes the base's group targets, so it goes when they do
-        self.__dict__.pop("_read_items", None)
+        for attr in ("_read_items", "resolved_fields"):
+            self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
     def _resolved_ranges(self) -> DeviceRanges:
@@ -302,29 +315,23 @@ class Component(_ComponentBase):
         Raises ``AttributeError`` for an unknown or read-only field and
         ``ValueError`` if the value cannot be scaled.
         """
-        if field in self._register_fields:
-            register = self._register_fields[field]
-            scale_address = (
-                self._scale_address(register)
-                if register.scale_register is not None
-                else None
-            )
+        resolved = self.resolved_fields.get(field)
+        if resolved is None:
+            raise AttributeError(f"unknown field {field!r}")
+        if isinstance(resolved.field, RegisterField):
             await write_register_field(
                 self._unit,
-                register,
-                self._address(register),
+                resolved.field,
+                resolved.address,
                 self.register_space,
                 value,
                 label=field,
-                scale_address=scale_address,
-            )
-        elif field in self._bit_fields:
-            bit_field = self._bit_fields[field]
-            await write_bit_field(
-                self._unit, bit_field, self._address(bit_field), value, label=field
+                scale_address=resolved.scale_address,
             )
         else:
-            raise AttributeError(f"unknown field {field!r}")
+            await write_bit_field(
+                self._unit, resolved.field, resolved.address, value, label=field
+            )
 
 
 class RepeatingGroupField[C: Component]:

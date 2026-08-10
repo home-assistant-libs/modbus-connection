@@ -39,6 +39,7 @@ All are overridable on a subclass (or set per instance).
 | `max_span` | `int` | `125` | The widest a single block read may be (125 is the Modbus per-request ceiling). |
 | `scale_in_block` | `bool` | `False` | On a repeating sub-unit: shift `scale_register` addresses with each instance instead of keeping them in the parent's fixed block. |
 | `declared_fields` | `Mapping[str, RegisterField \| CoilField \| DiscreteInputField]` | — | Read-only mapping of attribute name to declared field object, in declaration order; available on the class and its instances, and never narrowed by `restrict_fields`. |
+| `resolved_fields` | `Mapping[str, ResolvedField]` | — | Read-only mapping of attribute name to [where the field sits on the device](#resolvedfield), in declaration order. Per instance, so it carries a repeated sub-unit's shift, and narrowed by `restrict_fields` to what the component reads. |
 
 ### Methods
 
@@ -77,6 +78,12 @@ as `writable` vets the value first, and a dynamically-scaled field reads its
 scale factor fresh in the same write. Raises `AttributeError` for an unknown or
 read-only field (input registers and discrete inputs are always read-only) and
 `ValueError` if the value cannot be scaled.
+
+#### `modbus_unit`
+
+The [`ModbusUnit`](/modbus-connection/connection/reference/#modbusunit) this
+component reads from and writes to, including on a sub-instance a
+`repeating_group` built.
 
 #### `restrict_fields(names)`
 
@@ -199,6 +206,19 @@ unknown or read-only key).
 ### `Range`
 
 `tuple[int, int]` — an inclusive `(low, high)` readable address range.
+
+### `ResolvedField`
+
+A frozen dataclass locating one field, returned in
+[`resolved_fields`](#class-attributes):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `field` | `RegisterField \| CoilField \| DiscreteInputField` | The declared field object, carrying `encode()`, `writable` and the rest. |
+| `address` | `int` | Absolute address of its first register or bit. |
+| `count` | `int` | Registers it spans; always `1` for a bit. |
+| `scale_address` | `int \| None` | Absolute address of its scale register, or `None`. |
+| `space` | `RegisterSpace \| BitSpace` | The space it is read from and written to. |
 
 ### `RegisterSpace`
 
