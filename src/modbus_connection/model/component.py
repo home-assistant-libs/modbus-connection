@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from functools import cached_property
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
@@ -33,7 +33,7 @@ class Component(_ComponentBase):
     """Map a device subsystem to typed register and bit attributes."""
 
     _register_fields: dict[str, RegisterField[Any]] = {}
-    _bit_fields: dict[str, _BitField] = {}
+    _bit_fields: dict[str, CoilField | DiscreteInputField] = {}
 
     declared_fields: Mapping[
         str, RegisterField[Any] | CoilField | DiscreteInputField
@@ -76,7 +76,7 @@ class Component(_ComponentBase):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         registers: dict[str, RegisterField[Any]] = {}
-        bits: dict[str, _BitField] = {}
+        bits: dict[str, CoilField | DiscreteInputField] = {}
         static_groups: dict[str, RepeatingGroupField[Any]] = {}
         repeating: dict[str, RepeatingGroupField[Any]] = {}
         declared: dict[str, RegisterField[Any] | CoilField | DiscreteInputField] = {}
@@ -302,21 +302,15 @@ class Component(_ComponentBase):
         resolved_map: dict[str, ResolvedField] = {}
         for name in self.declared_fields:
             if (register := self._register_fields.get(name)) is not None:
-                resolved_map[name] = ResolvedField(
+                resolved_map[name] = self._resolve(
                     register,
-                    self._address(register),
-                    register.count,
+                    self.register_space,
                     self._scale_address(register)
                     if register.scale_register is not None
                     else None,
-                    self.register_space,
                 )
             elif (bit := self._bit_fields.get(name)) is not None:
-                # _bit_fields only ever holds these two; the base is private.
-                concrete = cast("CoilField | DiscreteInputField", bit)
-                resolved_map[name] = ResolvedField(
-                    concrete, self._address(bit), 1, None, bit.space
-                )
+                resolved_map[name] = self._resolve(bit, bit.space)
         return MappingProxyType(resolved_map)
 
     async def write(self, field: str, value: Any) -> None:
