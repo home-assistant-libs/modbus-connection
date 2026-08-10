@@ -128,7 +128,7 @@ class Component(_ComponentBase):
         return self.register_space
 
     def _scale_address(self, field: RegisterField[Any]) -> int:
-        """Resolve a field's scale-register address."""
+        """Where a field's scale register is read, shifted with the layout."""
         assert field.scale_register is not None
         address = (
             field.scale_register
@@ -302,13 +302,7 @@ class Component(_ComponentBase):
         resolved_map: dict[str, ResolvedField] = {}
         for name in self.declared_fields:
             if (register := self._register_fields.get(name)) is not None:
-                resolved_map[name] = self._resolve(
-                    register,
-                    self.register_space,
-                    self._scale_address(register)
-                    if register.scale_register is not None
-                    else None,
-                )
+                resolved_map[name] = self._resolve(register, self.register_space)
             elif (bit := self._bit_fields.get(name)) is not None:
                 resolved_map[name] = self._resolve(bit, bit.space)
         return MappingProxyType(resolved_map)

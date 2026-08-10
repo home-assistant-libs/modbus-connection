@@ -89,13 +89,22 @@ class _ComponentBase(_Readable):
         """Where a field of this component's own block is read."""
         return field.address + self._base_offset + self._instance_offset
 
+    def _scale_address(self, field: RegisterField[Any]) -> int:
+        """Where a field's scale register is read."""
+        assert field.scale_register is not None
+        return field.scale_register
+
     def _resolve(
         self,
         field: RegisterField[Any] | CoilField | DiscreteInputField,
         space: Space,
-        scale_address: int | None = None,
     ) -> ResolvedField:
         """Resolve one of this component's fields to a read target."""
+        scale_address = (
+            self._scale_address(field)
+            if isinstance(field, RegisterField) and field.scale_register is not None
+            else None
+        )
         return ResolvedField(
             field, self._address(field), field.count, scale_address, space
         )

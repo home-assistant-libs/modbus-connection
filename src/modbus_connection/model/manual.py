@@ -130,7 +130,7 @@ class ManualComponent(_ComponentBase):
 
     def _build_plan(self) -> ReadPlan:
         items = [
-            ReadItem(self._resolve(field, space, field.scale_register), self._values)
+            ReadItem(self._resolve(field, space), self._values)
             for field, space in self._registers.values()
         ]
         items += [
