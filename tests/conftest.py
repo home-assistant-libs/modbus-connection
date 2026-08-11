@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import socket
 import struct
+import subprocess
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
@@ -85,3 +87,26 @@ async def modbus_server(free_port: int) -> AsyncIterator[tuple[str, int]]:
     host, port = "127.0.0.1", free_port
     async with serve_tcp(full_store(), host, port):
         yield host, port
+
+
+@pytest.fixture(scope="session")
+def official_models(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The official SunSpec model definitions, cloned once for the session."""
+    repo = tmp_path_factory.mktemp("sunspec") / "models"
+    clone = subprocess.run(  # noqa: S603
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "https://github.com/sunspec/models",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if clone.returncode != 0:
+        pytest.skip(f"cannot clone sunspec/models: {clone.stderr.strip()[:200]}")
+    return Path(repo, "json")
