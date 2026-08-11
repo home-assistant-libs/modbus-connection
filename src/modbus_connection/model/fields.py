@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
 from .._types import BitSpace, WordOrder
 from ..decode import (
+    _signed,
     combine_words,
     decode_eui48,
     decode_float32,
     decode_float64,
-    decode_int,
     decode_ipaddr,
     decode_ipv6addr,
     decode_string,
@@ -182,17 +182,10 @@ class _ScaledField[T](RegisterField[T]):
 
         Returns ``None`` when the dynamic scale cannot produce a finite value.
         """
-        factor = self.scale
-        if scale_exponent is not None:
-            if not self._exponent_in_range(scale_exponent):
-                return None  # exponent outside the field's declared spec range
-            try:
-                dynamic = 10.0**scale_exponent
-            except OverflowError:
-                return None  # exponent too large to represent as a float
-            if dynamic == 0.0:
-                return None  # exponent underflowed to an unusable zero factor
-            factor *= dynamic
+        try:
+            factor = self._factor(scale_exponent)
+        except ValueError:
+            return None  # exponent outside the spec range, or unusable
         if factor == 1.0 and self.offset == 0.0:
             return value  # keep ints integral when there is nothing to scale
         scaled = value * factor + self.offset
@@ -204,8 +197,8 @@ class _ScaledField[T](RegisterField[T]):
             decimals = max(_decimals(factor), _decimals(self.offset))
         return int(scaled) if decimals == 0 else round(scaled, decimals)
 
-    def _encode_factor(self, scale_exponent: int | None) -> float:
-        """Return the scale factor for encoding.
+    def _factor(self, scale_exponent: int | None) -> float:
+        """Return the effective scale factor.
 
         Raises ``ValueError`` if the dynamic scale is missing or unusable.
         """
@@ -263,13 +256,11 @@ class NumberField[T](_ScaledField[T]):
         raw = combine_words(words, word_order=self.word_order)
         if self.nan is not None and raw in self.nan:
             return None
+        # Sign-fold the raw pattern per the field's `signed` flag; the nan check
+        # above still matches the raw (unsigned) sentinel pattern.
+        value = _signed(raw, 16 * len(words)) if self.signed else raw
         if self.convert is not None:
-            # Map the signed or unsigned code, per the field's `signed` flag; the
-            # nan check above still matches the raw (unsigned) sentinel pattern.
-            return self._convert(
-                decode_int(words, signed=self.signed, word_order=self.word_order)
-            )
-        value = decode_int(words, signed=self.signed, word_order=self.word_order)
+            return self._convert(value)
         return self._scale(value, scale_exponent)
 
     def _convert(self, raw: int) -> Any:
@@ -297,7 +288,7 @@ class NumberField[T](_ScaledField[T]):
         return None
 
     def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
-        factor = self._encode_factor(scale_exponent)
+        factor = self._factor(scale_exponent)
         if factor == 1.0 and self.offset == 0.0:
             raw = int(value)  # no transform: keep the value exact
         else:
@@ -350,7 +341,7 @@ class FloatField(_ScaledField[float]):
         return self._scale(value, scale_exponent)
 
     def encode(self, value: Any, scale_exponent: int | None = None) -> list[int]:
-        factor = self._encode_factor(scale_exponent)
+        factor = self._factor(scale_exponent)
         if factor != 1.0 or self.offset != 0.0:
             # invert the affine transform decode applies
             value = (float(value) - self.offset) / factor

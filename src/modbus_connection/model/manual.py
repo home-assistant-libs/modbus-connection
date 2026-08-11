@@ -109,6 +109,7 @@ class ManualComponent(_ComponentBase):
         self._values.pop(key, None)
         self._static_groups.pop(key, None)
         self._repeating_fields.pop(key, None)
+        self._counts.pop(key, None)
         if self._groups.pop(key, None) is not None:
             self._instance_group = None
         self._invalidate_caches()

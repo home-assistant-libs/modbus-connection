@@ -629,6 +629,40 @@ async def test_nested_dynamic_refreshes_on_recount() -> None:
     assert [m.w for m in outer.groups[0].leaves] == [1, 2]
 
 
+async def test_restricting_a_static_instance_reaches_the_parent_plan() -> None:
+    class Pack(Component):
+        cells = repeating_group(2, Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({10: 480, 11: 100, 30: 482, 31: 95})
+    pack = Pack(unit)
+    await pack.async_update()
+    assert pack.cells[0].w == 100
+
+    pack.cells[0].restrict_fields(["v"])
+    await pack.async_update()
+    assert pack.cells[0].v == 480
+    assert pack.cells[0].w is None  # dropped, and not repopulated by the parent
+    assert pack.cells[1].w == 95  # the other instance is untouched
+
+
+async def test_restricting_a_dynamic_instance_reaches_the_pooled_plan() -> None:
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    unit = _unit()
+    unit.holding.update({8: 2, 10: 480, 11: 100, 30: 482, 31: 95})
+    inv = Inverter(unit)
+    await inv.async_update()
+    assert inv.modules[0].w == 100
+
+    inv.modules[0].restrict_fields(["v"])
+    await inv.async_update()
+    assert inv.modules[0].v == 480
+    assert inv.modules[0].w is None  # dropped, and not repopulated by the pool
+    assert inv.modules[1].w == 95
+
+
 def test_factory_validates() -> None:
     with pytest.raises(ValueError, match="stride must be > 0"):
         repeating_group(uint16(8), Module, stride=0)
