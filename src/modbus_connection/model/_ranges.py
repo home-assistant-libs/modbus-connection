@@ -50,23 +50,22 @@ def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
     return tuple(joined)
 
 
-def _edges(ranges: Iterable[Range]) -> set[int]:
-    """Where ``ranges`` starts and stops covering addresses."""
-    return {edge for low, high in ranges for edge in (low, high + 1)}
+def _partitioned(
+    maps: Iterable[tuple[Range, ...]], cutters: Iterable[tuple[Range, ...]]
+) -> tuple[Range, ...]:
+    """The addresses ``maps`` cover, split where any map in ``cutters`` starts or stops.
 
-
-def _partitioned(ranges: Iterable[Range], cuts: set[int]) -> tuple[Range, ...]:
-    """The addresses ``ranges`` covers, split again at every address in ``cuts``.
-
-    A declared map that splits one run into parts says a read may not cross
-    where it splits them, so merging keeps those splits: pooling a component
-    never widens a read past a boundary its own map drew. Addresses something
-    merely *reads* draw no boundary — they are covered, not partitioned.
+    A map that splits one run of addresses into parts says a read may not cross
+    where it splits them, so a merge keeps those splits. Addresses something
+    merely *reads* cut nothing — they are covered, not partitioned.
     """
+    cuts = sorted(
+        {edge for ranges in cutters for low, high in ranges for edge in (low, high + 1)}
+    )
     partitioned: list[Range] = []
-    for low, high in _coalesce(tuple(ranges)):
+    for low, high in _coalesce(tuple(r for ranges in maps for r in ranges)):
         start = low
-        for cut in sorted(cuts):
+        for cut in cuts:
             if start < cut <= high:
                 partitioned.append((start, cut - 1))
                 start = cut
@@ -135,8 +134,8 @@ class DeviceRanges:
             return self
         widened: dict[Space, tuple[Range, ...] | None] = dict(self.maps)
         for space, ranges in claims.items():
-            existing = tuple(widened.get(space) or ())
-            widened[space] = _partitioned(existing + ranges, _edges(existing))
+            existing = (tuple(widened.get(space) or ()),)
+            widened[space] = _partitioned((*existing, ranges), existing)
         return DeviceRanges(widened)
 
     @classmethod
@@ -174,19 +173,16 @@ class DeviceRanges:
             if not constrained:
                 merged[space] = None
                 continue
-            normalised = {_coalesce(ranges) for ranges in constrained}
-            if len(normalised) > 1:
-                joint = tuple(sorted({r for ranges in normalised for r in ranges}))
-                try:
-                    _validate_ranges(joint)  # overlap is a conflict; touching is not
-                except ValueError as err:
-                    raise ValueError(
-                        f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
-                        f"their maps overlap, but got conflicting values: "
-                        f"{sorted(constrained)}"
-                    ) from err
-            merged[space] = _partitioned(
-                (r for ranges in constrained for r in ranges),
-                {edge for ranges in constrained for edge in _edges(ranges)},
+            joint = tuple(
+                sorted({r for ranges in constrained for r in _coalesce(ranges)})
             )
+            try:
+                _validate_ranges(joint)  # overlap is a conflict; touching is not
+            except ValueError as err:
+                raise ValueError(
+                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
+                    f"their maps overlap, but got conflicting values: "
+                    f"{sorted(constrained)}"
+                ) from err
+            merged[space] = _partitioned(constrained, constrained)
         return cls(merged)
