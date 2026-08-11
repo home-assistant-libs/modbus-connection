@@ -32,7 +32,7 @@ await mc.write("relay", True)  # per-key write (holding / coils only)
 | Value access | typed attribute (`meter.voltage`) | `get(key)` / the dict from `async_update()` |
 | Addressing | `index` / `stride` / `base_offset` | absolute `address`, no index/stride |
 | Read planning | ✅ pooled | ✅ pooled (same machinery) |
-| Joins a `ComponentGroup` | ✅ | ❌ |
+| Joins a `ComponentGroup` | ✅ | ✅ |
 
 It reuses the same planning, write (validator / `force_fc16`), bit, and
 repeating-group machinery as `Component`. It just has no class to hang typed
@@ -55,7 +55,9 @@ mc.remove(key)
 - The field `address` is **absolute** — there is no `index` / `stride`.
 
 `add()` and `remove()` invalidate the cached plan, so it re-plans on the next
-update. Adding a key that already exists replaces the previous target.
+update — including the pooled plan of a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) the component
+is a member of. Adding a key that already exists replaces the previous target.
 
 ## Reading values
 

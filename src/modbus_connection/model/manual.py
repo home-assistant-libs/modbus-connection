@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from ._component_base import _ComponentBase
@@ -31,8 +32,8 @@ class ManualComponent(_ComponentBase):
         discrete_ranges: tuple[Range, ...] | None = None,
     ) -> None:
         self._unit = unit
-        self._max_gap = max_gap
-        self._max_span = max_span
+        self.max_gap = max_gap
+        self.max_span = max_span
         # Readable address ranges per table; a table left None falls back to
         # gap-based planning, like Component does.
         self._ranges = DeviceRanges(
@@ -101,6 +102,9 @@ class ManualComponent(_ComponentBase):
                 f"target must be a RegisterField, a bit field or a repeating_group, "
                 f"got {type(target).__name__}"
             )
+        # remove() invalidated before the new target existed; invalidate again
+        # so a plan composed over this component follows the addition too.
+        self._invalidate_caches()
 
     def remove(self, key: str) -> None:
         """Remove the target under ``key``; invalidates the cached plan."""
@@ -129,7 +133,9 @@ class ManualComponent(_ComponentBase):
 
     # -- update --------------------------------------------------------------
 
-    def _build_plan(self) -> ReadPlan:
+    @cached_property
+    def _read_items(self) -> list[ReadItem]:
+        """Return this component's read targets."""
         items = [
             ReadItem(self._resolve(field, space), self._values)
             for field, space in self._registers.values()
@@ -140,12 +146,25 @@ class ManualComponent(_ComponentBase):
         ]
         # Fold in each group's count register and any fixed-count instances, so
         # the normal read fetches the counts and static instances in one pass.
-        items += self._count_items + self._static_items
+        return items + self._count_items + self._static_items
+
+    def _resolved_ranges(self) -> DeviceRanges:
+        """The declared per-table ranges, with any fixed-count instances' merged.
+
+        Raises ``ValueError`` if a table's map conflicts with an instance's.
+        """
+        return self._with_static_ranges(self._ranges)
+
+    def _invalidate_caches(self) -> None:
+        self.__dict__.pop("_read_items", None)
+        super()._invalidate_caches()
+
+    def _build_plan(self) -> ReadPlan:
         return ReadPlan.build(
-            items,
-            self._with_static_ranges(self._ranges),
-            max_gap=self._max_gap,
-            max_span=self._max_span,
+            self._read_items,
+            self._resolved_ranges(),
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
 
     async def async_update(self, *, notify: bool = True) -> dict[str, Any]:

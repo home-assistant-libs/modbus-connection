@@ -8,6 +8,7 @@ from modbus_connection.exceptions import BlockReadError, ModbusExceptionError
 from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 from modbus_connection.model import (
     Component,
+    ComponentGroup,
     ManualComponent,
     coil,
     discrete_input,
@@ -445,3 +446,74 @@ async def test_add_replaces_a_group_with_a_plain_register() -> None:
     data = await mc.async_update()
     assert data["x"] == 42  # read as a register
     assert mc.get("x") == 42  # no leftover group instances
+
+
+# -- in a ComponentGroup -------------------------------------------------------
+
+
+async def test_joins_a_component_group() -> None:
+    class Meter(Component):
+        a = integer(0)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 1: 2})
+    unit = _Spy(inner)
+    mc = ManualComponent(unit)  # type: ignore[arg-type]
+    mc.add("b", integer(1))
+    group = ComponentGroup(unit, [Meter(unit), mc])  # type: ignore[arg-type]
+    await group.async_update()
+
+    # The typed member's register and the manual one's are adjacent -> one block.
+    assert unit.reads == [("holding", 0, 2)]
+    assert mc.get("b") == 2
+
+
+async def test_add_after_group_update_reshapes_pooled_plan() -> None:
+    class Meter(Component):
+        a = integer(0)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 1: 2})
+    unit = _Spy(inner)
+    meter = Meter(unit)  # type: ignore[arg-type]
+    mc = ManualComponent(unit)  # type: ignore[arg-type]
+    group = ComponentGroup(unit, [meter, mc])  # type: ignore[arg-type]
+    await group.async_update()
+    assert unit.reads == [("holding", 0, 1)]  # the manual member is still empty
+
+    mc.add("b", integer(1))
+    unit.reads.clear()
+    await group.async_update()
+    assert unit.reads == [("holding", 0, 2)]  # replanned into one pooled block
+    assert meter.a == 1 and mc.get("b") == 2
+
+
+async def test_remove_after_group_update_reshapes_pooled_plan() -> None:
+    class Meter(Component):
+        a = integer(0)
+
+    inner = _unit()
+    inner.holding.update({0: 1, 5: 2})
+    unit = _Spy(inner)
+    mc = ManualComponent(unit)  # type: ignore[arg-type]
+    mc.add("b", integer(5))
+    group = ComponentGroup(unit, [Meter(unit), mc])  # type: ignore[arg-type]
+    await group.async_update()
+    assert mc.get("b") == 2
+
+    mc.remove("b")
+    unit.reads.clear()
+    await group.async_update()
+    read = {(fc, start + i) for fc, start, count in unit.reads for i in range(count)}
+    assert ("holding", 5) not in read
+    assert mc.get("b") is None
+
+
+async def test_repeating_group_sizes_inside_a_component_group() -> None:
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 100, 31: 95})
+    mc = ManualComponent(unit)
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    group = ComponentGroup(unit, [mc])
+    await group.async_update()
+    assert [m.w for m in mc.get("modules")] == [100, 95]
