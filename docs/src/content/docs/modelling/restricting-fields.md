@@ -46,6 +46,11 @@ read can never span an excluded register, which is what stops the update failing
 a firmware that omits one. (Excluding a field on its own would not achieve this: the
 planner still pools a block across the gap between the fields it keeps.)
 
+This holds wherever the component's registers are read from: restricting a component
+pooled in a [`ComponentGroup`](/modbus-connection/modelling/component-group/), or a
+[`repeating_group`](/modbus-connection/modelling/repeats/) instance read through its
+parent, reshapes that pooled plan too — before or after its first update.
+
 ## Determining the served set
 
 Which fields to keep is **up to you** — the library deliberately doesn't decide,

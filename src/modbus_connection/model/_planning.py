@@ -232,6 +232,8 @@ class _Readable:
 
     _unit: ModbusUnit
     _plan: ReadPlan | None = None
+    # The object whose plan composes this one's targets; invalidation climbs it.
+    _parent: _Readable | None = None
 
     def _build_plan(self) -> ReadPlan:
         """This object's read plan; built lazily and cached by :meth:`_refresh`."""
@@ -248,6 +250,8 @@ class _Readable:
     def _invalidate_caches(self) -> None:
         """Drop the caches this object owns; subclasses add theirs via ``super()``."""
         self._plan = None
+        if self._parent is not None:
+            self._parent._invalidate_caches()
 
     def _verify_read(self) -> None:
         """Check the values just read, before any listener sees them.

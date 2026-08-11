@@ -24,8 +24,15 @@ class ComponentGroup(_Readable):
     ) -> None:
         self._unit = unit
         self._components = list(components)
+        for component in self._components:
+            component._parent = self
         self._ranges = self._ranges_by_space()
         self._max_span: int = self._shared("max_span", _MAX_SPAN)
+
+    def _invalidate_caches(self) -> None:
+        # the merged ranges derive from the members' layouts, like the plan
+        self._ranges = self._ranges_by_space()
+        super()._invalidate_caches()
 
     def _ranges_by_space(self) -> DeviceRanges:
         """The readable ranges per space, merged over the member components.

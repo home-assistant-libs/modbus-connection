@@ -76,7 +76,7 @@ class _ComponentBase(_Readable):
         # fields only, so shared scale factors stay in the parent's fixed block —
         # unless the sub-unit sets ``scale_in_block``, which moves each instance's
         # scale registers with its shift too (a block carrying its own factors)
-        return [
+        instances = [
             field.component_class(
                 self._unit,
                 base_offset=self._base_offset,
@@ -84,6 +84,9 @@ class _ComponentBase(_Readable):
             )
             for i in range(start, stop)
         ]
+        for instance in instances:
+            instance._parent = self
+        return instances
 
     def _address(self, field: RegisterField[Any] | _BitField) -> int:
         """Where a field of this component's own block is read."""
@@ -205,6 +208,7 @@ class _ComponentBase(_Readable):
         if instances:
             if self._instance_group is None:
                 self._instance_group = ComponentGroup(self._unit, instances)
+                self._instance_group._parent = self
             _merge_raw(
                 raw,
                 await self._instance_group._refresh(

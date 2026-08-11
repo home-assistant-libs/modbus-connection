@@ -25,7 +25,10 @@ The `ComponentGroup` builds its pooled read plan from the components' static
 layout on the **first update** and reuses it on every later poll. The component
 list, their fields, and the ranges are read once and cached — **mutating them
 after the first update is not supported**; build a new `ComponentGroup` (or
-`Component`) instead.
+`Component`) instead. The one supported reshaping is
+[`restrict_fields`](/modbus-connection/modelling/restricting-fields/) on a
+member: it invalidates the pooled plan, which is rebuilt from the narrowed
+layout on the next update.
 
 Because reads across a group are pooled, `read_holding_registers` is called once
 per contiguous block spanning whichever components fall in it, not once per
