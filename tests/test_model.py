@@ -1751,7 +1751,8 @@ async def test_group_accepts_one_run_declared_as_touching_spans() -> None:
     unit = _SpyUnit(inner)
     group = ComponentGroup(unit, [WithGroup(unit), _SplitRun(unit)])  # type: ignore[list-item]
     await group.async_update()
-    assert group._ranges.for_space("holding") == ((0, 19),)
+    # They agree, and the split both of them describe survives the merge.
+    assert group._ranges.for_space("holding") == ((0, 9), (10, 19))
 
 
 async def test_group_still_rejects_partly_overlapping_ranges() -> None:
@@ -1764,8 +1765,7 @@ async def test_group_still_rejects_partly_overlapping_ranges() -> None:
         ComponentGroup(unit, [_SplitRun(unit), Other(unit)])
 
 
-async def test_group_bridges_touching_ranges_of_two_members() -> None:
-    # Every address in the seam is claimed, so one read may span both members.
+async def test_group_does_not_bridge_touching_ranges_of_two_members() -> None:
     class Low(Component):
         register_ranges = ((0, 9),)
         value = integer(9)
@@ -1777,9 +1777,38 @@ async def test_group_bridges_touching_ranges_of_two_members() -> None:
     inner = MockModbusConnection().for_unit(1)
     unit = _SpyUnit(inner)
     group = ComponentGroup(unit, [Low(unit), High(unit)])  # type: ignore[list-item]
-    assert group._ranges.for_space("holding") == ((0, 19),)
+    assert group._ranges.for_space("holding") == ((0, 9), (10, 19))
     await group.async_update()
-    assert unit.reads == [("holding", 9, 2)]
+    assert sorted(unit.reads) == [("holding", 9, 1), ("holding", 10, 1)]
+
+
+async def test_pooling_keeps_a_members_own_adjacent_boundaries() -> None:
+    """A device serving adjacent banks refuses a read that crosses one."""
+
+    class Banked(Component):
+        register_ranges = ((0, 59), (60, 119), (120, 179))
+        first = integer(58)
+        second = integer(61)
+
+    class Elsewhere(Component):
+        other = integer(500)
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Banked(unit), Elsewhere(unit)])  # type: ignore[list-item]
+    assert group._ranges.for_space("holding") == (
+        (0, 59),
+        (60, 119),
+        (120, 179),
+        (500, 500),  # the undeclared member stands for what it reads
+    )
+    await group.async_update()
+    assert ("holding", 58, 4) not in unit.reads
+    assert sorted(unit.reads) == [
+        ("holding", 58, 1),
+        ("holding", 61, 1),
+        ("holding", 500, 1),
+    ]
 
 
 async def test_group_does_not_bridge_a_gap_no_member_claims() -> None:

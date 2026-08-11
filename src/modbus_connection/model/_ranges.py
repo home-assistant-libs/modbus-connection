@@ -50,6 +50,30 @@ def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
     return tuple(joined)
 
 
+def _edges(ranges: Iterable[Range]) -> set[int]:
+    """Where ``ranges`` starts and stops covering addresses."""
+    return {edge for low, high in ranges for edge in (low, high + 1)}
+
+
+def _partitioned(ranges: Iterable[Range], cuts: set[int]) -> tuple[Range, ...]:
+    """The addresses ``ranges`` covers, split again at every address in ``cuts``.
+
+    A declared map that splits one run into parts says a read may not cross
+    where it splits them, so merging keeps those splits: pooling a component
+    never widens a read past a boundary its own map drew. Addresses something
+    merely *reads* draw no boundary — they are covered, not partitioned.
+    """
+    partitioned: list[Range] = []
+    for low, high in _coalesce(tuple(ranges)):
+        start = low
+        for cut in sorted(cuts):
+            if start < cut <= high:
+                partitioned.append((start, cut - 1))
+                start = cut
+        partitioned.append((start, high))
+    return tuple(partitioned)
+
+
 def _ranges_excluding(
     intervals: Iterable[Range], excluded: set[int]
 ) -> tuple[Range, ...]:
@@ -105,13 +129,14 @@ class DeviceRanges:
 
         A claim says only that something reads those addresses, not that the
         device serves the span they sit in, so it is added to a map rather
-        than checked against it.
+        than checked against it. Boundaries the map already draws are kept.
         """
         if not claims:
             return self
         widened: dict[Space, tuple[Range, ...] | None] = dict(self.maps)
         for space, ranges in claims.items():
-            widened[space] = _coalesce(tuple(widened.get(space) or ()) + ranges)
+            existing = tuple(widened.get(space) or ())
+            widened[space] = _partitioned(existing + ranges, _edges(existing))
         return DeviceRanges(widened)
 
     @classmethod
@@ -127,9 +152,11 @@ class DeviceRanges:
         one device at different offsets fit together — but maps covering the
         same addresses differently conflict.
 
-        Maps naming the same addresses in a different shape agree: ranges that
-        touch describe one readable run, so the result is coalesced and a read
-        may span it. A gap no map claims still separates two runs.
+        Maps naming the same addresses in a different shape agree — they are
+        compared by the addresses they name. The merged map keeps every
+        boundary any of them draws, so pooling never widens a read past a
+        split a component declared, and a gap no map claims still separates
+        two runs.
 
         Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
         are being merged in the error — a callable receives the conflicting
@@ -143,20 +170,23 @@ class DeviceRanges:
                 by_space.setdefault(space, set()).add(ranges)
         merged: dict[Space, tuple[Range, ...] | None] = {}
         for space, declared in by_space.items():
-            constrained = {
-                _coalesce(ranges) for ranges in declared if ranges is not None
-            }
-            if len(constrained) <= 1:
-                merged[space] = next(iter(constrained), None)
+            constrained = {ranges for ranges in declared if ranges is not None}
+            if not constrained:
+                merged[space] = None
                 continue
-            joint = tuple(sorted({r for ranges in constrained for r in ranges}))
-            try:
-                _validate_ranges(joint)  # overlap is a conflict; touching is not
-            except ValueError as err:
-                raise ValueError(
-                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
-                    f"their maps overlap, but got conflicting values: "
-                    f"{sorted(constrained)}"
-                ) from err
-            merged[space] = _coalesce(joint)
+            normalised = {_coalesce(ranges) for ranges in constrained}
+            if len(normalised) > 1:
+                joint = tuple(sorted({r for ranges in normalised for r in ranges}))
+                try:
+                    _validate_ranges(joint)  # overlap is a conflict; touching is not
+                except ValueError as err:
+                    raise ValueError(
+                        f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
+                        f"their maps overlap, but got conflicting values: "
+                        f"{sorted(constrained)}"
+                    ) from err
+            merged[space] = _partitioned(
+                (r for ranges in constrained for r in ranges),
+                {edge for ranges in constrained for edge in _edges(ranges)},
+            )
         return cls(merged)
