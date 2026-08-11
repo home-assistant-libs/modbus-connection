@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
 from .._types import BitSpace, WordOrder
 from ..decode import (
+    _signed,
     combine_words,
     decode_eui48,
     decode_float32,
     decode_float64,
-    decode_int,
     decode_ipaddr,
     decode_ipv6addr,
     decode_string,
@@ -263,13 +263,11 @@ class NumberField[T](_ScaledField[T]):
         raw = combine_words(words, word_order=self.word_order)
         if self.nan is not None and raw in self.nan:
             return None
+        # Sign-fold the raw pattern per the field's `signed` flag; the nan check
+        # above still matches the raw (unsigned) sentinel pattern.
+        value = _signed(raw, 16 * len(words)) if self.signed else raw
         if self.convert is not None:
-            # Map the signed or unsigned code, per the field's `signed` flag; the
-            # nan check above still matches the raw (unsigned) sentinel pattern.
-            return self._convert(
-                decode_int(words, signed=self.signed, word_order=self.word_order)
-            )
-        value = decode_int(words, signed=self.signed, word_order=self.word_order)
+            return self._convert(value)
         return self._scale(value, scale_exponent)
 
     def _convert(self, raw: int) -> Any:
