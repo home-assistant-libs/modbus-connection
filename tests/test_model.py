@@ -2081,6 +2081,59 @@ async def test_restrict_fields_can_be_called_after_first_update() -> None:
     assert boiler.actual_high is None  # its stale value was cleared
 
 
+class _RestrictedMember(Component):
+    """A group member whose middle field is dropped by restrict_fields."""
+
+    a = integer(0)
+    b = integer(2)  # the field restrict_fields drops
+
+
+class _OtherMember(Component):
+    c = integer(3)
+
+
+def _restrict_group() -> tuple[
+    _RestrictedMember, _OtherMember, ComponentGroup, _Counting
+]:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 1, 1: 0, 3: 3})
+    inner.fail_read(2, ModbusExceptionError(2))  # the device refuses register 2
+    unit = _Counting(inner)
+    one = _RestrictedMember(unit)  # type: ignore[arg-type]
+    two = _OtherMember(unit)  # type: ignore[arg-type]
+    return one, two, ComponentGroup(unit, [one, two]), unit  # type: ignore[list-item]
+
+
+async def test_restrict_fields_after_pooling_reshapes_group_plan() -> None:
+    one, two, group, unit = _restrict_group()
+    one.restrict_fields(["a"])
+    await group.async_update()  # would raise if any pooled block spanned 2
+
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 2 not in read
+    assert one.a == 1 and two.c == 3
+    assert one.b is None
+
+
+async def test_restrict_fields_after_group_update_rebuilds_group_plan() -> None:
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 1, 1: 0, 2: 9, 3: 3})
+    unit = _Counting(inner)
+    one = _RestrictedMember(unit)  # type: ignore[arg-type]
+    two = _OtherMember(unit)  # type: ignore[arg-type]
+    group = ComponentGroup(unit, [one, two])  # type: ignore[list-item]
+    await group.async_update()
+    assert one.b == 9  # read on the first update
+
+    one.restrict_fields(["a"])
+    unit.reads.clear()
+    await group.async_update()
+
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 2 not in read  # the excluded register is no longer read
+    assert one.b is None  # and its stale value stays cleared
+
+
 def test_restrict_fields_rejects_unknown_name() -> None:
     boiler = _Boiler(MockModbusConnection().for_unit(1), base_offset=2000)
     with pytest.raises(ValueError, match="unknown field"):
