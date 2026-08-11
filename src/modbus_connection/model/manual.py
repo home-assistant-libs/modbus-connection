@@ -140,10 +140,15 @@ class ManualComponent(_ComponentBase):
         ]
         # Fold in each group's count register and any fixed-count instances, so
         # the normal read fetches the counts and static instances in one pass.
-        items += self._count_items + self._static_items
+        own_items = items + self._count_items
         return ReadPlan.build(
-            items,
-            self._with_static_ranges(self._ranges),
+            own_items + self._static_items,
+            self._with_static_ranges(
+                self._ranges,
+                own_items,
+                max_gap=self._max_gap,
+                max_span=self._max_span,
+            ),
             max_gap=self._max_gap,
             max_span=self._max_span,
         )

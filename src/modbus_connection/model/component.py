@@ -174,8 +174,8 @@ class Component(_ComponentBase):
     # -- update --------------------------------------------------------------
 
     @cached_property
-    def _read_items(self) -> list[ReadItem]:
-        """Return this component's read targets."""
+    def _own_items(self) -> list[ReadItem]:
+        """This component's own read targets, fixed-count instances excluded."""
         items = [
             ReadItem(
                 resolved,
@@ -185,11 +185,16 @@ class Component(_ComponentBase):
             )
             for resolved in self.resolved_fields.values()
         ]
-        return items + self._count_items + self._static_items
+        return items + self._count_items
+
+    @cached_property
+    def _read_items(self) -> list[ReadItem]:
+        """Return this component's read targets."""
+        return self._own_items + self._static_items
 
     def _invalidate_caches(self) -> None:
         # _read_items composes the base's group targets, so it goes when they do
-        for attr in ("_read_items", "resolved_fields"):
+        for attr in ("_read_items", "_own_items", "resolved_fields"):
             self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
@@ -215,7 +220,10 @@ class Component(_ComponentBase):
             }
         )
         return self._with_static_ranges(
-            declared.shift(self._base_offset + self._instance_offset)
+            declared.shift(self._base_offset + self._instance_offset),
+            self._own_items,
+            max_gap=self.max_gap,
+            max_span=self.max_span,
         )
 
     def _build_plan(self) -> ReadPlan:

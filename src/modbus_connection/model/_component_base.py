@@ -6,8 +6,8 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
-from ._const import Raw, RegisterSpace, Space
-from ._planning import ReadItem, ResolvedField, _merge_raw, _Readable
+from ._const import Range, Raw, RegisterSpace, Space
+from ._planning import ReadItem, ResolvedField, _merge_raw, _Readable, own_ranges
 from ._ranges import DeviceRanges
 from .component_group import ComponentGroup
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
@@ -134,7 +134,14 @@ class _ComponentBase(_Readable):
             for item in instance._read_items
         ]
 
-    def _with_static_ranges(self, own: DeviceRanges) -> DeviceRanges:
+    def _with_static_ranges(
+        self,
+        own: DeviceRanges,
+        own_items: list[ReadItem],
+        *,
+        max_gap: int,
+        max_span: int,
+    ) -> DeviceRanges:
         """Merge every fixed-count instance's readable ranges into ``own``.
 
         A fixed-count group's instances are read from this component's own plan
@@ -142,21 +149,21 @@ class _ComponentBase(_Readable):
         they reach it. A register-count group gets this from the ``ComponentGroup``
         its instances are pooled in, which merges its members' maps the same way.
 
+        Where the merged map constrains a space, a part that declares nothing
+        for it stands for the addresses it reads by itself — like an undeclared
+        member of a ``ComponentGroup``.
+
         Raises ``ValueError`` if the maps conflict.
         """
         if not self._static_groups:
             return own
+        instances = [
+            instance for name in self._static_groups for instance in self._groups[name]
+        ]
         try:
-            return DeviceRanges.merged(
-                [
-                    own,
-                    # an instance's own fixed-count groups are merged into its map
-                    *(
-                        instance._resolved_ranges()
-                        for name in self._static_groups
-                        for instance in self._groups[name]
-                    ),
-                ],
+            merged = DeviceRanges.merged(
+                # an instance's own fixed-count groups are merged into its map
+                [own, *(instance._resolved_ranges() for instance in instances)],
                 whose="a component and its fixed-count instances",
             )
         except ValueError as err:
@@ -168,6 +175,23 @@ class _ComponentBase(_Readable):
                 f"leaves its readable ranges unset and lets the parent's map cover "
                 f"the repeated addresses"
             ) from err
+        if not any(ranges is not None for ranges in merged.maps.values()):
+            return merged
+        claimed: dict[Space, tuple[Range, ...]] = {}
+        contributors = [
+            (own, own_items, max_gap, max_span),
+            *(
+                (i._resolved_ranges(), i._read_items, i.max_gap, i.max_span)
+                for i in instances
+            ),
+        ]
+        for declared, items, gap, span in contributors:
+            for space, ranges in own_ranges(items, max_gap=gap, max_span=span).items():
+                if merged.for_space(space) is not None and (
+                    declared.for_space(space) is None
+                ):
+                    claimed[space] = claimed.get(space, ()) + ranges
+        return merged.widened(claimed)
 
     def _invalidate_caches(self) -> None:
         # Owns the group read-target caches; the plan is the base's.

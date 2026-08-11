@@ -459,6 +459,28 @@ async def test_static_group_without_ranges_follows_the_parent_map() -> None:
     assert [(m.v, m.w) for m in meter.modules] == [(1, 2), (3, 4)]
 
 
+async def test_parent_fields_claim_alongside_a_declared_instance_map() -> None:
+    # The instances declare a map but the parent's own field has none: the
+    # parent stands for what it reads, like an undeclared member of a group.
+    class Cell(Component):
+        register_ranges = ((10, 10),)
+        value = integer(10)
+
+    class Pack(Component):
+        serial = integer(0)
+        cells = repeating_group(2, Cell, stride=20)
+
+    inner = _unit()
+    inner.holding.update({0: 7, 10: 1, 30: 2})
+    unit = _Spy(inner)
+    pack = Pack(unit)  # type: ignore[arg-type]
+    await pack.async_update()
+    assert pack.serial == 7
+    assert [c.value for c in pack.cells] == [1, 2]
+    read = {a + i for _, a, count in unit.reads for i in range(count)}
+    assert read == {0, 10, 30}  # the claim never bridges into the maps' gaps
+
+
 async def test_write_through_instance_at_base_offset() -> None:
     # a write through an instance lands at block + instance shift
     class WModule(Component):
