@@ -88,5 +88,4 @@ exception carries.
   `Component.async_update()`.
 - Several sub-systems of one device polled together → a `ComponentGroup`.
 - A layout not known until runtime (from config) → a
-  [`ManualComponent`](/modbus-connection/modelling/manual-component/), which does
-  its own pooling but does not join a `ComponentGroup`.
+  [`ManualComponent`](/modbus-connection/modelling/manual-component/).
