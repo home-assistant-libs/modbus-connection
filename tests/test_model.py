@@ -2067,6 +2067,72 @@ async def test_restrict_fields_synthesized_ranges_cover_scale_registers() -> Non
     assert comp.power == 50
 
 
+async def test_restrict_fields_synthesized_ranges_keep_a_shared_address() -> None:
+    class Inverter(Component):  # no register_ranges -> synthesized on restrict
+        grid_voltage = gauge(0, 0.1, unit="V")
+        line_voltage_a_b = gauge(0, 0.1, unit="V")  # the same register, second name
+        unserved = integer(1)
+        active_power = int32(2)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 2300, 2: 0, 3: 5000})
+    inner.fail_read(1, ModbusExceptionError(2))
+    unit = _Counting(inner)
+    comp = Inverter(unit)  # type: ignore[arg-type]
+    comp.restrict_fields(["line_voltage_a_b", "active_power"])
+    await comp.async_update()
+
+    # 0 is kept under another name; only 1 is dropped outright.
+    assert comp.register_ranges == ((0, 0), (2, 3))
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 1 not in read
+    assert comp.line_voltage_a_b == 230.0
+    assert comp.active_power == 5000
+    assert comp.grid_voltage is None  # dropped -> reads as None
+
+
+async def test_restrict_fields_declared_ranges_keep_a_shared_address() -> None:
+    class Inverter(Component):
+        register_ranges = ((0, 3),)
+
+        grid_voltage = gauge(0, 0.1, unit="V")
+        line_voltage_a_b = gauge(0, 0.1, unit="V")  # the same register, second name
+        unserved = integer(1)
+        active_power = int32(2)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 2300, 2: 0, 3: 5000})
+    inner.fail_read(1, ModbusExceptionError(2))
+    unit = _Counting(inner)
+    comp = Inverter(unit)  # type: ignore[arg-type]
+    comp.restrict_fields(["line_voltage_a_b", "active_power"])
+    await comp.async_update()
+
+    # Split at 1 only; 0 is still read under another name.
+    assert comp.register_ranges == ((0, 0), (2, 3))
+    assert comp.line_voltage_a_b == 230.0
+    assert comp.active_power == 5000
+
+
+async def test_restrict_fields_keeps_a_scale_register_a_dropped_field_names() -> None:
+    class Scaled(Component):
+        register_ranges = ((0, 1), (100, 100))
+
+        power = gauge(0, 1.0, scale_register=100)
+        dropme = integer(1)
+        scale_raw = integer(100)  # the scale register, also exposed as a value
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 5, 100: 1})  # raw 5, scale 10**1
+    comp = Scaled(unit)
+    comp.restrict_fields(["power"])
+    await comp.async_update()
+
+    # 100 is dropped as a field but is still the kept field's scale register.
+    assert comp.register_ranges == ((0, 0), (100, 100))
+    assert comp.power == 50
+
+
 def test_restrict_fields_only_splits_never_merges_declared_ranges() -> None:
     class Dev(Component):
         # 4 is deliberately isolated (a wider block returns garbage for it).
