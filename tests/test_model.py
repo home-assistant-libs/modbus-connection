@@ -1106,6 +1106,13 @@ def test_plan_blocks_rejects_span_bridging_two_ranges() -> None:
         plan_blocks([(6, 4)], ((0, 6), (9, 40)))  # 6..9 spans the 7-8 gap
 
 
+def test_plan_blocks_rejects_span_outside_every_range() -> None:
+    # A field wholly at addresses the map says the device never answers is as
+    # unreadable as one crossing a boundary.
+    with pytest.raises(ValueError, match="outside the readable ranges"):
+        plan_blocks([(0, 1), (20, 2)], ((0, 5),))
+
+
 def test_plan_blocks_allows_span_ending_on_a_range_end() -> None:
     # Fitting exactly is fine; only running past the high is an error.
     assert plan_blocks([(0, 1), (4, 2)], ((0, 5),)) == [(0, 6)]
@@ -1159,6 +1166,17 @@ async def test_component_rejects_field_past_its_readable_range() -> None:
 
     unit = MockModbusConnection().for_unit(1)
     with pytest.raises(ValueError, match="crosses a readable range boundary"):
+        await Wide(unit).async_update()
+
+
+async def test_component_rejects_field_outside_its_readable_ranges() -> None:
+    class Wide(Component):
+        register_ranges = ((0, 5),)  # the device answers 0-5 and nothing above
+        first = integer(0)
+        stray = integer(20)  # entirely outside the map
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="outside the readable ranges"):
         await Wide(unit).async_update()
 
 
@@ -2032,6 +2050,21 @@ async def test_restrict_fields_synthesizes_ranges_when_none() -> None:
     assert 2 not in read
     assert comp.register_ranges == ((0, 1), (3, 3))
     assert comp.a == 10 and comp.d == 13
+
+
+async def test_restrict_fields_synthesized_ranges_cover_scale_registers() -> None:
+    class Meter(Component):  # no register_ranges -> synthesized on restrict
+        power = gauge(0, 1.0, scale_register=100)
+        dropme = integer(1)
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 5, 100: 1})  # raw 5, scale 10**1
+    comp = Meter(unit)
+    comp.restrict_fields(["power"])
+    await comp.async_update()
+
+    assert comp.register_ranges == ((0, 0), (100, 100))
+    assert comp.power == 50
 
 
 def test_restrict_fields_only_splits_never_merges_declared_ranges() -> None:

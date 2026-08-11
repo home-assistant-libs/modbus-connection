@@ -56,8 +56,8 @@ def _plan_blocks(
 ) -> list[tuple[int, int]]:
     """Group address spans into read blocks.
 
-    Raises ``ValueError`` for invalid ranges, a span wider than ``max_span``, or
-    a span crossing a readable-range boundary.
+    Raises ``ValueError`` for invalid ranges, a span wider than ``max_span``,
+    or a span crossing a readable-range boundary or lying outside every range.
     """
     if ranges is not None:
         _validate_ranges(ranges)
@@ -71,13 +71,23 @@ def _plan_blocks(
                 f"{max_span}-register read limit"
             )
         end = address + width - 1
+        if ranges is None:
+            continue
         # A field that starts inside a readable range and ends outside it (or in
         # the next one) cannot be read at all: the layout says the device answers
         # up to the range's high and also puts a field past it.
-        if ranges is not None and _range_of(address, ranges) != _range_of(end, ranges):
+        span_range = _range_of(address, ranges)
+        if span_range != _range_of(end, ranges):
             raise ValueError(
                 f"a field at address {address} spanning {width} registers "
                 f"({address}-{end}) crosses a readable range boundary"
+            )
+        # A field entirely outside the map cannot be read either: the layout
+        # says the device does not answer there at all.
+        if span_range is None:
+            raise ValueError(
+                f"a field at address {address} spanning {width} registers "
+                f"({address}-{end}) is outside the readable ranges"
             )
     blocks: list[tuple[int, int]] = []
     block_start, width = ordered[0]
@@ -88,8 +98,9 @@ def _plan_blocks(
         if ranges is None:
             mergeable = address - block_end <= max_gap
         else:
-            address_range = _range_of(address, ranges)
-            mergeable = address_range is not None and address_range == block_range
+            # every span sits inside a range (checked above), so blocks merge
+            # exactly when they share one
+            mergeable = _range_of(address, ranges) == block_range
         if mergeable and end - block_start + 1 <= max_span:
             block_end = max(block_end, end)
         else:

@@ -47,6 +47,11 @@ map does two things `max_gap` cannot:
   the gap. This is the only way to keep reads off registers the device refuses:
   the default `max_gap` of 16 will bridge a two-register hole without hesitating.
 
+A map also validates the layout it sits in: a field that crosses a range
+boundary, or sits entirely at addresses the map says the device never answers,
+raises `ValueError` when the plan is built instead of producing a read the
+device would refuse.
+
 ```python
 class Thermostat(Component):
     # (low, high) inclusive. The device answers 0–6 and 9–40 but nothing in

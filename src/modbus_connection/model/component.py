@@ -289,7 +289,14 @@ class Component(_ComponentBase):
             return declared  # nothing dropped from this space — leave it as declared
         if declared is not None:
             return _ranges_excluding(declared, excluded)
-        spans = [(self._declared_address(f), f.count) for f in kept_fields]
+        spans: list[tuple[int, int]] = []
+        for f in kept_fields:
+            spans.append((self._declared_address(f), f.count))
+            # a kept field's scale register is read with it, so the synthesized
+            # map must cover it too
+            if isinstance(f, RegisterField) and f.scale_register is not None:
+                scale = f.scale_register + f.scale_register_stride * (self._index - 1)
+                spans.append((scale, 1))
         if not spans:
             return declared  # every field in this space dropped — ranges unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
