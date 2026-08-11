@@ -22,11 +22,11 @@ docs/
 │   ├── styles/custom.css         # accent + typography
 │   └── content/docs/
 │       ├── index.mdx             # landing page / introduction
-│       ├── getting-started/      # installation, connections and units
+│       ├── getting-started/      # installation, quickstart, backends
+│       ├── connection/           # connections, units, operations, reference
 │       ├── modelling/            # the device-modelling framework
-│       ├── patterns/             # library entrypoint, query helper
-│       ├── home-assistant/       # HA YAML config, custom integrations
-│       └── reference/            # exceptions, testing
+│       ├── patterns/             # device object, query helper, testing
+│       └── home-assistant/       # HA YAML config, integration structure
 ```
 
 The site is published to GitHub Pages by

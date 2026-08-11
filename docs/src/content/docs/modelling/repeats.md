@@ -37,8 +37,9 @@ by type across the map — place the instances by hand with
 
 ## How the count is read
 
-`count` is a `RegisterField` (read each poll) or a fixed `int`. Instance *i* is
-read at `base_offset = i * stride`, so **`stride` is the block length**.
+`count` is a `RegisterField` (read each poll) or a fixed `int`. Instance *i* has
+every address of its declared layout shifted by `i * stride` on top of the
+parent's own placement, so **`stride` is the block length**.
 
 - A **fixed `int`** count is static, so its instances fold into the component's
   normal read — no extra pass.

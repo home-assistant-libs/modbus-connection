@@ -180,11 +180,18 @@ From `modbus_connection.model.sunspec` — see
 [component reference](/modbus-connection/modelling/components-reference/#sunspec-discovery-and-components)
 for `scan` and `SunSpecComponent`.
 
-Each numeric helper is a preset over [`NumberField`](#numberfieldt) with the
-SunSpec "unimplemented" sentinel baked in (decoding to `None`) and the
-`sunssf` spec range (-10..10) declared as its `scale_exponent_range`. Unless
-noted, they take `scale=1.0`, `scale_register=None`, `scale_register_stride=0`,
-`stride=0`, `writable=False`, and `unit=None`.
+Every helper takes the point's `address` first, accepts a `stride` keyword for a
+[placed component](/modbus-connection/modelling/placement/), and bakes in the
+SunSpec "unimplemented" value for its type, so an absent point decodes to `None`.
+
+The scaled points — `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`,
+`acc16`, `acc32` and `acc64` — are the helpers whose options the table
+abbreviates to `…`. Each takes `scale=1.0`, `scale_register=None`,
+`scale_register_stride=0` and `unit=None` on top of `stride`, plus
+`writable=False` on the six integers, and bounds a register-sourced exponent to
+the `sunssf` spec range of -10..10: outside it the point decodes to `None` and a
+write raises `ValueError`. Every other helper takes exactly the signature shown
+against it.
 
 | Helper | Returns | Registers | Sentinel |
 | --- | --- | --- | --- |

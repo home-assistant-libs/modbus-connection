@@ -3,8 +3,11 @@ title: Component groups
 description: Refresh several components that share a unit in one consolidated set of pooled Modbus reads.
 ---
 
-A **`ComponentGroup`** is a component that declares components instead of
-fields: the same API, over one pooled set of block reads spanning every member.
+A **`ComponentGroup`** stands in for its members at update time: it takes a list
+of components instead of declaring fields, and offers the same
+`async_update()` / `async_read_raw()` / `notify()` surface over one pooled set of
+block reads spanning every member. Fields, writes and listeners stay on the
+members themselves.
 
 A physical device is usually several sub-systems on one unit — a water heater,
 three heating circuits, a set of sensors — and polling each one separately means
@@ -32,9 +35,13 @@ per contiguous block spanning whichever components fall in it, not once per
 component. For a device with dozens of scattered fields this typically collapses
 tens of reads into a handful.
 
-A pooled block never covers addresses no member asked for: inside a member,
-reads merge as they would if it refreshed alone, and two members share a block
-only where their addresses meet.
+Pooling never widens a read beyond what the members already licensed. For a
+member that declared no
+[readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges),
+its addresses merge exactly as they would if it refreshed alone, and it shares a
+block with another member only where their blocks meet. Where a member *did*
+declare ranges, that map applies to the pooled read as it does to a solo one:
+inside a range the planner still merges freely over registers no field claims.
 
 ## Shared configuration
 

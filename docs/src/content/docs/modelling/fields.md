@@ -311,9 +311,9 @@ class Controller(Component):
 ```
 
 **Construct a field class directly** when the codec itself is the problem — the
-device packs its words in a way no helper decodes. The helpers return instances
-of a small set of classes: `NumberField`, `FloatField`, `StringField`,
-`RawField`, the address types (`IPv4Field`, `IPv6Field`, `Eui48Field`), and
-`CoilField` / `DiscreteInputField` for bits. The
+device packs its words in a way no helper decodes. The helpers on this page
+return instances of a small set of classes: `NumberField`, `FloatField`,
+`StringField`, `RawField`, `PackedBitField` / `PackedBitsField` for packed bits,
+and `CoilField` / `DiscreteInputField` for bits of their own. The
 [field reference](/modbus-connection/modelling/fields-reference/#field-classes)
 documents each class's constructor and attributes.
