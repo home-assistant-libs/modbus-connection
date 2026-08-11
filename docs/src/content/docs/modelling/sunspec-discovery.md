@@ -90,7 +90,7 @@ class OperatingState(IntEnum):
 class InverterThreePhase(SunSpecComponent):
     """SunSpec model 103: Inverter (Three Phase)."""
 
-    a = uint16(2, scale_register=6, unit='A')
+    a = uint16(2, scale_register=6, unit="A")
     """Amps. AC Current."""
 
     st = enum16(38, OperatingState)
