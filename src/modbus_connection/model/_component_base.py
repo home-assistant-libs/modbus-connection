@@ -14,7 +14,6 @@ from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .component import Component, RepeatingGroupField
-    from .fields import RegisterField
 
 UpdateListener = Callable[[], None]
 
