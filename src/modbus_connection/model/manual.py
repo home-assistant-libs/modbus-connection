@@ -102,8 +102,6 @@ class ManualComponent(_ComponentBase):
                 f"target must be a RegisterField, a bit field or a repeating_group, "
                 f"got {type(target).__name__}"
             )
-        # remove() invalidated before the new target existed; invalidate again
-        # so a plan composed over this component follows the addition too.
         self._invalidate_caches()
 
     def remove(self, key: str) -> None:
