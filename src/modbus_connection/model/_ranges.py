@@ -127,6 +127,10 @@ class DeviceRanges:
         one device at different offsets fit together — but maps covering the
         same addresses differently conflict.
 
+        Maps naming the same addresses in a different shape agree: ranges that
+        touch describe one readable run, so the result is coalesced and a read
+        may span it. A gap no map claims still separates two runs.
+
         Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
         are being merged in the error — a callable receives the conflicting
         space, so the message can say which one (``register_ranges`` alone is
@@ -139,18 +143,20 @@ class DeviceRanges:
                 by_space.setdefault(space, set()).add(ranges)
         merged: dict[Space, tuple[Range, ...] | None] = {}
         for space, declared in by_space.items():
-            constrained = {ranges for ranges in declared if ranges is not None}
+            constrained = {
+                _coalesce(ranges) for ranges in declared if ranges is not None
+            }
             if len(constrained) <= 1:
                 merged[space] = next(iter(constrained), None)
                 continue
             joint = tuple(sorted({r for ranges in constrained for r in ranges}))
             try:
-                _validate_ranges(joint)
+                _validate_ranges(joint)  # overlap is a conflict; touching is not
             except ValueError as err:
                 raise ValueError(
                     f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
                     f"their maps overlap, but got conflicting values: "
                     f"{sorted(constrained)}"
                 ) from err
-            merged[space] = joint
+            merged[space] = _coalesce(joint)
         return cls(merged)

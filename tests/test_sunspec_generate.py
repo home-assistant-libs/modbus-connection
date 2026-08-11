@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -494,35 +493,17 @@ def test_unknown_point_type_is_rejected() -> None:
 # unknowable address, and 63001 (SunSpec's test model) mixes in-block and
 # fixed-block scale factors on one block. Newly supported or newly failing
 # models both show up as a mismatch here - update the set deliberately.
+# 707-710 do generate once --count supplies the device's counts, which is what
+# test_generated_layout_matches_a_real_device covers.
 KNOWN_UNSUPPORTED_MODELS = {707, 708, 709, 710, 63001}
 
 
-def test_official_model_catalogue_generates_and_imports(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> None:
+def test_official_model_catalogue_generates_and_imports(official_models: Path) -> None:
     """Every published model either generates importable source or is
     rejected with a SunSpecGenerationError - never a crash or bad syntax."""
-    repo = tmp_path_factory.mktemp("sunspec") / "models"
-    clone = subprocess.run(
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "https://github.com/sunspec/models",
-            str(repo),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    if clone.returncode != 0:
-        pytest.skip(f"cannot clone sunspec/models: {clone.stderr.strip()[:200]}")
-
     generated: list[int] = []
     rejected: list[int] = []
-    for path in sorted(Path(repo, "json").glob("model_*.json")):
+    for path in sorted(official_models.glob("model_*.json")):
         model = json.loads(path.read_text())
         try:
             source = generate_source([model])

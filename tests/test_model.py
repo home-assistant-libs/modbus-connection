@@ -1731,6 +1731,74 @@ async def test_group_rejects_ranges_that_overlap_without_agreeing() -> None:
         ComponentGroup(unit, [_RangedBlock(unit), _RangedBlock(unit, base_offset=3)])
 
 
+class _SplitRun(Component):
+    """One readable run declared as two touching spans, as a generator emits it."""
+
+    register_ranges = ((0, 9), (10, 19))
+    total = integer(0)
+
+
+async def test_group_accepts_one_run_declared_as_touching_spans() -> None:
+    # Same addresses, two shapes: one member's map is joined up, the other's is not.
+    class Cell(Component):
+        value = integer(0)  # no map of its own: the parent's covers it
+
+    class WithGroup(_SplitRun):
+        cells = repeating_group(2, Cell, stride=2)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 7, 2: 8})
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [WithGroup(unit), _SplitRun(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert group._ranges.for_space("holding") == ((0, 19),)
+
+
+async def test_group_still_rejects_partly_overlapping_ranges() -> None:
+    class Other(Component):
+        register_ranges = ((5, 14), (15, 29))  # overlaps _SplitRun's run
+        value = integer(5)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ValueError, match="must agree on register_ranges"):
+        ComponentGroup(unit, [_SplitRun(unit), Other(unit)])
+
+
+async def test_group_bridges_touching_ranges_of_two_members() -> None:
+    # Every address in the seam is claimed, so one read may span both members.
+    class Low(Component):
+        register_ranges = ((0, 9),)
+        value = integer(9)
+
+    class High(Component):
+        register_ranges = ((10, 19),)
+        value = integer(10)
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Low(unit), High(unit)])  # type: ignore[list-item]
+    assert group._ranges.for_space("holding") == ((0, 19),)
+    await group.async_update()
+    assert unit.reads == [("holding", 9, 2)]
+
+
+async def test_group_does_not_bridge_a_gap_no_member_claims() -> None:
+    class Low(Component):
+        register_ranges = ((0, 9),)
+        value = integer(9)
+
+    class Far(Component):
+        register_ranges = ((20, 29),)
+        value = integer(20)
+
+    inner = MockModbusConnection().for_unit(1)
+    unit = _SpyUnit(inner)
+    group = ComponentGroup(unit, [Low(unit), Far(unit)])  # type: ignore[list-item]
+    assert group._ranges.for_space("holding") == ((0, 9), (20, 29))
+    await group.async_update()
+    assert sorted(unit.reads) == [("holding", 9, 1), ("holding", 20, 1)]
+
+
 async def test_group_pools_a_member_that_declares_no_ranges() -> None:
     """A member with no map stands for what it reads, rather than raising."""
 
@@ -2063,6 +2131,72 @@ async def test_restrict_fields_synthesized_ranges_cover_scale_registers() -> Non
     comp.restrict_fields(["power"])
     await comp.async_update()
 
+    assert comp.register_ranges == ((0, 0), (100, 100))
+    assert comp.power == 50
+
+
+async def test_restrict_fields_synthesized_ranges_keep_a_shared_address() -> None:
+    class Inverter(Component):  # no register_ranges -> synthesized on restrict
+        grid_voltage = gauge(0, 0.1, unit="V")
+        line_voltage_a_b = gauge(0, 0.1, unit="V")  # the same register, second name
+        unserved = integer(1)
+        active_power = int32(2)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 2300, 2: 0, 3: 5000})
+    inner.fail_read(1, ModbusExceptionError(2))
+    unit = _Counting(inner)
+    comp = Inverter(unit)  # type: ignore[arg-type]
+    comp.restrict_fields(["line_voltage_a_b", "active_power"])
+    await comp.async_update()
+
+    # 0 is kept under another name; only 1 is dropped outright.
+    assert comp.register_ranges == ((0, 0), (2, 3))
+    read = {addr + i for addr, count in unit.reads for i in range(count)}
+    assert 1 not in read
+    assert comp.line_voltage_a_b == 230.0
+    assert comp.active_power == 5000
+    assert comp.grid_voltage is None  # dropped -> reads as None
+
+
+async def test_restrict_fields_declared_ranges_keep_a_shared_address() -> None:
+    class Inverter(Component):
+        register_ranges = ((0, 3),)
+
+        grid_voltage = gauge(0, 0.1, unit="V")
+        line_voltage_a_b = gauge(0, 0.1, unit="V")  # the same register, second name
+        unserved = integer(1)
+        active_power = int32(2)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({0: 2300, 2: 0, 3: 5000})
+    inner.fail_read(1, ModbusExceptionError(2))
+    unit = _Counting(inner)
+    comp = Inverter(unit)  # type: ignore[arg-type]
+    comp.restrict_fields(["line_voltage_a_b", "active_power"])
+    await comp.async_update()
+
+    # Split at 1 only; 0 is still read under another name.
+    assert comp.register_ranges == ((0, 0), (2, 3))
+    assert comp.line_voltage_a_b == 230.0
+    assert comp.active_power == 5000
+
+
+async def test_restrict_fields_keeps_a_scale_register_a_dropped_field_names() -> None:
+    class Scaled(Component):
+        register_ranges = ((0, 1), (100, 100))
+
+        power = gauge(0, 1.0, scale_register=100)
+        dropme = integer(1)
+        scale_raw = integer(100)  # the scale register, also exposed as a value
+
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 5, 100: 1})  # raw 5, scale 10**1
+    comp = Scaled(unit)
+    comp.restrict_fields(["power"])
+    await comp.async_update()
+
+    # 100 is dropped as a field but is still the kept field's scale register.
     assert comp.register_ranges == ((0, 0), (100, 100))
     assert comp.power == 50
 
