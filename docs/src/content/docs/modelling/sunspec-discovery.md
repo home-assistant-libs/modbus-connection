@@ -115,3 +115,60 @@ incorrect. Counts are baked into the generated classes, so a device reporting
 different ones fails on its first read rather than decoding garbage: a curve
 model's length is a function of its counts, and `SunSpecComponent` verifies that
 header.
+
+## Writing a curve
+
+A curve is a block of writable points repeated `NPt` times, and a device expects
+it whole. Written a field at a time it costs a request per point, plus a read of
+the scale register before each scaled write.
+
+When a model has a repeated block whose points are **all** writable, the
+generator gives the block's owner a method that writes it, over a `write_block`
+helper emitted into the same module:
+
+```python
+class DERVoltVarCrv(Component):
+    pt = repeating_group(4, DERVoltVarCrvPt, stride=2)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, var. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+```
+
+Call it with one mapping per point, setting every field of that point:
+
+```python
+await volt_var.crv[1].write_pt(
+    [
+        {"v": 92.0, "var": 30.0},
+        {"v": 98.0, "var": 0.0},
+        {"v": 102.0, "var": 0.0},
+        {"v": 108.0, "var": -30.0},
+    ]
+)
+```
+
+The method is named after its block rather than given one fixed name, because a
+class can own several: model 704's controls block owns four, and gets
+`write_pfw_inj`, `write_pfw_inj_rvrt`, `write_pfw_abs` and `write_pfw_abs_rvrt`.
+
+The whole curve goes out as one FC16, and each distinct scale register is read
+once for the block rather than once per field — one write and two reads instead
+of eight of each. Points past the values given keep what they held.
+
+Both the method and the helper it calls are generated source like the rest of
+the module, not library API, so adjust them with the classes they serve. The
+helper is emitted once per module however many models or blocks need it, and a
+method appears only on blocks the generator has already checked are writable
+throughout — a block with a read-only point or a nested block of its own gets
+neither. Across the IEEE 1547 models that is every curve and trip-point block
+(705, 706, 707–710, 712) and 704's power-factor blocks, but nothing on 711's
+control block or 714's port block.
+
+Write into a *stored* curve — one whose `read_only` point reports read-write
+access — then adopt it with `adpt_crv_req`. That, not the register write itself,
+is what makes a curve take effect.
