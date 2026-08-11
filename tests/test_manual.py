@@ -366,6 +366,18 @@ async def test_repeating_group_register_count() -> None:
     assert [m.w for m in mc.get("modules")] == [100]
 
 
+async def test_remove_repeating_group_drops_its_count() -> None:
+    unit = _unit()
+    unit.holding.update({8: 2, 11: 100, 31: 95})
+    mc = ManualComponent(unit)
+    mc.add("modules", repeating_group(uint16(8), _Module, stride=20))
+    await mc.async_update()
+
+    mc.remove("modules")
+    assert mc.get("modules") is None  # removed keys read like unknown ones
+    assert "modules" not in mc._counts  # no stale count left behind
+
+
 async def test_repeating_group_fixed_count_folds_into_read() -> None:
     inner = _unit()
     inner.holding.update({11: 100, 13: 95})  # stride 2 -> module 0 w@11, 1 w@13
