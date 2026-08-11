@@ -232,7 +232,6 @@ class _Readable:
 
     _unit: ModbusUnit
     _plan: ReadPlan | None = None
-    # The object whose plan composes this one's targets; invalidation climbs it.
     _parent: _Readable | None = None
 
     def _build_plan(self) -> ReadPlan:
