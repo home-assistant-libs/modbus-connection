@@ -31,8 +31,6 @@ await mc.write("relay", True)  # per-key write (holding / coils only)
 | Layout | class attributes, known statically | `add()`ed by key at runtime |
 | Value access | typed attribute (`meter.voltage`) | `get(key)` / the dict from `async_update()` |
 | Addressing | `index` / `stride` / `base_offset` | absolute `address`, no index/stride |
-| Read planning | ✅ pooled | ✅ pooled (same machinery) |
-| Joins a `ComponentGroup` | ✅ | ❌ |
 
 It reuses the same planning, write (validator / `force_fc16`), bit, and
 repeating-group machinery as `Component`. It just has no class to hang typed

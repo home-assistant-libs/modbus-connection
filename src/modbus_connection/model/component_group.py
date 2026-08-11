@@ -12,6 +12,7 @@ from ._ranges import DeviceRanges
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
     from .component import Component
+    from .manual import ManualComponent
 
 
 class ComponentGroup(_Readable):
@@ -20,7 +21,7 @@ class ComponentGroup(_Readable):
     def __init__(
         self,
         unit: ModbusUnit,
-        components: Iterable[Component],
+        components: Iterable[Component | ManualComponent],
     ) -> None:
         self._unit = unit
         self._components = list(components)
