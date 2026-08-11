@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -570,3 +571,212 @@ def test_conflicting_enum_names_get_owner_prefix() -> None:
     assert source.count("class OperatingState(IntEnum):") == 1
     assert "class Test64112OperatingState(IntEnum):" in source
     assert "st = enum16(9, Test64112OperatingState)" in source
+
+
+# -- block writes ------------------------------------------------------------
+
+# A 705-shaped model: a curve of writable points, each scaled from the fixed
+# block, which is the layout the block-write helper exists for.
+CURVE_MODEL_JSON: dict[str, Any] = {
+    "id": 64333,
+    "group": {
+        "label": "Curve Model",
+        "name": "curve",
+        "type": "group",
+        "points": [
+            {"name": "ID", "type": "uint16", "size": 1},
+            {"name": "L", "type": "uint16", "size": 1},
+            {"name": "NPt", "type": "uint16", "size": 1},
+            {"name": "V_SF", "type": "sunssf", "size": 1},
+            {"name": "Var_SF", "type": "sunssf", "size": 1},
+        ],
+        "groups": [
+            {
+                "name": "Pt",
+                "type": "group",
+                "count": "NPt",
+                "points": [
+                    {
+                        "name": "V",
+                        "type": "uint16",
+                        "size": 1,
+                        "sf": "V_SF",
+                        "access": "RW",
+                    },
+                    {
+                        "name": "Var",
+                        "type": "int16",
+                        "size": 1,
+                        "sf": "Var_SF",
+                        "access": "RW",
+                    },
+                ],
+            }
+        ],
+    },
+}
+
+
+def _nested(model: dict[str, Any], **outer: Any) -> dict[str, Any]:
+    """Wrap the model's blocks in an enclosing block, as 705 nests Pt in Crv."""
+    nested = copy.deepcopy(model)
+    nested["group"]["groups"] = [
+        {
+            "name": "Crv",
+            "type": "group",
+            "points": [{"name": "ActPt", "type": "uint16", "size": 1}],
+            "groups": nested["group"]["groups"],
+            **outer,
+        }
+    ]
+    return nested
+
+
+def test_all_writable_block_gets_a_block_write_helper() -> None:
+    source = generate_source([CURVE_MODEL_JSON], {64333: {"NPt": 3}})
+    assert "pt = repeating_group(3, CurvePt, stride=2)" in source
+    # A method on the block's owner, named after the block, over the helper.
+    assert (
+        "    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:"
+        in source
+    )
+    assert '        await write_block(self, "pt", values)' in source
+    # The docstring names the fields each mapping has to set.
+    assert "        v, var. Instances past ``values`` are untouched." in source
+    # The helper is generated into the module, not imported from the library.
+    assert "async def write_block(" in source
+    assert "from collections.abc import Mapping, Sequence" in source
+    assert "from typing import Any" in source
+    assert "write_group_block" not in source
+
+
+def test_block_write_helper_is_emitted_once_per_module() -> None:
+    # 707's shape: three sibling writable blocks share the one helper.
+    model = copy.deepcopy(CURVE_MODEL_JSON)
+    blocks = model["group"]["groups"]
+    model["group"]["groups"] = [
+        {**copy.deepcopy(blocks[0]), "name": name}
+        for name in ("MustTrip", "MayTrip", "MomCess")
+    ]
+    source = generate_source([model], {64333: {"NPt": 2}})
+    assert source.count("async def write_block(") == 1
+    # One method per block, each named after its own block, so a class that
+    # owns several - model 704 owns four - gets one method for each.
+    assert [
+        "write_must_trip",
+        "write_may_trip",
+        "write_mom_cess",
+    ] == re.findall(r"async def (write_\w+)\(self", source)
+
+
+def test_block_with_a_read_only_point_gets_no_helper() -> None:
+    model = copy.deepcopy(CURVE_MODEL_JSON)
+    model["group"]["groups"][0]["points"].append(
+        {"name": "Sta", "type": "uint16", "size": 1}
+    )
+    source = generate_source([model], {64333: {"NPt": 3}})
+    assert "repeating_group(3, CurvePt, stride=3)" in source
+    assert "write_block" not in source
+
+
+def test_poll_time_counted_block_still_gets_a_helper() -> None:
+    # A block sized by a count point in its own scope is a repeating_group with
+    # real instances once read, so it can be block written like a fixed one.
+    source = generate_source([CURVE_MODEL_JSON])
+    assert "pt = repeating_group(uint16(2), CurvePt, stride=2)" in source
+    assert "async def write_block(" in source
+
+
+def test_commented_out_block_gets_no_helper() -> None:
+    # 705's shape: Pt sits inside Crv but is counted by the model's fixed block,
+    # so without --count it is left commented - there is no group to write to.
+    source = generate_source([_nested(CURVE_MODEL_JSON, count=2)])
+    assert "# pt = repeating_group(<n>, CurveCrvPt, stride=2)" in source
+    assert "write_block" not in source
+
+
+async def test_generated_helper_writes_every_point_in_one_request() -> None:
+    """A generated curve programs all its points in a single write."""
+    source = generate_source([_nested(CURVE_MODEL_JSON, count=2)], {64333: {"NPt": 4}})
+    namespace: dict[str, Any] = {}
+    exec(compile(source, "<generated>", "exec"), namespace)  # noqa: S102
+
+    base, length = 40002, 21  # 3 fixed data points + 2 curves * 9
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(dict.fromkeys(range(base, base + length + 2), 0))
+    unit.holding[base] = 64333
+    unit.holding[base + 1] = length
+    unit.holding[base + 3] = (-2) & 0xFFFF  # V_SF
+    unit.holding[base + 4] = 0  # Var_SF
+    component = namespace["Curve"](
+        unit, SunSpecModel(model_id=64333, address=base, length=length)
+    )
+    await component.async_update()
+
+    writes: list[Any] = []
+    unit.on_write(writes.append)
+    reads = unit.read_events
+    reads.clear()
+    await component.crv[1].write_pt(
+        [
+            {"v": 92.0, "var": 30},
+            {"v": 98.0, "var": 0},
+            {"v": 102.0, "var": 0},
+            {"v": 108.0, "var": -30},
+        ]
+    )
+
+    # Eight registers in one request, and one read per distinct scale register.
+    assert len(writes) == 1
+    assert writes[0].function_code == 16
+    assert writes[0].values == [9200, 30, 9800, 0, 10200, 0, 10800, (-30) & 0xFFFF]
+    assert len(reads) == 2
+
+    await component.async_update()
+    assert [(point.v, point.var) for point in component.crv[1].pt] == [
+        (92.0, 30),
+        (98.0, 0),
+        (102.0, 0),
+        (108.0, -30),
+    ]
+    assert all(point.v == 0.0 for point in component.crv[0].pt)
+
+
+async def test_generated_helper_leaves_later_instances_untouched() -> None:
+    source = generate_source([CURVE_MODEL_JSON], {64333: {"NPt": 3}})
+    namespace: dict[str, Any] = {}
+    exec(compile(source, "<generated>", "exec"), namespace)  # noqa: S102
+
+    base, length = 40002, 9
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(dict.fromkeys(range(base, base + length + 2), 0))
+    unit.holding[base] = 64333
+    unit.holding[base + 1] = length
+    unit.holding[base + 7] = 7  # the third point
+    unit.holding[base + 8] = 7
+    component = namespace["Curve"](
+        unit, SunSpecModel(model_id=64333, address=base, length=length)
+    )
+    await component.async_update()
+
+    await component.write_pt([{"v": 1, "var": 2}])
+    assert await unit.read_holding_registers(base + 7, 2) == [7, 7]
+
+
+async def test_generated_helper_rejects_more_values_than_instances() -> None:
+    source = generate_source([CURVE_MODEL_JSON], {64333: {"NPt": 2}})
+    namespace: dict[str, Any] = {}
+    exec(compile(source, "<generated>", "exec"), namespace)  # noqa: S102
+
+    base, length = 40002, 7
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(dict.fromkeys(range(base, base + length + 2), 0))
+    unit.holding[base] = 64333
+    unit.holding[base + 1] = length
+    component = namespace["Curve"](
+        unit, SunSpecModel(model_id=64333, address=base, length=length)
+    )
+    await component.async_update()
+
+    with pytest.raises(IndexError, match="has 2 instance"):
+        await component.write_pt([{"v": 1, "var": 2}] * 3)

@@ -28,6 +28,9 @@ _BITFIELD_TYPES = frozenset({"bitfield16", "bitfield32", "bitfield64"})
 _PLAIN_TYPES = frozenset(
     {"sunssf", "float32", "float64", "ipaddr", "ipv6addr", "eui48"}
 )
+# The point types _emit_point marks writable. A block write puts every register
+# of the run on the wire, so it needs every field of the block to be one.
+_WRITABLE_TYPES = _NUMERIC_TYPES | _ENUM_TYPES | _BITFIELD_TYPES | frozenset({"string"})
 
 # Attribute names the generated classes must not shadow: everything the
 # component base classes already define, plus the helper names the generated
@@ -138,6 +141,8 @@ class _ClassWriter:
         self.docstring = docstring
         self.field_lines: list[str] = []
         self._attrs: set[str] = set()
+        self.attr_order: list[str] = []
+        """Attributes claimed, in order; a leaf block's are exactly its fields."""
 
     def attr_name(self, point_name: str) -> str:
         """A unique, non-shadowing snake_case attribute for a point."""
@@ -145,6 +150,7 @@ class _ClassWriter:
         while attr in _RESERVED_ATTRS or attr in self._attrs:
             attr += "_"
         self._attrs.add(attr)
+        self.attr_order.append(attr)
         return attr
 
     def add_field(self, lines: list[str]) -> None:
@@ -169,6 +175,7 @@ class _ModuleWriter:
 
     def __init__(self) -> None:
         self.enum_imports: set[str] = set()
+        self.stdlib_imports: dict[str, set[str]] = {}
         self.model_imports: set[str] = set()
         self.sunspec_imports: set[str] = set()
         self.classes: list[str] = []
@@ -176,6 +183,14 @@ class _ModuleWriter:
         self.class_names: set[str] = set()
         self.enums: dict[str, tuple[str, tuple[tuple[str, int], ...]]] = {}
         self.enum_classes: list[str] = []
+        self.helpers: list[str] = []
+        """Module-level helper functions the generated classes rely on."""
+        self.class_fields: dict[str, list[str]] = {}
+        """Field attributes per generated class, for a block write's docstring."""
+
+    def stdlib_import(self, module: str, *names: str) -> None:
+        """Record a standard-library import the generated module needs."""
+        self.stdlib_imports.setdefault(module, set()).update(names)
 
     def claim_enum(self, point: _Point, base: str, owner: str) -> str:
         """Emit an enum for a point and return its name."""
@@ -221,8 +236,12 @@ class _ModuleWriter:
             "from __future__ import annotations",
             "",
         ]
+        stdlib = dict(self.stdlib_imports)
         if self.enum_imports:
-            header.append(f"from enum import {', '.join(sorted(self.enum_imports))}")
+            stdlib.setdefault("enum", set()).update(self.enum_imports)
+        for module in sorted(stdlib):
+            header.append(f"from {module} import {', '.join(sorted(stdlib[module]))}")
+        if stdlib:
             header.append("")
         if self.model_imports:
             header.append(
@@ -233,8 +252,8 @@ class _ModuleWriter:
         header.append("from modbus_connection.model.sunspec import (")
         header.extend(f"    {name}," for name in names)
         header.append(")")
-        # Enums first: the component class bodies reference them by name.
-        blocks = self.enum_classes + self.classes
+        # Helpers and enums first: the component class bodies reference them.
+        blocks = self.helpers + self.enum_classes + self.classes
         return "\n".join(header) + "\n\n\n" + "\n\n\n".join(blocks) + "\n"
 
 
@@ -412,6 +431,107 @@ def _unresolved_counts(group: _Group) -> list[str]:
     return names
 
 
+# Emitted once into a module that has at least one all-writable repeated block.
+# A curve is a run of writable points a device expects whole, and writing it a
+# field at a time costs a request each, plus a read of the scale register before
+# every scaled write. The generator only calls this for blocks it has already
+# checked are gapless and writable throughout, so the helper itself does not
+# re-derive that.
+_WRITE_BLOCK_HELPER = '''\
+async def write_block(
+    component: Component, group: str, values: Sequence[Mapping[str, Any]]
+) -> None:
+    """Write the leading instances of a repeated block in one request.
+
+    ``values`` holds one mapping per instance, keyed by that instance's field
+    names, and has to set every field of each instance it covers: the write
+    puts a whole run of registers on the wire, so a field left out would be
+    written with a value nobody chose. Instances past ``values`` are untouched.
+
+    Each scale register is read once for the whole block rather than once per
+    field, so a four-point curve costs one write and two reads instead of
+    eight of each.
+    """
+    instances = getattr(component, group)
+    if len(values) > len(instances):
+        raise IndexError(
+            f"{group!r} has {len(instances)} instance(s),"
+            f" got {len(values)} set(s) of values"
+        )
+    targets = [
+        (resolved, mapping[name])
+        for instance, mapping in zip(instances, values, strict=False)
+        for name, resolved in instance.resolved_fields.items()
+    ]
+    targets.sort(key=lambda target: target[0].address)
+
+    unit = component.modbus_unit
+    exponents: dict[int, int] = {}
+    for resolved, _value in targets:
+        address = resolved.scale_address
+        if address is not None and address not in exponents:
+            (word,) = await unit.read_holding_registers(address, 1)
+            exponents[address] = word - 0x10000 if word & 0x8000 else word
+
+    words: list[int] = []
+    for resolved, value in targets:
+        address = resolved.scale_address
+        words += resolved.field.encode(
+            value, None if address is None else exponents[address]
+        )
+    await unit.write_registers(targets[0][0].address, words)'''
+
+
+def _block_writable(group: _Group, referenced_sf: frozenset[str]) -> bool:
+    """Whether every field of one instance of this block can be written.
+
+    A block write covers a gapless run of registers, so a block with a nested
+    block, a read-only point or a point type that is never writable (a scale
+    factor, an accumulator) cannot be written that way.
+    """
+    emitted = [point for point in group.points if _emitted(point, referenced_sf)]
+    return (
+        not group.children
+        and bool(emitted)
+        and all(point.writable and point.type in _WRITABLE_TYPES for point in emitted)
+    )
+
+
+def _claim_write_block(module: _ModuleWriter) -> None:
+    """Emit the shared block-write helper, once per module."""
+    if module.helpers:
+        return
+    module.helpers.append(_WRITE_BLOCK_HELPER)
+    module.model_imports.add("Component")
+    module.stdlib_import("collections.abc", "Mapping", "Sequence")
+    module.stdlib_import("typing", "Any")
+
+
+def _block_write_method(
+    child: _Group,
+    child_class: str,
+    attr: str,
+    writer: _ClassWriter,
+    module: _ModuleWriter,
+) -> list[str]:
+    """Emit the method that writes a whole repeated block, on its owner.
+
+    Named after the block, not fixed: one class can own several writable
+    blocks - model 704 owns four - and they each need their own method.
+    """
+    fields = module.class_fields.get(child_class, [])
+    method = writer.attr_name(f"write_{attr}")
+    return [
+        f"    async def {method}(self, values: Sequence[Mapping[str, Any]]) -> None:",
+        f'        """Write consecutive {child.name!r} instances in one request.',
+        "",
+        "        Each mapping sets one instance and must set every field:",
+        f"        {', '.join(fields)}. Instances past ``values`` are untouched.",
+        '        """',
+        f'        await write_block(self, "{attr}", values)',
+    ]
+
+
 def _wire_child(
     child: _Group,
     child_class: str,
@@ -419,6 +539,7 @@ def _wire_child(
     writer: _ClassWriter,
     module: _ModuleWriter,
     model_id: int,
+    referenced_sf: frozenset[str],
 ) -> list[str]:
     """Emit the parent field for a nested block."""
     attr = writer.attr_name(child.name)
@@ -427,10 +548,15 @@ def _wire_child(
     )
     if count_expr is not None and child.size:
         module.model_imports.add("repeating_group")
-        return [
+        lines = [
             f"    {attr} = repeating_group({count_expr}, {child_class},"
             f" stride={child.size})"
         ]
+        if _block_writable(child, referenced_sf):
+            _claim_write_block(module)
+            lines.append("")
+            lines += _block_write_method(child, child_class, attr, writer, module)
+        return lines
     lines = []
     needed = list(dict.fromkeys(_unresolved_counts(child)))
     if not needed:
@@ -524,7 +650,15 @@ def _emit_group_class(
             referenced_sf,
         )
         wiring.append(
-            _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
+            _wire_child(
+                child,
+                child_class,
+                [*scopes, group],
+                writer,
+                module,
+                model_id,
+                referenced_sf,
+            )
         )
     scale_addresses, scale_in_block = _block_scales(group, top_scales, model_id, scopes)
     if scale_in_block:
@@ -537,6 +671,9 @@ def _emit_group_class(
     for block in wiring:
         writer.add_field(block)
     module.classes.append(writer.render())
+    # Recorded before the parent wires this block up, so a block-write method
+    # on the parent can name the fields each mapping has to set.
+    module.class_fields[class_name] = list(writer.attr_order)
     return class_name
 
 
@@ -574,7 +711,11 @@ def _generate_model(
         child_class = _emit_group_class(
             child, class_name, module, scale_addresses, model_id, [top], referenced_sf
         )
-        wiring.append(_wire_child(child, child_class, [top], writer, module, model_id))
+        wiring.append(
+            _wire_child(
+                child, child_class, [top], writer, module, model_id, referenced_sf
+            )
+        )
     for point in data_points:
         if _emitted(point, referenced_sf):
             _emit_point(point, writer, module, scale_addresses, model_id)
