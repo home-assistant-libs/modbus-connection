@@ -80,9 +80,9 @@ def _scaled(
     scale_register: int | None,
     scale_register_stride: int,
     stride: int,
-    writable: bool | WriteValidator,
+    writable: bool | WriteValidator = False,
     unit: str | None,
-) -> NumberField[float]:
+) -> NumberField[Any]:
     return NumberField(
         address,
         count=count,
@@ -258,7 +258,7 @@ def acc16(
     unit: str | None = None,
 ) -> NumberField[int]:
     """A 16-bit accumulator — a monotonic counter (0 means not accumulated)."""
-    return NumberField(
+    return _scaled(
         address,
         count=1,
         signed=False,
@@ -266,7 +266,6 @@ def acc16(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
-        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )
@@ -282,7 +281,7 @@ def acc32(
     unit: str | None = None,
 ) -> NumberField[int]:
     """A 32-bit accumulator over two registers (0 means not accumulated)."""
-    return NumberField(
+    return _scaled(
         address,
         count=2,
         signed=False,
@@ -290,7 +289,6 @@ def acc32(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
-        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )
@@ -306,7 +304,7 @@ def acc64(
     unit: str | None = None,
 ) -> NumberField[int]:
     """A 64-bit accumulator over four registers (0 means not accumulated)."""
-    return NumberField(
+    return _scaled(
         address,
         count=4,
         signed=False,
@@ -314,7 +312,6 @@ def acc64(
         scale=scale,
         scale_register=scale_register,
         scale_register_stride=scale_register_stride,
-        scale_exponent_range=_SUNSSF_RANGE,
         stride=stride,
         unit=unit,
     )
