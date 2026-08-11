@@ -27,7 +27,9 @@ Component(unit, index=1, *, base_offset=0)
 
 ### Class attributes
 
-All are overridable on a subclass (or set per instance).
+The configuration attributes are overridable on a subclass (or set per instance);
+`declared_fields` and `resolved_fields` are derived from the declarations and
+read-only.
 
 | Attribute | Type | Default | Meaning |
 | --- | --- | --- | --- |

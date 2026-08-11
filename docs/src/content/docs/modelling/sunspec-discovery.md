@@ -78,7 +78,8 @@ library.
 
 The output contains a `SunSpecComponent` subclass for each model, fields for its
 points, enum and flag types, and statically expressible repeated groups. Class
-names come from the model name, with the model ID added when names collide.
+names come from the model's group name, with the model ID added when names
+collide, and each point's label and description become its attribute docstring.
 
 ```python
 class OperatingState(IntEnum):
@@ -87,10 +88,13 @@ class OperatingState(IntEnum):
 
 
 class InverterThreePhase(SunSpecComponent):
-    """Represent SunSpec model 103."""
+    """SunSpec model 103: Inverter (Three Phase)."""
 
     a = uint16(2, scale_register=6, unit="A")
+    """Amps. AC Current."""
+
     st = enum16(38, OperatingState)
+    """Operating State."""
 ```
 
 Layouts whose addresses or strides depend on values read from the device cannot

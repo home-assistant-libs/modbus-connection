@@ -33,8 +33,9 @@ value printing every time:
 | `add_connection_args(parser, connections=…)` | Add the connection arguments (target, transport, framer, port, timeout, serial/TLS options) to an `argparse` parser. |
 | `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over whichever backend is installed). |
 | `CountingUnit` | Wrap a `ModbusUnit` to count the block reads an update performs. |
-| `print_component(component, *, title=None, file=None)` | Print every field on a component by reflection. |
+| `print_component(component, *, title=None, file=None, indent="")` | Print every field on a component, and each repeating group's instances, by reflection. |
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
+| `group_rows(component)` | The `(name, instances)` pairs for each `repeating_group` on the component, for the same reason. |
 
 Only `connect_from_args` needs a backend. Argument parsing, `--help`, read
 counting, and printing work without one.
@@ -156,7 +157,8 @@ link can't be opened.
 
 Wrap `connection.for_unit(id)` in a `CountingUnit` before handing it to a
 component. Its `reads` attribute then tallies every block read the update issued —
-a quick sanity check that your [`ranges`](/modbus-connection/modelling/reading/#readable-address-ranges)
+a quick sanity check that your
+[readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
 and `max_gap` are collapsing fields into as few Modbus round-trips as the plan
 allows. It implements `ModbusUnit` in full, so it drops in wherever one is
 expected with **no cast**:
@@ -168,7 +170,7 @@ await device.async_update()
 print(counting.reads)  # e.g. 6
 ```
 
-### `print_component` and `field_rows`
+### `print_component`, `field_rows` and `group_rows`
 
 `print_component` walks a component's public attributes by reflection and prints
 each modelled field — register/coil/discrete fields and computed `@property`
@@ -190,4 +192,6 @@ If you model your device as a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/), loop over its
 components and `print_component` each one. To format the output yourself (JSON,
 a table, grouping by section), `field_rows(component)` returns the
-`(name, value)` rows and you take it from there.
+`(name, value)` rows and `group_rows(component)` the `(name, instances)` pairs
+for its repeating groups — recurse into the instances with `field_rows` and you
+take it from there.

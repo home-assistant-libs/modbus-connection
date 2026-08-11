@@ -115,6 +115,30 @@ async def test_read_refused(mock_modbus_unit):
     mock_modbus_unit.fail_read(1100, None)  # clear it
 ```
 
+## Simulating a device that answers nothing
+
+`fail_requests` arms one error for **every** read and write on the unit — a
+device that is powered down, unplugged, or behind a dead gateway, where no
+address is special. Reach for it instead of `fail_read` when the test shouldn't
+have to know which address a component's read plan happens to reach first. Pass
+`None` to let the unit answer again:
+
+```python
+async def test_device_unreachable(mock_modbus_unit):
+    mock_modbus_unit.fail_requests(ModbusTimeoutError())
+    with pytest.raises(ModbusTimeoutError):
+        await Meter(mock_modbus_unit).async_update()
+
+    mock_modbus_unit.fail_requests(None)  # the device answers again
+```
+
+This models the device, not the link: `connected` still follows the connection
+(use [`simulate_connection_lost()`](#simulating-a-dropped-link) for a transport
+drop), and reads are still recorded in `read_events` before they raise, so a test
+can assert what was attempted. It is per unit, so one silent device on a shared
+gateway does not silence its neighbours, and per-address `fail_read` /
+`fail_write` keep applying on top.
+
 ## Reacting to writes
 
 Register an `on_write` callback to simulate a device that changes state in
@@ -135,7 +159,7 @@ def test_command_sets_ready(mock_modbus_unit):
 Arm `fail_write` and the next write covering that address raises the given error
 *before* the store is touched, so the value is left unchanged and `on_write`
 callbacks don't fire. `register_type` defaults to `"holding"` (use `"coil"` for
-coil writes — the tables are independent); pass `None` to clear:
+coil writes — the tables are independent); pass `None` to clear.
 
 Arm the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
 for the condition — it constructs with its code implied, and it is what the
@@ -231,6 +255,7 @@ configuration surface:
 | `read_events` | The [`ReadEvent`](#readevent) log of [every block read](#asserting-on-the-reads-a-poll-issued) the unit received, in order. |
 | `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |
 | `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete_input"`); `None` clears it. |
+| `fail_requests(error)` | Arm the exception [every read and write](#simulating-a-device-that-answers-nothing) on this unit raises; `None` clears it. |
 | `set_response(method, value)` | Arm a [canned response](#canned-responses-for-the-other-operations) for a non-store operation. |
 | `load_raw(raw)` | Load an [`async_read_raw()` snapshot](#replaying-a-raw-snapshot) into the stores; raises `ValueError` for an unknown space. |
 | `set_message_spacing(seconds)` | Records the interval on the `message_spacing` attribute for assertions; raises `ValueError` if negative. |

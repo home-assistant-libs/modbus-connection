@@ -25,7 +25,7 @@ selecting an extra.
 import modbus_connection
 
 print(modbus_connection.__all__)
-# ['AcknowledgeError', 'BlockReadError', 'ClientClosedError', ...]
+# ['ReadBlock', 'ServerDeviceFailureError', 'ServerDeviceBusyError', ...]
 ```
 
 Importing `modbus_connection` never imports a backend. The backend is only

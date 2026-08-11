@@ -32,7 +32,7 @@ class Meter(Component):
 
 
 meter = Meter(unit)
-await meter.async_update()  # one block read
+await meter.async_update()  # one block read of registers 0-3, one of coil 0
 meter.voltage  # float | None
 await meter.write("relay", True)
 ```

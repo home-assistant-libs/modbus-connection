@@ -10,7 +10,7 @@ import starlightLlmsTxt from "starlight-llms-txt";
 export default defineConfig({
   site: "https://home-assistant-libs.github.io",
   base: "/modbus-connection",
-  // Old locations of pages moved in the docs restructure.
+  // Keep links to retired page URLs working.
   redirects: {
     "/getting-started/connections-and-units/":
       "/modbus-connection/connection/connections-and-units/",

@@ -55,7 +55,7 @@ async def main() -> None:
     try:
         meter = Meter(conn.for_unit(1))
 
-        await meter.async_update()  # one pooled block read
+        await meter.async_update()  # one pooled read per space
         print(meter.voltage, meter.current, meter.energy, meter.relay)
 
         await meter.write("relay", True)  # write a writable field
