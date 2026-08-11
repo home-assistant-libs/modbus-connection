@@ -220,10 +220,7 @@ class Component(_ComponentBase):
             }
         )
         return self._with_static_ranges(
-            declared.shift(self._base_offset + self._instance_offset),
-            self._own_items,
-            max_gap=self.max_gap,
-            max_span=self.max_span,
+            declared.shift(self._base_offset + self._instance_offset)
         )
 
     def _build_plan(self) -> ReadPlan:

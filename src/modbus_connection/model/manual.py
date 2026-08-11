@@ -154,12 +154,7 @@ class ManualComponent(_ComponentBase):
 
         Raises ``ValueError`` if a table's map conflicts with an instance's.
         """
-        return self._with_static_ranges(
-            self._ranges,
-            self._own_items,
-            max_gap=self.max_gap,
-            max_span=self.max_span,
-        )
+        return self._with_static_ranges(self._ranges)
 
     def _invalidate_caches(self) -> None:
         for attr in ("_read_items", "_own_items"):

@@ -1091,25 +1091,25 @@ def test_plan_blocks_range_aware_never_crosses_gap() -> None:
 def test_plan_blocks_rejects_span_running_past_a_range_end() -> None:
     # A 2-register field at 5 covers 5..6, but the device answers 0-5: the layout
     # contradicts itself, so it is rejected instead of planned as if it fit.
-    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         plan_blocks([(0, 1), (5, 2)], ((0, 5),))
 
 
 def test_plan_blocks_rejects_span_starting_before_a_range() -> None:
     # The mirror image: the field ends inside a range but starts below its low.
-    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         plan_blocks([(4, 2)], ((5, 10),))
 
 
 def test_plan_blocks_rejects_span_bridging_two_ranges() -> None:
-    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         plan_blocks([(6, 4)], ((0, 6), (9, 40)))  # 6..9 spans the 7-8 gap
 
 
 def test_plan_blocks_rejects_span_outside_every_range() -> None:
     # A field wholly at addresses the map says the device never answers is as
     # unreadable as one crossing a boundary.
-    with pytest.raises(ValueError, match="outside the readable ranges"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         plan_blocks([(0, 1), (20, 2)], ((0, 5),))
 
 
@@ -1165,7 +1165,7 @@ async def test_component_rejects_field_past_its_readable_range() -> None:
         energy = uint32(5)  # spans 5..6
 
     unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="crosses a readable range boundary"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         await Wide(unit).async_update()
 
 
@@ -1176,7 +1176,7 @@ async def test_component_rejects_field_outside_its_readable_ranges() -> None:
         stray = integer(20)  # entirely outside the map
 
     unit = MockModbusConnection().for_unit(1)
-    with pytest.raises(ValueError, match="outside the readable ranges"):
+    with pytest.raises(ValueError, match="does not fit inside a readable range"):
         await Wide(unit).async_update()
 
 
