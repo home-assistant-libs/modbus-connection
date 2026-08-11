@@ -292,8 +292,6 @@ class Component(_ComponentBase):
         spans: list[tuple[int, int]] = []
         for f in kept_fields:
             spans.append((self._declared_address(f), f.count))
-            # a kept field's scale register is read with it, so the synthesized
-            # map must cover it too
             if isinstance(f, RegisterField) and f.scale_register is not None:
                 scale = f.scale_register + f.scale_register_stride * (self._index - 1)
                 spans.append((scale, 1))

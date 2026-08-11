@@ -98,8 +98,6 @@ def _plan_blocks(
         if ranges is None:
             mergeable = address - block_end <= max_gap
         else:
-            # every span sits inside a range (checked above), so blocks merge
-            # exactly when they share one
             mergeable = _range_of(address, ranges) == block_range
         if mergeable and end - block_start + 1 <= max_span:
             block_end = max(block_end, end)
