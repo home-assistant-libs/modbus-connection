@@ -292,14 +292,19 @@ class Component(_ComponentBase):
             excluded.update(range(address, address + field.count))
         if not excluded:
             return declared  # nothing dropped from this space — leave it as declared
-        if declared is not None:
-            return _ranges_excluding(declared, excluded)
         spans: list[tuple[int, int]] = []
         for f in kept_fields:
             spans.append((self._declared_address(f), f.count))
             if isinstance(f, RegisterField) and f.scale_register is not None:
                 scale = f.scale_register + f.scale_register_stride * (self._index - 1)
                 spans.append((scale, 1))
+        # A kept field reading an address is proof the device serves it.
+        for start, count in spans:
+            excluded.difference_update(range(start, start + count))
+        if not excluded:
+            return declared
+        if declared is not None:
+            return _ranges_excluding(declared, excluded)
         if not spans:
             return declared  # every field in this space dropped — ranges unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
