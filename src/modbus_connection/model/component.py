@@ -174,8 +174,8 @@ class Component(_ComponentBase):
     # -- update --------------------------------------------------------------
 
     @cached_property
-    def _read_items(self) -> list[ReadItem]:
-        """Return this component's read targets."""
+    def _own_items(self) -> list[ReadItem]:
+        """This component's own read targets, fixed-count instances excluded."""
         items = [
             ReadItem(
                 resolved,
@@ -185,11 +185,16 @@ class Component(_ComponentBase):
             )
             for resolved in self.resolved_fields.values()
         ]
-        return items + self._count_items + self._static_items
+        return items + self._count_items
+
+    @cached_property
+    def _read_items(self) -> list[ReadItem]:
+        """Return this component's read targets."""
+        return self._own_items + self._static_items
 
     def _invalidate_caches(self) -> None:
         # _read_items composes the base's group targets, so it goes when they do
-        for attr in ("_read_items", "resolved_fields"):
+        for attr in ("_read_items", "_own_items", "resolved_fields"):
             self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
@@ -289,7 +294,12 @@ class Component(_ComponentBase):
             return declared  # nothing dropped from this space — leave it as declared
         if declared is not None:
             return _ranges_excluding(declared, excluded)
-        spans = [(self._declared_address(f), f.count) for f in kept_fields]
+        spans: list[tuple[int, int]] = []
+        for f in kept_fields:
+            spans.append((self._declared_address(f), f.count))
+            if isinstance(f, RegisterField) and f.scale_register is not None:
+                scale = f.scale_register + f.scale_register_stride * (self._index - 1)
+                spans.append((scale, 1))
         if not spans:
             return declared  # every field in this space dropped — ranges unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)

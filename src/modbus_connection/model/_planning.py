@@ -56,8 +56,8 @@ def _plan_blocks(
 ) -> list[tuple[int, int]]:
     """Group address spans into read blocks.
 
-    Raises ``ValueError`` for invalid ranges, a span wider than ``max_span``, or
-    a span crossing a readable-range boundary.
+    Raises ``ValueError`` for invalid ranges, a span wider than ``max_span``,
+    or a span that does not fit inside one readable range.
     """
     if ranges is not None:
         _validate_ranges(ranges)
@@ -71,13 +71,15 @@ def _plan_blocks(
                 f"{max_span}-register read limit"
             )
         end = address + width - 1
-        # A field that starts inside a readable range and ends outside it (or in
-        # the next one) cannot be read at all: the layout says the device answers
-        # up to the range's high and also puts a field past it.
-        if ranges is not None and _range_of(address, ranges) != _range_of(end, ranges):
+        if ranges is None:
+            continue
+        # A field the map does not contain cannot be read: it crosses a range
+        # boundary, or sits at addresses the device does not answer at all.
+        span_range = _range_of(address, ranges)
+        if span_range is None or span_range != _range_of(end, ranges):
             raise ValueError(
                 f"a field at address {address} spanning {width} registers "
-                f"({address}-{end}) crosses a readable range boundary"
+                f"({address}-{end}) does not fit inside a readable range"
             )
     blocks: list[tuple[int, int]] = []
     block_start, width = ordered[0]
@@ -88,8 +90,7 @@ def _plan_blocks(
         if ranges is None:
             mergeable = address - block_end <= max_gap
         else:
-            address_range = _range_of(address, ranges)
-            mergeable = address_range is not None and address_range == block_range
+            mergeable = _range_of(address, ranges) == block_range
         if mergeable and end - block_start + 1 <= max_span:
             block_end = max(block_end, end)
         else:
@@ -128,6 +129,25 @@ def own_ranges(
         )
         for space, space_spans in _spans(items).items()
     }
+
+
+def undeclared_claims(
+    parts: Iterable[tuple[DeviceRanges, list[ReadItem], int, int]],
+) -> dict[Space, tuple[Range, ...]]:
+    """What each part that declared no map for a space reads on its own.
+
+    Each part is ``(declared map, read items, max_gap, max_span)``. The result
+    is claims, not a device map: they only widen what a plan may cover, so
+    unlike declared maps they are not checked against each other.
+    """
+    claimed: dict[Space, tuple[Range, ...]] = {}
+    for declared, items, max_gap, max_span in parts:
+        for space, ranges in own_ranges(
+            items, max_gap=max_gap, max_span=max_span
+        ).items():
+            if declared.for_space(space) is None:
+                claimed[space] = claimed.get(space, ()) + ranges
+    return claimed
 
 
 def _reader(

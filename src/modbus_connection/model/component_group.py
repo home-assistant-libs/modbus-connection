@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._const import _MAX_SPAN, Range, Raw, Space
-from ._planning import ReadPlan, _merge_raw, _Readable, own_ranges
+from ._const import _MAX_SPAN, Raw
+from ._planning import ReadPlan, _merge_raw, _Readable, undeclared_claims
 from ._ranges import DeviceRanges
 
 if TYPE_CHECKING:
@@ -47,26 +47,12 @@ class ComponentGroup(_Readable):
         return DeviceRanges.merged(
             [component._resolved_ranges() for component in self._components],
             whose=lambda space: f"every {space}-space component in a ComponentGroup",
-        ).widened(self._claimed_by_undeclared())
-
-    def _claimed_by_undeclared(self) -> dict[Space, tuple[Range, ...]]:
-        """What the members that declared no map read on their own, per space.
-
-        These are claims, not a device map: they only widen what the plan may
-        cover, so unlike declared maps they are not checked against each other.
-        """
-        claimed: dict[Space, tuple[Range, ...]] = {}
-        for component in self._components:
-            resolved = component._resolved_ranges()
-            own = own_ranges(
-                component._read_items,
-                max_gap=component.max_gap,
-                max_span=component.max_span,
+        ).widened(
+            undeclared_claims(
+                (c._resolved_ranges(), c._read_items, c.max_gap, c.max_span)
+                for c in self._components
             )
-            for space, ranges in own.items():
-                if resolved.for_space(space) is None:
-                    claimed[space] = claimed.get(space, ()) + ranges
-        return claimed
+        )
 
     def _shared[V](self, attr: str, default: V) -> V:
         """The value of ``attr`` shared by every component, or raise if they differ."""

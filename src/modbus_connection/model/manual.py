@@ -132,8 +132,8 @@ class ManualComponent(_ComponentBase):
     # -- update --------------------------------------------------------------
 
     @cached_property
-    def _read_items(self) -> list[ReadItem]:
-        """Return this component's read targets."""
+    def _own_items(self) -> list[ReadItem]:
+        """This component's own read targets, fixed-count instances excluded."""
         items = [
             ReadItem(self._resolve(field, space), self._values)
             for field, space in self._registers.values()
@@ -142,9 +142,12 @@ class ManualComponent(_ComponentBase):
             ReadItem(self._resolve(field, field.space), self._values)
             for field in self._bits.values()
         ]
-        # Fold in each group's count register and any fixed-count instances, so
-        # the normal read fetches the counts and static instances in one pass.
-        return items + self._count_items + self._static_items
+        return items + self._count_items
+
+    @cached_property
+    def _read_items(self) -> list[ReadItem]:
+        """Return this component's read targets."""
+        return self._own_items + self._static_items
 
     def _resolved_ranges(self) -> DeviceRanges:
         """The declared per-table ranges, with any fixed-count instances' merged.
@@ -154,7 +157,8 @@ class ManualComponent(_ComponentBase):
         return self._with_static_ranges(self._ranges)
 
     def _invalidate_caches(self) -> None:
-        self.__dict__.pop("_read_items", None)
+        for attr in ("_read_items", "_own_items"):
+            self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
     def _build_plan(self) -> ReadPlan:
