@@ -187,15 +187,8 @@ class Component(_ComponentBase):
         ]
         return items + self._count_items
 
-    @cached_property
-    def _read_items(self) -> list[ReadItem]:
-        """Return this component's read targets."""
-        return self._own_items + self._static_items + self._dynamic_items
-
     def _invalidate_caches(self) -> None:
-        # _read_items composes the base's group targets, so it goes when they do
-        for attr in ("_read_items", "_own_items", "resolved_fields"):
-            self.__dict__.pop(attr, None)
+        self.__dict__.pop("resolved_fields", None)
         super()._invalidate_caches()
 
     def _resolved_ranges(self) -> DeviceRanges:

@@ -143,22 +143,12 @@ class ManualComponent(_ComponentBase):
         ]
         return items + self._count_items
 
-    @cached_property
-    def _read_items(self) -> list[ReadItem]:
-        """Return this component's read targets."""
-        return self._own_items + self._static_items + self._dynamic_items
-
     def _resolved_ranges(self) -> DeviceRanges:
         """The declared per-table ranges, with any fixed-count instances' merged.
 
         Raises ``ValueError`` if a table's map conflicts with an instance's.
         """
         return self._with_instance_ranges(self._ranges)
-
-    def _invalidate_caches(self) -> None:
-        for attr in ("_read_items", "_own_items"):
-            self.__dict__.pop(attr, None)
-        super()._invalidate_caches()
 
     def _build_plan(self) -> ReadPlan:
         return ReadPlan.build(

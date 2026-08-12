@@ -148,6 +148,11 @@ class _ComponentBase(_Readable):
         ]
 
     @cached_property
+    def _read_items(self) -> list[ReadItem]:
+        """This component's read targets: its own fields and every instance's."""
+        return self._own_items + self._static_items + self._dynamic_items
+
+    @cached_property
     def _dynamic_items(self) -> list[ReadItem]:
         """Read targets of every register-count group's current instances."""
         return [
@@ -216,7 +221,13 @@ class _ComponentBase(_Readable):
 
     def _invalidate_caches(self) -> None:
         # Owns the group read-target caches; the plan is the base's.
-        for attr in ("_count_items", "_static_items", "_dynamic_items"):
+        for attr in (
+            "_read_items",
+            "_own_items",
+            "_count_items",
+            "_static_items",
+            "_dynamic_items",
+        ):
             self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
