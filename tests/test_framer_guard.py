@@ -29,13 +29,12 @@ def test_tmodbus_accepts_socket_udp_framing() -> None:
     assert conn.connected is False
 
 
-def test_tmodbus_rejects_ascii_over_tcp() -> None:
-    # tmodbus has no ASCII-over-TCP transport; the error points at the client
-    # that does.
-    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
-        tmodbus_backend.ModbusConnection(
-            ModbusTcpParams(host="127.0.0.1", framer="ascii")
-        )
+def test_tmodbus_accepts_ascii_over_tcp() -> None:
+    # serialx's socket:// transport carries the ASCII framing over a socket.
+    conn = tmodbus_backend.ModbusConnection(
+        ModbusTcpParams(host="127.0.0.1", framer="ascii")
+    )
+    assert conn.connected is False
 
 
 @pytest.mark.parametrize(

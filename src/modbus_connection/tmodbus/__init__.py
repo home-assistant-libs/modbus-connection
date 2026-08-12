@@ -57,6 +57,9 @@ __all__ = [
 # to derive per-unit handles (``for_unit_id``), so its own binding is never used
 # for I/O; we give it a fixed placeholder that ``for_unit`` always overrides.
 _PLACEHOLDER_UNIT_ID = 1
+# serialx ignores the line settings on a socket:// transport, but tmodbus's
+# ascii client requires a baudrate.
+_UNUSED_BAUDRATE = 9600
 
 # Repeats tmodbus's own bounds; ``reraise`` is what we are after, so an
 # exhausted retry surfaces the device's busy response rather than a timeout.
@@ -84,11 +87,6 @@ class ModbusConnection(BaseModbusConnection):
         if isinstance(params, ModbusUdpParams) and params.framer != "socket":
             raise ValueError(
                 "RTU- and ASCII-over-UDP are not supported by the tmodbus "
-                "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
-            )
-        if isinstance(params, ModbusTcpParams) and params.framer == "ascii":
-            raise ValueError(
-                "ASCII-over-TCP is not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"
             )
         super().__init__(
@@ -136,7 +134,21 @@ class ModbusConnection(BaseModbusConnection):
     async def _create_client(self) -> AsyncModbusClient:
         params = self._params
         if isinstance(params, ModbusTcpParams):
-            # ascii was rejected at construction.
+            if params.framer == "ascii":
+                # ASCII has no socket-framed client: it is the serial framing,
+                # carried over a socket by serialx's socket:// transport. The
+                # serial line settings are inert on a socket.
+                # SerialXOptions omits timeout, which serialx takes at runtime.
+                return create_async_ascii_client(  # type: ignore[call-arg]
+                    f"socket://{params.host}:{params.port}",
+                    unit_id=_PLACEHOLDER_UNIT_ID,
+                    baudrate=_UNUSED_BAUDRATE,
+                    timeout=self._timeout,
+                    auto_reconnect=False,
+                    response_retry_strategy=_RESPONSE_RETRIES,
+                    retry_on_device_failure=False,
+                    on_connection_lost=self._on_connection_lost,
+                )
             if params.framer == "socket":
                 create = create_async_tcp_client
             else:

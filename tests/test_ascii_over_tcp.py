@@ -1,8 +1,8 @@
 """ModbusTcpParams(framer="ascii") tunnels Modbus ASCII frames over TCP.
 
-The rest of the suite serves these tests from tmodbus, but tmodbus frames ASCII
-only over a serial line — it has no ASCII-over-TCP server — so this module keeps
-pymodbus's. Only the pymodbus client can speak this combination anyway.
+Both backends speak this: pymodbus frames ASCII on its TCP client, and tmodbus
+frames it on a serial client carried by serialx's socket:// transport. The
+server is pymodbus's either way — tmodbus has no ASCII-over-TCP server.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pymodbus.simulator import DataType, SimData, SimDevice
 
 from modbus_connection import ModbusTcpParams
 from modbus_connection.pymodbus import ModbusConnection
-from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
+from modbus_connection.tmodbus import ModbusConnection as TmodbusConnection
 
 UNIT_ID = 1
 
@@ -56,7 +56,21 @@ async def test_pymodbus_ascii_over_tcp_reads(ascii_tcp_server: tuple[str, int]) 
         await conn.close()
 
 
-async def test_tmodbus_ascii_over_tcp_rejected() -> None:
-    """tmodbus has no ASCII-over-TCP transport: framer="ascii" raises."""
-    with pytest.raises(ValueError, match="pymodbus.ModbusConnection"):
-        await tmodbus_connect_tcp("127.0.0.1", framer="ascii")
+async def test_tmodbus_ascii_over_tcp_reads(ascii_tcp_server: tuple[str, int]) -> None:
+    host, port = ascii_tcp_server
+    conn = TmodbusConnection(ModbusTcpParams(host=host, port=port, framer="ascii"))
+    try:
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+    finally:
+        await conn.close()
+
+
+async def test_tmodbus_ascii_over_tcp_writes(ascii_tcp_server: tuple[str, int]) -> None:
+    host, port = ascii_tcp_server
+    conn = TmodbusConnection(ModbusTcpParams(host=host, port=port, framer="ascii"))
+    try:
+        unit = conn.for_unit(UNIT_ID)
+        await unit.write_register(1, 4242)
+        assert await unit.read_holding_registers(1, 1) == [4242]
+    finally:
+        await conn.close()
