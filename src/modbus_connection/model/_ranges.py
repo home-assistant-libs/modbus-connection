@@ -161,10 +161,10 @@ class DeviceRanges:
         split a component declared, and a gap no map claims still separates
         two runs.
 
-        Only declarations can conflict. A claimed map (``claimed``) is
-        evidence of reads, so it overlaps freely — with declarations and
-        with other claims — while its coverage and boundaries still shape
-        the merge.
+        Only declarations can conflict, and only declarations draw
+        boundaries. A claimed map (``claimed``) is evidence of reads: it
+        overlaps freely, its coverage widens the merge, and touching claims
+        describe one run — a hole splits by not being covered.
 
         Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
         are being merged in the error — a callable receives the conflicting
@@ -196,5 +196,5 @@ class DeviceRanges:
                         f"{sorted(declared)}"
                     ) from err
             parts = declared | claimed_by.get(space, set())
-            merged[space] = _partitioned(parts, parts)
+            merged[space] = _partitioned(parts, declared)
         return cls(merged, claimed=frozenset(claimed_by.keys() - declared_by.keys()))

@@ -1785,6 +1785,29 @@ async def test_narrowed_components_with_interleaved_registers_pool() -> None:
     assert settings.c is None and config.y is None
 
 
+async def test_touching_claims_read_as_one_run() -> None:
+    """Claims draw no boundary: adjacent narrowed components share a read."""
+
+    class Left(Component):
+        value = integer(100)
+        dropped = integer(90)
+
+    class Right(Component):
+        value = integer(101)
+        dropped = integer(110)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({100: 1, 101: 2})
+    unit = _SpyUnit(inner)
+    left, right = Left(unit), Right(unit)  # type: ignore[arg-type]
+    left.restrict_fields(["value"])
+    right.restrict_fields(["value"])
+    group = ComponentGroup(unit, [left, right])  # type: ignore[list-item]
+    await group.async_update()
+    assert (left.value, right.value) == (1, 2)
+    assert unit.reads == [("holding", 100, 2)]
+
+
 async def test_narrowed_member_agrees_with_a_declared_sibling() -> None:
     """A claim inside a sibling's declared run is agreement, not overlap."""
 
