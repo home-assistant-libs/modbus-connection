@@ -80,6 +80,7 @@ class ManualComponent(_ComponentBase):
                 self._static_groups[key] = target
                 self._groups[key] = self._build_instances(target, 0, target.count)
             else:
+                target.count.name = key  # the decoded count lands in _counts[key]
                 self._repeating_fields[key] = target
         elif isinstance(target, (CoilField, DiscreteInputField)):
             if space is not None:

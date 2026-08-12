@@ -127,15 +127,17 @@ class _ComponentBase(_Readable):
     @cached_property
     def _count_items(self) -> list[ReadItem]:
         """Read targets for each register-count group's count register."""
-        items = []
-        for name, field in self._repeating_fields.items():
-            # a register-count group's count is a RegisterField (see the split above)
-            count_field = cast("RegisterField[Any]", field.count)
-            count_field.name = name  # the decoded count lands in ``_counts[name]``
-            items.append(
-                ReadItem(self._resolve(count_field, self._count_space), self._counts)
+        return [
+            # a register-count group's count is a RegisterField, named for its
+            # group at registration so the decoded count lands in ``_counts``
+            ReadItem(
+                self._resolve(
+                    cast("RegisterField[Any]", field.count), self._count_space
+                ),
+                self._counts,
             )
-        return items
+            for field in self._repeating_fields.values()
+        ]
 
     @cached_property
     def _static_items(self) -> list[ReadItem]:
