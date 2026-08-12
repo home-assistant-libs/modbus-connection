@@ -359,6 +359,8 @@ class RepeatingGroupField[C: Component]:
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
+        if isinstance(self.count, RegisterField):
+            self.count.name = name  # the decoded count lands in ``_counts[name]``
 
     if TYPE_CHECKING:
 
