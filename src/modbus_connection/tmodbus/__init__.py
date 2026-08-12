@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
@@ -18,6 +19,8 @@ from tmodbus import (
     create_async_udp_client,
 )
 from tmodbus.exceptions import (
+    FunctionCodeError,
+    HeaderMismatchError,
     InvalidResponseError,
     ModbusResponseError,
     TModbusError,
@@ -36,6 +39,7 @@ from .._client import (
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
+    ModbusDesyncError,
     ModbusError,
     ModbusExceptionError,
     ModbusProtocolError,
@@ -240,6 +244,12 @@ def _map_errors[**P, R](
             raise ModbusConnectionError(f"{prefix}: {err}") from err
         except TimeoutError as err:
             raise ModbusTimeoutError(f"{prefix}: {err}") from err
+        except (HeaderMismatchError, FunctionCodeError) as err:
+            # A desynchronized stream survives retries; drop the link so the
+            # next request opens a fresh one.
+            with contextlib.suppress(ModbusConnectionError):
+                await self._conn.disconnect()
+            raise ModbusDesyncError(f"{prefix}: {err}") from err
         except InvalidResponseError as err:
             raise ModbusProtocolError(f"{prefix}: {err}") from err
         except ModbusResponseError as err:

@@ -287,6 +287,7 @@ ModbusError
 │   └── ClientClosedError           (request on a close()d connection)
 ├── ModbusTimeoutError              (also a builtin TimeoutError)
 ├── ModbusProtocolError
+│   └── ModbusDesyncError           (reply answers a different exchange)
 └── ModbusExceptionError            (.exception_code; .block set when a
     │                                component update aborted)
     ├── IllegalFunctionError        (code 1)
@@ -339,8 +340,17 @@ except TimeoutError:  # catches ModbusTimeoutError
 
 A reply arrived but **could not be used** — a corrupt frame (bad CRC/LRC,
 framing), or a well-formed answer to a different request than the one sent
-(the signature of a bridge shared by several simultaneous clients). The
-backends cannot tell the two apart today, so both surface as this one class.
+(the signature of a bridge shared by several simultaneous clients).
+
+### `ModbusDesyncError`
+
+The reply **answers a different exchange** than the one in flight: a
+mismatched header, or a response carrying the wrong function code. Corruption
+is transient and retrying rereads the line; a desynchronized stream is not —
+every retry reads the same offset — so the backend has already
+[`disconnect()`](#disconnect)ed when this raises, and the next request opens
+a fresh link. Only the tmodbus backend can match replies to requests and
+raise this; pymodbus surfaces such a reply as a timeout.
 
 ### `ModbusExceptionError`
 
