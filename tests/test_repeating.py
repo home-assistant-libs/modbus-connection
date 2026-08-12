@@ -202,6 +202,63 @@ async def test_instances_pooled_into_one_read() -> None:
     assert len(unit.reads) == 2
 
 
+async def test_instances_pool_with_the_registers_between_them() -> None:
+    """Sibling instances tile one run: unread registers between them bridge.
+
+    Mirrors SunSpec model 160 — scale factors in the parent's fixed block,
+    each 20-register module block only partly read. The instances claim what
+    they read jointly, so values and their scale factors stay in one request
+    (a device may bump a shared scale factor between two requests).
+    """
+
+    class Module(Component):
+        serial = integer(11, signed=False)
+        value = integer(19, scale_register=2)
+
+    class Inverter(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    inner = _unit()
+    inner.holding.update({8: 3, 2: 0})
+    for address in range(11, 60):
+        inner.holding.setdefault(address, 1)
+    unit = _Spy(inner)
+    inv = Inverter(unit)  # type: ignore[arg-type]
+    await inv.async_update()
+    unit.reads.clear()
+    await inv.async_update()
+
+    # count, then one block from the scale factor through the last module value
+    assert unit.reads == [("holding", 8, 1), ("holding", 2, 58)]
+
+
+async def test_count_and_fixed_groups_plan_the_same_reads() -> None:
+    class Module(Component):
+        serial = integer(11, signed=False)
+        value = integer(19, scale_register=2)
+
+    class Counted(Component):
+        modules = repeating_group(uint16(8), Module, stride=20)
+
+    class Fixed(Component):
+        modules = repeating_group(3, Module, stride=20)
+
+    async def reads(cls: type[Component]) -> set[tuple[str, int, int]]:
+        inner = _unit()
+        inner.holding.update({8: 3, 2: 0})
+        for address in range(11, 60):
+            inner.holding.setdefault(address, 1)
+        unit = _Spy(inner)
+        component = cls(unit)  # type: ignore[arg-type]
+        await component.async_update()
+        unit.reads.clear()
+        await component.async_update()
+        return {read for read in unit.reads if read != ("holding", 8, 1)}
+
+    # The same layout reads the same blocks however the count is known.
+    assert await reads(Counted) == await reads(Fixed)
+
+
 async def test_per_instance_shared_scale_register() -> None:
     class ScaledModule(Component):
         w = integer(11, scale_register=2)  # sunssf shared in the fixed block

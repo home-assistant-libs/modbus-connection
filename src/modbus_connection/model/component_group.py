@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from ._const import _MAX_SPAN, Raw
+from ._const import _MAX_GAP, _MAX_SPAN, Raw
 from ._planning import ReadPlan, _merge_raw, _Readable, undeclared_claims
-from ._ranges import DeviceRanges
+from ._ranges import DeviceRanges, _coalesce
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -22,9 +22,12 @@ class ComponentGroup(_Readable):
         self,
         unit: ModbusUnit,
         components: Iterable[Component | ManualComponent],
+        *,
+        _one_run: bool = False,
     ) -> None:
         self._unit = unit
         self._components = list(components)
+        self._one_run = _one_run
         for component in self._components:
             component._parent = self
         self._ranges = self._ranges_by_space()
@@ -42,17 +45,28 @@ class ComponentGroup(_Readable):
         itself, which keeps a pooled read from bridging into addresses no
         member claims.
 
+        A ``repeating_group``'s instances are the exception (``_one_run``):
+        they tile one run of their parent component, so their claims join
+        across ``max_gap`` and a pooled read may bridge between them. A map an
+        instance does declare — ``restrict_fields`` synthesises one — still
+        bounds the read.
+
         Raises ``ValueError`` if the maps conflict.
         """
+        claims = undeclared_claims(
+            (c._resolved_ranges(), c._read_items, c.max_gap, c.max_span)
+            for c in self._components
+        )
+        if self._one_run:
+            within = self._shared("max_gap", _MAX_GAP)
+            claims = {
+                space: _coalesce(ranges, within=within)
+                for space, ranges in claims.items()
+            }
         return DeviceRanges.merged(
             [component._resolved_ranges() for component in self._components],
             whose=lambda space: f"every {space}-space component in a ComponentGroup",
-        ).widened(
-            undeclared_claims(
-                (c._resolved_ranges(), c._read_items, c.max_gap, c.max_span)
-                for c in self._components
-            )
-        )
+        ).widened(claims)
 
     def _shared[V](self, attr: str, default: V) -> V:
         """The value of ``attr`` shared by every component, or raise if they differ."""

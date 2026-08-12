@@ -232,7 +232,9 @@ class _ComponentBase(_Readable):
             instances.extend(existing)
         if instances:
             if self._instance_group is None:
-                self._instance_group = ComponentGroup(self._unit, instances)
+                self._instance_group = ComponentGroup(
+                    self._unit, instances, _one_run=True
+                )
                 self._instance_group._parent = self
             _merge_raw(
                 raw,
