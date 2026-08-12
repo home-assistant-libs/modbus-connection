@@ -14,7 +14,7 @@ from ._planning import (
     _Readable,
     undeclared_claims,
 )
-from ._ranges import DeviceRanges
+from ._ranges import DeviceRanges, _coalesce
 from .component_group import ComponentGroup
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
@@ -191,8 +191,14 @@ class _ComponentBase(_Readable):
                 ),
             ]
         )
+        # The parts are all inside this one component, so their claims join
+        # across max_gap and a read may bridge between instances.
         return merged.widened(
-            {s: r for s, r in claims.items() if merged.for_space(s) is not None}
+            {
+                s: _coalesce(r, within=self.max_gap)
+                for s, r in claims.items()
+                if merged.for_space(s) is not None
+            }
         )
 
     def _invalidate_caches(self) -> None:
@@ -232,7 +238,9 @@ class _ComponentBase(_Readable):
             instances.extend(existing)
         if instances:
             if self._instance_group is None:
-                self._instance_group = ComponentGroup(self._unit, instances)
+                self._instance_group = ComponentGroup(
+                    self._unit, instances, _one_run=True
+                )
                 self._instance_group._parent = self
             _merge_raw(
                 raw,

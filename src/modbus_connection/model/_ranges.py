@@ -34,8 +34,8 @@ def _validate_ranges(ranges: tuple[Range, ...]) -> None:
             )
 
 
-def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
-    """Join ranges that touch or overlap.
+def _coalesce(ranges: tuple[Range, ...], *, within: int = 0) -> tuple[Range, ...]:
+    """Join ranges that touch or overlap, or sit within ``within`` of each other.
 
     Two ranges with nothing between them describe one readable run, so a read
     may span both. Only called on maps whose parts have already been checked
@@ -43,7 +43,7 @@ def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
     """
     joined: list[Range] = []
     for low, high in sorted(ranges):
-        if joined and low <= joined[-1][1] + 1:
+        if joined and low <= joined[-1][1] + 1 + within:
             joined[-1] = (joined[-1][0], max(joined[-1][1], high))
         else:
             joined.append((low, high))
