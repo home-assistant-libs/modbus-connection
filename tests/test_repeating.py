@@ -259,6 +259,31 @@ async def test_count_and_fixed_groups_plan_the_same_reads() -> None:
     assert await reads(Counted) == await reads(Fixed)
 
 
+async def test_fixed_instances_pool_within_a_declared_parent_map() -> None:
+    """A map declared elsewhere on the component doesn't split its instances."""
+
+    class Cell(Component):
+        value = integer(0, signed=False)
+
+    class Pack(Component):
+        register_ranges = ((100, 100),)
+        status = integer(100, signed=False)
+        cells = repeating_group(3, Cell, stride=4)
+
+    inner = _unit()
+    inner.holding.update({100: 7, 0: 1, 4: 2, 8: 3})
+    for address in range(9):
+        inner.holding.setdefault(address, 0)
+    unit = _Spy(inner)
+    pack = Pack(unit)  # type: ignore[arg-type]
+    await pack.async_update()
+
+    assert [cell.value for cell in pack.cells] == [1, 2, 3]
+    # The cells and the registers between them, in one read.
+    assert ("holding", 0, 9) in unit.reads
+    assert len(unit.reads) == 2
+
+
 async def test_per_instance_shared_scale_register() -> None:
     class ScaledModule(Component):
         w = integer(11, scale_register=2)  # sunssf shared in the fixed block
