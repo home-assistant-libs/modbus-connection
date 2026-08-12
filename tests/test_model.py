@@ -1755,6 +1755,76 @@ async def test_group_accepts_one_run_declared_as_touching_spans() -> None:
     assert group._ranges.for_space("holding") == ((0, 9), (10, 19))
 
 
+async def test_narrowed_components_with_interleaved_registers_pool() -> None:
+    """A synthesised map is a claim: overlap with a sibling's is agreement.
+
+    Devices interleave the registers of what a library models as separate
+    components; narrowing each synthesises overlapping maps. Neither is a
+    declaration of what the device serves, so the group must not read them
+    as contradicting.
+    """
+
+    class Settings(Component):
+        a = integer(100)
+        b = integer(108)  # the synthesised map bridges 101..107
+        c = integer(120)
+
+    class Config(Component):
+        x = integer(105)  # inside the run Settings' claim covers
+        y = integer(300)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({100: 1, 108: 2, 105: 5})
+    unit = _SpyUnit(inner)
+    settings, config = Settings(unit), Config(unit)  # type: ignore[arg-type]
+    settings.restrict_fields(["a", "b"])
+    config.restrict_fields(["x"])
+    group = ComponentGroup(unit, [settings, config])  # type: ignore[list-item]
+    await group.async_update()
+    assert (settings.a, settings.b, config.x) == (1, 2, 5)
+    assert settings.c is None and config.y is None
+
+
+async def test_narrowed_member_agrees_with_a_declared_sibling() -> None:
+    """A claim inside a sibling's declared run is agreement, not overlap."""
+
+    class Narrowed(Component):
+        value = integer(9)
+        dropped = integer(12)
+
+    class Declaring(Component):
+        register_ranges = ((9, 30),)
+        other = integer(30)
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({9: 7, 30: 8})
+    unit = _SpyUnit(inner)
+    narrowed = Narrowed(unit)
+    narrowed.restrict_fields(["value"])
+    group = ComponentGroup(unit, [narrowed, Declaring(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert narrowed.value == 7 and narrowed.dropped is None
+
+
+async def test_narrowing_a_declared_map_keeps_it_a_declaration() -> None:
+    """Narrowing never turns a declared map into a claim: conflicts still raise."""
+
+    class Narrowed(Component):
+        register_ranges = ((0, 9),)
+        value = integer(0)
+        dropped = integer(5)
+
+    class Other(Component):
+        register_ranges = ((5, 14),)  # genuinely disagrees about 5..9
+        other = integer(10)
+
+    unit = MockModbusConnection().for_unit(1)
+    narrowed = Narrowed(unit)
+    narrowed.restrict_fields(["value"])
+    with pytest.raises(ValueError, match="must agree on register_ranges"):
+        ComponentGroup(unit, [narrowed, Other(unit)])
+
+
 async def test_group_still_rejects_partly_overlapping_ranges() -> None:
     class Other(Component):
         register_ranges = ((5, 14), (15, 29))  # overlaps _SplitRun's run

@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
 from ._planning import ReadItem, ReadPlan, ResolvedField, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
@@ -117,6 +117,9 @@ class Component(_ComponentBase):
         self._instance_offset = _instance_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
+        # Spaces whose ranges restrict_fields synthesised: a claim over what
+        # the kept fields read, not a declaration of what the device serves.
+        self._claimed_spaces: set[Space] = set()
         # Set up listener and repeating_group state; fixed-count groups'
         # instances are built now so they fold into the normal read plan like
         # ordinary fields.
@@ -216,7 +219,8 @@ class Component(_ComponentBase):
                 self.register_space: self.register_ranges,
                 "coil": self.coil_ranges,
                 "discrete": self.discrete_ranges,
-            }
+            },
+            claimed=frozenset(self._claimed_spaces),
         )
         return self._with_instance_ranges(
             declared.shift(self._base_offset + self._instance_offset)
@@ -249,10 +253,18 @@ class Component(_ComponentBase):
         kept_registers, dropped_registers = _partition(self._register_fields, keep)
         kept_bits, dropped_bits = _partition(self._bit_fields, keep)
 
+        synthesising = self.register_ranges is None
         self.register_ranges = self._reshaped_ranges(
             self.register_ranges, kept_registers.values(), dropped_registers.values()
         )
-        for space, attr in (("coil", "coil_ranges"), ("discrete", "discrete_ranges")):
+        if synthesising and self.register_ranges is not None:
+            self._claimed_spaces.add(self.register_space)
+        bit_spaces: tuple[tuple[Space, str], ...] = (
+            ("coil", "coil_ranges"),
+            ("discrete", "discrete_ranges"),
+        )
+        for space, attr in bit_spaces:
+            synthesising = getattr(self, attr) is None
             setattr(
                 self,
                 attr,
@@ -262,6 +274,8 @@ class Component(_ComponentBase):
                     [f for f in dropped_bits.values() if f.space == space],
                 ),
             )
+            if synthesising and getattr(self, attr) is not None:
+                self._claimed_spaces.add(space)
 
         self._register_fields = kept_registers
         self._bit_fields = kept_bits

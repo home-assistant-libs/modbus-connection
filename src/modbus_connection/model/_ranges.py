@@ -105,6 +105,10 @@ class DeviceRanges:
     """
 
     maps: Mapping[Space, tuple[Range, ...] | None]
+    # Spaces whose ranges are a claim — evidence of what something reads, with
+    # dropped addresses cut out — rather than an exhaustive declaration. Two
+    # claims may overlap; two declarations that overlap contradict each other.
+    claimed: frozenset[Space] = frozenset()
 
     def for_space(self, space: Space) -> tuple[Range, ...] | None:
         """The readable ranges of one space, or ``None`` if unconstrained."""
@@ -121,7 +125,7 @@ class DeviceRanges:
                 if ranges is None
                 else tuple((low + offset, high + offset) for low, high in ranges)
             )
-        return DeviceRanges(shifted)
+        return DeviceRanges(shifted, claimed=self.claimed)
 
     def widened(self, claims: Mapping[Space, tuple[Range, ...]]) -> DeviceRanges:
         """Return these maps with ``claims`` folded into the spaces they cover.
@@ -136,7 +140,7 @@ class DeviceRanges:
         for space, ranges in claims.items():
             existing = (tuple(widened.get(space) or ()),)
             widened[space] = _partitioned((*existing, ranges), existing)
-        return DeviceRanges(widened)
+        return DeviceRanges(widened, claimed=self.claimed)
 
     @classmethod
     def merged(
@@ -157,32 +161,49 @@ class DeviceRanges:
         split a component declared, and a gap no map claims still separates
         two runs.
 
+        Only declarations can conflict. A claimed map (``claimed``) is
+        evidence of reads, so it overlaps freely — with declarations and
+        with other claims — while its coverage and boundaries still shape
+        the merge.
+
         Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
         are being merged in the error — a callable receives the conflicting
         space, so the message can say which one (``register_ranges`` alone is
         ambiguous between holding and input).
         """
         describe = whose if callable(whose) else lambda _space: whose
-        by_space: dict[Space, set[tuple[Range, ...] | None]] = {}
+        declared_by: dict[Space, set[tuple[Range, ...]]] = {}
+        claimed_by: dict[Space, set[tuple[Range, ...]]] = {}
+        spaces: set[Space] = set()
         for device in maps:
             for space, ranges in device.maps.items():
-                by_space.setdefault(space, set()).add(ranges)
+                spaces.add(space)
+                if ranges is None:
+                    continue
+                kind = claimed_by if space in device.claimed else declared_by
+                kind.setdefault(space, set()).add(ranges)
         merged: dict[Space, tuple[Range, ...] | None] = {}
-        for space, declared in by_space.items():
-            constrained = {ranges for ranges in declared if ranges is not None}
-            if not constrained:
+        claimed: set[Space] = set()
+        for space in spaces:
+            declared = declared_by.get(space, set())
+            claims = claimed_by.get(space, set())
+            if not declared and not claims:
                 merged[space] = None
                 continue
-            joint = tuple(
-                sorted({r for ranges in constrained for r in _coalesce(ranges)})
-            )
-            try:
-                _validate_ranges(joint)  # overlap is a conflict; touching is not
-            except ValueError as err:
-                raise ValueError(
-                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} where "
-                    f"their maps overlap, but got conflicting values: "
-                    f"{sorted(constrained)}"
-                ) from err
-            merged[space] = _partitioned(constrained, constrained)
-        return cls(merged)
+            if declared:
+                joint = tuple(
+                    sorted({r for ranges in declared for r in _coalesce(ranges)})
+                )
+                try:
+                    _validate_ranges(joint)  # overlap is a conflict; touching is not
+                except ValueError as err:
+                    raise ValueError(
+                        f"{describe(space)} must agree on {_RANGE_ATTR[space]} "
+                        f"where their maps overlap, but got conflicting values: "
+                        f"{sorted(declared)}"
+                    ) from err
+            else:
+                claimed.add(space)
+            parts = declared | claims
+            merged[space] = _partitioned(parts, parts)
+        return cls(merged, claimed=frozenset(claimed))
