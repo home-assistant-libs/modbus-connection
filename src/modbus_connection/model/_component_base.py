@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, Any, cast
 from ._const import Raw, RegisterSpace, Space
 from ._planning import (
     ReadItem,
+    ReadPlan,
     ResolvedField,
     _merge_raw,
     _Readable,
     undeclared_claims,
 )
 from ._ranges import DeviceRanges, _coalesce
-from .component_group import ComponentGroup
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
@@ -70,7 +70,6 @@ class _ComponentBase(_Readable):
         self._listeners: list[UpdateListener] = []
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
-        self._instance_group: ComponentGroup | None = None
         for name, field in self._static_groups.items():
             # a static group's count is a fixed int (Component splits the two kinds)
             count = cast("int", field.count)
@@ -148,13 +147,29 @@ class _ComponentBase(_Readable):
             for item in instance._read_items
         ]
 
-    def _with_static_ranges(self, own: DeviceRanges) -> DeviceRanges:
-        """Merge every fixed-count instance's readable ranges into ``own``.
+    @cached_property
+    def _dynamic_items(self) -> list[ReadItem]:
+        """Read targets of every register-count group's current instances."""
+        return [
+            item
+            for name in self._repeating_fields
+            for instance in self._groups.get(name, [])
+            for item in instance._read_items
+        ]
 
-        A fixed-count group's instances are read from this component's own plan
-        (see ``_static_items``), so their declared maps only mean something if
-        they reach it. A register-count group gets this from the ``ComponentGroup``
-        its instances are pooled in, which merges its members' maps the same way.
+    def _instances(self) -> list[Component]:
+        """Every repeating-group instance, fixed-count and register-count."""
+        return [instance for group in self._groups.values() for instance in group]
+
+    def _resolved_ranges(self) -> DeviceRanges:
+        """This object's readable map; provided by the concrete types."""
+        raise NotImplementedError
+
+    def _with_instance_ranges(self, own: DeviceRanges) -> DeviceRanges:
+        """Merge every repeating-group instance's readable ranges into ``own``.
+
+        A ``repeating_group``'s instances are read from this component's own
+        plan, so their declared maps only mean something if they reach it.
 
         Where the merged map constrains a space, a part that declares nothing
         for it stands for the addresses it reads by itself — like an undeclared
@@ -162,22 +177,20 @@ class _ComponentBase(_Readable):
 
         Raises ``ValueError`` if the maps conflict.
         """
-        if not self._static_groups:
+        instances = self._instances()
+        if not instances:
             return own
-        instances = [
-            instance for name in self._static_groups for instance in self._groups[name]
-        ]
         try:
             merged = DeviceRanges.merged(
-                # an instance's own fixed-count groups are merged into its map
+                # an instance's own repeating groups are merged into its map
                 [own, *(instance._resolved_ranges() for instance in instances)],
-                whose="a component and its fixed-count instances",
+                whose="a component and its repeating_group instances",
             )
         except ValueError as err:
             # The usual cause is a sub-component that declares the ranges its
             # parent already covers, so name the fix rather than only the clash.
             raise ValueError(
-                f"{err}. A fixed-count repeating_group's instances are read from "
+                f"{err}. A repeating_group's instances are read from "
                 f"{type(self).__name__}'s own plan, so the sub-component normally "
                 f"leaves its readable ranges unset and lets the parent's map cover "
                 f"the repeated addresses"
@@ -203,16 +216,22 @@ class _ComponentBase(_Readable):
 
     def _invalidate_caches(self) -> None:
         # Owns the group read-target caches; the plan is the base's.
-        for attr in ("_count_items", "_static_items"):
+        for attr in ("_count_items", "_static_items", "_dynamic_items"):
             self.__dict__.pop(attr, None)
         super()._invalidate_caches()
 
     async def async_update_repeating_groups(self) -> None:
-        """Resize and update register-count groups."""
+        """Resize register-count groups and read any instances just added."""
         await self._refresh_repeating_groups(collect_raw=False)
 
     async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
-        """Refresh register-count groups and optionally collect raw values."""
+        """Resize register-count groups to the counts just read.
+
+        The instances are part of this component's own plan, so a poll at the
+        current size has already read them. A resize invalidates that plan for
+        the next poll; instances the resize *added* are read here, so the
+        update that grew a group returns it complete.
+        """
         raw: Raw = {}
         for name in self._static_groups:
             for instance in self._groups[name]:
@@ -222,30 +241,34 @@ class _ComponentBase(_Readable):
                 )
         if not self._repeating_fields:
             return raw
-        # Size each register-count group to the count just read, growing or
-        # trimming its instances and dropping the cached pooled group on a change.
-        instances: list[Component] = []
+        added: list[Component] = []
+        resized = False
         for name, field in self._repeating_fields.items():
             value = self._counts.get(name)
             count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
-            if len(existing) != count:
-                existing = existing[:count] + self._build_instances(
-                    field, len(existing), count
-                )
-                self._groups[name] = existing
-                self._instance_group = None
-            instances.extend(existing)
-        if instances:
-            if self._instance_group is None:
-                self._instance_group = ComponentGroup(
-                    self._unit, instances, _one_run=True
-                )
-                self._instance_group._parent = self
-            _merge_raw(
-                raw,
-                await self._instance_group._refresh(
-                    collect_raw=collect_raw, notify=False
-                ),
+            if len(existing) == count:
+                continue
+            resized = True
+            new = self._build_instances(field, len(existing), count)
+            self._groups[name] = existing[:count] + new
+            added.extend(new)
+        if resized:
+            self._invalidate_caches()
+        if added:
+            plan = ReadPlan.build(
+                [item for instance in added for item in instance._read_items],
+                self._resolved_ranges(),
+                max_gap=self.max_gap,
+                max_span=self.max_span,
             )
+            _merge_raw(raw, await plan.execute(self._unit, collect_raw=collect_raw))
+        # An instance's own register-count groups resize from the counts the
+        # reads above decoded.
+        for name in self._repeating_fields:
+            for instance in self._groups.get(name, []):
+                _merge_raw(
+                    raw,
+                    await instance._refresh_repeating_groups(collect_raw=collect_raw),
+                )
         return raw

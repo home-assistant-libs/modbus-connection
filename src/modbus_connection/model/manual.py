@@ -112,8 +112,7 @@ class ManualComponent(_ComponentBase):
         self._static_groups.pop(key, None)
         self._repeating_fields.pop(key, None)
         self._counts.pop(key, None)
-        if self._groups.pop(key, None) is not None:
-            self._instance_group = None
+        self._groups.pop(key, None)
         self._invalidate_caches()
 
     # -- values --------------------------------------------------------------
@@ -147,14 +146,14 @@ class ManualComponent(_ComponentBase):
     @cached_property
     def _read_items(self) -> list[ReadItem]:
         """Return this component's read targets."""
-        return self._own_items + self._static_items
+        return self._own_items + self._static_items + self._dynamic_items
 
     def _resolved_ranges(self) -> DeviceRanges:
         """The declared per-table ranges, with any fixed-count instances' merged.
 
         Raises ``ValueError`` if a table's map conflicts with an instance's.
         """
-        return self._with_static_ranges(self._ranges)
+        return self._with_instance_ranges(self._ranges)
 
     def _invalidate_caches(self) -> None:
         for attr in ("_read_items", "_own_items"):

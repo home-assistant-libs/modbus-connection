@@ -112,7 +112,9 @@ async def test_read_raw_repeats_size_from_a_fresh_count() -> None:
     # second instance's registers.
     unit.holding.update({8: 2, 30: 482, 31: 95})
     raw = await inv.async_read_raw()
-    assert raw["holding"] == {8: 2, 10: 480, 11: 100, 30: 482, 31: 95}
+    # 9 rides along: the count register and the instances share one plan now,
+    # so the block bridges the gap between them like any component's fields.
+    assert raw["holding"] == {8: 2, 9: 0, 10: 480, 11: 100, 30: 482, 31: 95}
 
 
 async def test_count_change_resizes() -> None:
@@ -228,8 +230,8 @@ async def test_instances_pool_with_the_registers_between_them() -> None:
     unit.reads.clear()
     await inv.async_update()
 
-    # count, then one block from the scale factor through the last module value
-    assert unit.reads == [("holding", 8, 1), ("holding", 2, 58)]
+    # One request covers the scale factor, the count, and every module value.
+    assert unit.reads == [("holding", 2, 58)]
 
 
 async def test_count_and_fixed_groups_plan_the_same_reads() -> None:

@@ -190,7 +190,7 @@ class Component(_ComponentBase):
     @cached_property
     def _read_items(self) -> list[ReadItem]:
         """Return this component's read targets."""
-        return self._own_items + self._static_items
+        return self._own_items + self._static_items + self._dynamic_items
 
     def _invalidate_caches(self) -> None:
         # _read_items composes the base's group targets, so it goes when they do
@@ -206,9 +206,8 @@ class Component(_ComponentBase):
         that moves the whole block. A per-field ``stride`` is not part of that
         shift, so a layout addressed by ``index`` states its ranges absolutely.
 
-        A fixed-count ``repeating_group``'s instances are read from this
-        component's plan, so their maps are merged in (see
-        ``_with_static_ranges``).
+        A ``repeating_group``'s instances are read from this component's
+        plan, so their maps are merged in (see ``_with_instance_ranges``).
 
         Raises ``ValueError`` if this component's map conflicts with an instance's.
         """
@@ -219,7 +218,7 @@ class Component(_ComponentBase):
                 "discrete": self.discrete_ranges,
             }
         )
-        return self._with_static_ranges(
+        return self._with_instance_ranges(
             declared.shift(self._base_offset + self._instance_offset)
         )
 
