@@ -7,6 +7,7 @@ import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
+from serialx import Parity, StopBits
 from tenacity import AsyncRetrying, retry_never, stop_after_delay, wait_exponential
 from tmodbus import (
     AsyncModbusClient,
@@ -138,8 +139,7 @@ class ModbusConnection(BaseModbusConnection):
                 # ASCII has no socket-framed client: it is the serial framing,
                 # carried over a socket by serialx's socket:// transport. The
                 # serial line settings are inert on a socket.
-                # SerialXOptions omits timeout, which serialx takes at runtime.
-                return create_async_ascii_client(  # type: ignore[call-arg]
+                return create_async_ascii_client(
                     f"socket://{params.host}:{params.port}",
                     unit_id=_PLACEHOLDER_UNIT_ID,
                     baudrate=_UNUSED_BAUDRATE,
@@ -191,16 +191,13 @@ class ModbusConnection(BaseModbusConnection):
             create_serial = create_async_rtu_client
         else:
             create_serial = create_async_ascii_client
-        # tmodbus' SerialXOptions under-declares the serial options serialx accepts
-        # at runtime: it omits ``bytesize`` and types ``parity``/``stopbits`` as
-        # enums though serialx also takes the str/int forms we pass here.
-        return create_serial(  # type: ignore[call-arg]
+        return create_serial(
             params.device,
             unit_id=_PLACEHOLDER_UNIT_ID,
             baudrate=params.baudrate,
             bytesize=params.bytesize,
-            parity=params.parity,  # type: ignore[arg-type]
-            stopbits=params.stopbits,  # type: ignore[arg-type]
+            parity=Parity(params.parity),
+            stopbits=StopBits(params.stopbits),
             auto_reconnect=False,
             response_retry_strategy=_RESPONSE_RETRIES,
             retry_on_device_failure=False,
