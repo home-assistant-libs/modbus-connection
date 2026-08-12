@@ -20,7 +20,6 @@ from modbus_connection import (
     ExceptionCode,
     IllegalDataAddressError,
     ModbusConnectionError,
-    ModbusDesyncError,
     ModbusProtocolError,
     ModbusTcpParams,
 )
@@ -143,20 +142,20 @@ async def test_invalid_response_maps_to_protocol_error(
     [_FunctionCodeClient, _HeaderMismatchClient],
     ids=["function-code", "header-mismatch"],
 )
-async def test_mismatched_replies_raise_desync(
+async def test_mismatched_replies_map_to_protocol_error(
     connection_to: Callable[[_FakeClient], ModbusConnection],
     client_class: type[_FakeClient],
 ) -> None:
-    """A reply answering a different exchange raises ModbusDesyncError.
+    """The 0.5.1 InvalidResponseError subclasses stay protocol errors.
 
-    Corruption retries; a desynchronized stream needs disconnect(). Both
-    are still ModbusProtocolError, and the typed cause is preserved.
+    A reply carrying the wrong function code or answering a different
+    transaction is a corrupt exchange, not a device refusal; the typed
+    cause is preserved for whoever wants the detail.
     """
     unit = connection_to(client_class()).for_unit(1)
 
-    with pytest.raises(ModbusDesyncError) as excinfo:
+    with pytest.raises(ModbusProtocolError) as excinfo:
         await unit.read_holding_registers(0, 1)
-    assert isinstance(excinfo.value, ModbusProtocolError)
     assert isinstance(excinfo.value.__cause__, InvalidResponseError)
 
 

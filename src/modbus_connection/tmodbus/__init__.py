@@ -18,8 +18,6 @@ from tmodbus import (
     create_async_udp_client,
 )
 from tmodbus.exceptions import (
-    FunctionCodeError,
-    HeaderMismatchError,
     InvalidResponseError,
     ModbusResponseError,
     TModbusError,
@@ -38,7 +36,6 @@ from .._client import (
 from .._types import SerialFraming, SocketFraming
 from ..exceptions import (
     ModbusConnectionError,
-    ModbusDesyncError,
     ModbusError,
     ModbusExceptionError,
     ModbusProtocolError,
@@ -243,8 +240,6 @@ def _map_errors[**P, R](
             raise ModbusConnectionError(f"{prefix}: {err}") from err
         except TimeoutError as err:
             raise ModbusTimeoutError(f"{prefix}: {err}") from err
-        except (HeaderMismatchError, FunctionCodeError) as err:
-            raise ModbusDesyncError(f"{prefix}: {err}") from err
         except InvalidResponseError as err:
             raise ModbusProtocolError(f"{prefix}: {err}") from err
         except ModbusResponseError as err:

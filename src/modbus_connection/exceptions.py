@@ -65,17 +65,6 @@ class ModbusProtocolError(ModbusError):
     to a different request than the one sent."""
 
 
-class ModbusDesyncError(ModbusProtocolError):
-    """The reply answers a different exchange than the one in flight.
-
-    Corruption is transient — retrying rereads the line. A desynchronized
-    stream is not: every retry reads the same offset, so the recovery is
-    ``ModbusConnection.disconnect()``, which drops the link and lets the next
-    request open a fresh one. Only a backend that can match replies to
-    requests raises this; the others surface such a reply as a timeout.
-    """
-
-
 class ModbusExceptionError(ModbusError):
     """The device returned a Modbus exception response.
 
