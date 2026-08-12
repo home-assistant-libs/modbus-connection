@@ -253,28 +253,29 @@ class Component(_ComponentBase):
         kept_registers, dropped_registers = _partition(self._register_fields, keep)
         kept_bits, dropped_bits = _partition(self._bit_fields, keep)
 
-        synthesising = self.register_ranges is None
-        self.register_ranges = self._reshaped_ranges(
-            self.register_ranges, kept_registers.values(), dropped_registers.values()
-        )
-        if synthesising and self.register_ranges is not None:
-            self._claimed_spaces.add(self.register_space)
-        bit_spaces: tuple[tuple[Space, str], ...] = (
-            ("coil", "coil_ranges"),
-            ("discrete", "discrete_ranges"),
-        )
-        for space, attr in bit_spaces:
-            synthesising = getattr(self, attr) is None
-            setattr(
-                self,
-                attr,
-                self._reshaped_ranges(
-                    getattr(self, attr),
+        spaces: tuple[tuple[Space, str, Any, Any], ...] = (
+            (
+                self.register_space,
+                "register_ranges",
+                kept_registers.values(),
+                dropped_registers.values(),
+            ),
+            *(
+                (
+                    space,
+                    f"{space}_ranges",
                     [f for f in kept_bits.values() if f.space == space],
                     [f for f in dropped_bits.values() if f.space == space],
-                ),
-            )
-            if synthesising and getattr(self, attr) is not None:
+                )
+                for space in ("coil", "discrete")
+            ),
+        )
+        for space, attr, kept, dropped in spaces:
+            declared = getattr(self, attr)
+            reshaped = self._reshaped_ranges(declared, kept, dropped)
+            setattr(self, attr, reshaped)
+            if declared is None and reshaped is not None:
+                # synthesised from the kept fields: a claim, not a declaration
                 self._claimed_spaces.add(space)
 
         self._register_fields = kept_registers

@@ -174,22 +174,15 @@ class DeviceRanges:
         describe = whose if callable(whose) else lambda _space: whose
         declared_by: dict[Space, set[tuple[Range, ...]]] = {}
         claimed_by: dict[Space, set[tuple[Range, ...]]] = {}
-        spaces: set[Space] = set()
         for device in maps:
             for space, ranges in device.maps.items():
-                spaces.add(space)
                 if ranges is None:
                     continue
                 kind = claimed_by if space in device.claimed else declared_by
                 kind.setdefault(space, set()).add(ranges)
         merged: dict[Space, tuple[Range, ...] | None] = {}
-        claimed: set[Space] = set()
-        for space in spaces:
+        for space in declared_by.keys() | claimed_by.keys():
             declared = declared_by.get(space, set())
-            claims = claimed_by.get(space, set())
-            if not declared and not claims:
-                merged[space] = None
-                continue
             if declared:
                 joint = tuple(
                     sorted({r for ranges in declared for r in _coalesce(ranges)})
@@ -202,8 +195,6 @@ class DeviceRanges:
                         f"where their maps overlap, but got conflicting values: "
                         f"{sorted(declared)}"
                     ) from err
-            else:
-                claimed.add(space)
-            parts = declared | claims
+            parts = declared | claimed_by.get(space, set())
             merged[space] = _partitioned(parts, parts)
-        return cls(merged, claimed=frozenset(claimed))
+        return cls(merged, claimed=frozenset(claimed_by.keys() - declared_by.keys()))
