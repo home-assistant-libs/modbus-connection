@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
 from ._component_base import _ComponentBase
-from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
+from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
 from ._planning import ReadItem, ReadPlan, ResolvedField, _plan_blocks
 from ._ranges import DeviceRanges, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
@@ -117,6 +117,9 @@ class Component(_ComponentBase):
         self._instance_offset = _instance_offset
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
+        # Spaces whose ranges restrict_fields synthesised: a claim over what
+        # the kept fields read, not a declaration of what the device serves.
+        self._claimed_spaces: set[Space] = set()
         # Set up listener and repeating_group state; fixed-count groups'
         # instances are built now so they fold into the normal read plan like
         # ordinary fields.
@@ -209,7 +212,8 @@ class Component(_ComponentBase):
                 self.register_space: self.register_ranges,
                 "coil": self.coil_ranges,
                 "discrete": self.discrete_ranges,
-            }
+            },
+            claimed=frozenset(self._claimed_spaces),
         )
         return self._with_instance_ranges(
             declared.shift(self._base_offset + self._instance_offset)
@@ -242,19 +246,30 @@ class Component(_ComponentBase):
         kept_registers, dropped_registers = _partition(self._register_fields, keep)
         kept_bits, dropped_bits = _partition(self._bit_fields, keep)
 
-        self.register_ranges = self._reshaped_ranges(
-            self.register_ranges, kept_registers.values(), dropped_registers.values()
-        )
-        for space, attr in (("coil", "coil_ranges"), ("discrete", "discrete_ranges")):
-            setattr(
-                self,
-                attr,
-                self._reshaped_ranges(
-                    getattr(self, attr),
+        spaces: tuple[tuple[Space, str, Any, Any], ...] = (
+            (
+                self.register_space,
+                "register_ranges",
+                kept_registers.values(),
+                dropped_registers.values(),
+            ),
+            *(
+                (
+                    space,
+                    f"{space}_ranges",
                     [f for f in kept_bits.values() if f.space == space],
                     [f for f in dropped_bits.values() if f.space == space],
-                ),
-            )
+                )
+                for space in ("coil", "discrete")
+            ),
+        )
+        for space, attr, kept, dropped in spaces:
+            declared = getattr(self, attr)
+            reshaped = self._reshaped_ranges(declared, kept, dropped)
+            setattr(self, attr, reshaped)
+            if declared is None and reshaped is not None:
+                # synthesised from the kept fields: a claim, not a declaration
+                self._claimed_spaces.add(space)
 
         self._register_fields = kept_registers
         self._bit_fields = kept_bits
