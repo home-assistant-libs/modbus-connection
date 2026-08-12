@@ -6,10 +6,12 @@ from collections.abc import Callable
 
 import pytest
 from tmodbus.exceptions import (
-    IllegalDataAddressError as TIllegalDataAddressError,
+    FunctionCodeError,
+    HeaderMismatchError,
+    InvalidResponseError,
 )
 from tmodbus.exceptions import (
-    InvalidResponseError,
+    IllegalDataAddressError as TIllegalDataAddressError,
 )
 from tmodbus.exceptions import ModbusConnectionError as TModbusConnectionError
 
@@ -94,6 +96,20 @@ async def test_write_file_record_encodes_words_to_payload(
     assert client.write_calls == [(7, 9, b"\x00\x2a\x01\x00")]
 
 
+class _FunctionCodeClient(_FakeClient):
+    """Answers with the wrong function code in the response."""
+
+    async def read_holding_registers(self, *a: object, **k: object) -> list[int]:
+        raise FunctionCodeError("expected 0x03, got 0x83", response_bytes=b"\x83")
+
+
+class _HeaderMismatchClient(_FakeClient):
+    """Answers a different transaction than the one asked."""
+
+    async def read_holding_registers(self, *a: object, **k: object) -> list[int]:
+        raise HeaderMismatchError("transaction 7 answered 5", response_bytes=b"")
+
+
 class _InvalidResponseClient(_FakeClient):
     """A unit client whose reads always fail with an invalid response."""
 
@@ -119,6 +135,28 @@ async def test_invalid_response_maps_to_protocol_error(
 
     with pytest.raises(ModbusProtocolError):
         await unit.read_holding_registers(0, 1)
+
+
+@pytest.mark.parametrize(
+    "client_class",
+    [_FunctionCodeClient, _HeaderMismatchClient],
+    ids=["function-code", "header-mismatch"],
+)
+async def test_mismatched_replies_map_to_protocol_error(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+    client_class: type[_FakeClient],
+) -> None:
+    """The 0.5.1 InvalidResponseError subclasses stay protocol errors.
+
+    A reply carrying the wrong function code or answering a different
+    transaction is a corrupt exchange, not a device refusal; the typed
+    cause is preserved for whoever wants the detail.
+    """
+    unit = connection_to(client_class()).for_unit(1)
+
+    with pytest.raises(ModbusProtocolError) as excinfo:
+        await unit.read_holding_registers(0, 1)
+    assert isinstance(excinfo.value.__cause__, InvalidResponseError)
 
 
 async def test_exception_response_maps_to_the_typed_subclass(
