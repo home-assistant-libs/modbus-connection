@@ -195,8 +195,6 @@ class DeviceRanges:
                         f"where their maps overlap, but got conflicting values: "
                         f"{sorted(declared)}"
                     ) from err
-            # A claim contributes coverage but draws no boundary: only a
-            # declaration's edges cut, and a hole splits by not being covered.
             parts = declared | claimed_by.get(space, set())
             merged[space] = _partitioned(parts, declared)
         return cls(merged, claimed=frozenset(claimed_by.keys() - declared_by.keys()))
