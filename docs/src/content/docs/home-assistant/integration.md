@@ -179,7 +179,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         if not report.updated:
             raise UpdateFailed("no sub-system answered")
 
-        # Only what newly failed; one that stays down would log every poll.
         for name in sorted(report.failed.keys() - self._failed):
             _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
         self._failed = frozenset(report.failed)
