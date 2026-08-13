@@ -164,20 +164,32 @@ only when your link carries several units and just one of them needs pacing.
 
 ## The coordinator
 
-A `DataUpdateCoordinator._async_update_data` becomes a one-liner: refresh the
-device, and let its typed attributes back the entities.
+`async_update()` returns an `UpdateReport` — which sub-systems refreshed, and
+which failed — so the coordinator's data is that report:
 
 ```python
-async def _async_update_data(self) -> None:
-    try:
-        await self.device.async_update()
-    except ModbusError as err:
-        raise UpdateFailed(str(err)) from err
+class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
+    _failed: frozenset[str] = frozenset()
+
+    async def _async_update_data(self) -> UpdateReport:
+        try:
+            report = await self.device.async_update()
+        except ModbusError as err:
+            raise UpdateFailed(str(err)) from err
+        if not report.updated:
+            errors = list(report.failed.values())
+            raise UpdateFailed(
+                f"no sub-system answered: {errors[0]}"
+            ) from ExceptionGroup("every sub-system failed", errors)
+
+        for name in sorted(report.failed.keys() - self._failed):
+            _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
+        self._failed = frozenset(report.failed)
+        return report
 ```
 
-Each entity's native value is then just an attribute read on the device library.
-Put that read in the entity description as a `value_fn`, so a platform is a
-table of descriptions and one entity class:
+Each entity reads one attribute off the device, and names the sub-system it came
+from:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -185,6 +197,15 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     """Describe a sensor backed by a device attribute."""
 
     value_fn: Callable[[MyDevice], float | None]
+    component: str  # the sub-system this sensor reads from
+
+    @cached_property
+    def is_total(self) -> bool:
+        """Whether this sensor accumulates rather than measures."""
+        return self.state_class in (
+            SensorStateClass.TOTAL,
+            SensorStateClass.TOTAL_INCREASING,
+        )
 
 
 SENSORS: tuple[MyDeviceSensorDescription, ...] = (
@@ -192,23 +213,48 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
         key="outside_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        component="sensors",
         value_fn=lambda device: device.sensors.outside_1,
     ),
 )
 
 
-class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
+class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
     entity_description: MyDeviceSensorDescription
 
     @property
-    def native_value(self) -> float | None:
-        return self.entity_description.value_fn(self.coordinator.device)
+    def available(self) -> bool:
+        return self.entity_description.is_total or (
+            super().available
+            and self.entity_description.component not in self.coordinator.data.failed
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (
+            self.entity_description.is_total
+            and (last_data := await self.async_get_last_sensor_data()) is not None
+        ):
+            self._attr_native_value = last_data.native_value
+        self._process_data()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._process_data()
+        super()._handle_coordinator_update()
+
+    def _process_data(self) -> None:
+        value = self.entity_description.value_fn(self.coordinator.device)
+        if value is not None or not self.entity_description.is_total:
+            self._attr_native_value = value  # a total keeps what it had
 ```
 
-The `lambda` is type-checked against the device library, so a renamed or
-retyped field fails in CI rather than at runtime. The field's `unit=` and enum
-members tell you which `native_unit_of_measurement` and `device_class` the
-description should carry.
+An entity whose sub-system failed goes unavailable, except a **long-term
+statistic**: a `TOTAL` or `TOTAL_INCREASING` sensor holds its last value, because
+devices legitimately go offline — a solar inverter powers down every night — and
+a gap damages long-term statistics and the energy dashboard.
+[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
+seeds it across a restart.
 
 ## Reconnecting is automatic
 
@@ -228,9 +274,9 @@ serial-to-network bridges wedge this way — call `disconnect()` once polls keep
 failing with `ModbusTimeoutError`:
 
 ```python
-async def _async_update_data(self) -> None:
+async def _async_update_data(self) -> UpdateReport:
     try:
-        await self.device.async_update()
+        report = await self.device.async_update()
     except ModbusTimeoutError as err:
         self._timeouts += 1
         if self._timeouts >= 3:  # a stuck link, not a slow reply
@@ -239,6 +285,7 @@ async def _async_update_data(self) -> None:
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
     self._timeouts = 0
+    ...  # report handling as above
 ```
 
 The next poll establishes a fresh link over the same units and components, so
@@ -257,14 +304,15 @@ raising `SunSpecMapShiftError`. Reload the entry so setup rescans and rebuilds t
 components at their new addresses:
 
 ```python
-async def _async_update_data(self) -> None:
+async def _async_update_data(self) -> UpdateReport:
     try:
-        await self.device.async_update()
+        report = await self.device.async_update()
     except SunSpecMapShiftError as err:
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
+    ...  # report handling as above
 ```
 
 `SunSpecMapShiftError` is **not** a `ModbusError` — it needs its own `except`
@@ -287,16 +335,17 @@ whichever backend the integration ships:
 Home Assistant lets a user **download diagnostics** for a device. For a Modbus
 device the most useful payload is the raw register map — every register the
 integration reads, with its raw value — so an issue report shows exactly what the
-device returned. `Component`, `ComponentGroup` and `ManualComponent` all expose
-`async_read_raw()` for this: it runs the same reads as `async_update()` —
-including any [`repeating_group`](/modbus-connection/modelling/repeats/) second
-pass — but returns the raw words and bits keyed by absolute address,
-`{space: {address: value}}`, undecoded.
+device returned. A `Component` exposes `async_read_raw()` for this: it runs the
+same reads as `async_update()`, but returns the raw words and bits keyed by
+absolute address, `{space: {address: value}}`, undecoded. Have the device merge
+its components' maps into one, so diagnostics is a single call:
 
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
     coordinator = entry.runtime_data
     return {
+        "updated": coordinator.data.updated,
+        "failed": {name: str(err) for name, err in coordinator.data.failed.items()},
         "registers": await coordinator.device.async_read_raw(),
     }
 ```
@@ -330,11 +379,15 @@ wiring.
       can differ; a fixed address is a constant in the integration.
 - [ ] `async_setup_entry` constructs the `ModbusConnection` and registers
       `connection.close` with `entry.async_on_unload`.
-- [ ] Coordinator calls the library's `async_update()` and maps `ModbusError` to
-      `UpdateFailed`.
+- [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
+      `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
-- [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
+- [ ] Entities read typed attributes. An entity goes unavailable when its own
+      sub-system is in `report.failed`.
+- [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
+      offline, and restore their last value with `RestoreSensor` across a
+      restart, so long-term statistics keep their history.
 - [ ] Diagnostics download returns the raw register map via `async_read_raw()`.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).

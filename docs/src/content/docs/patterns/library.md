@@ -1,6 +1,6 @@
 ---
 title: The device object
-description: How the top-level device object of a library built on modbus-connection comes together — one typed class over Components and a ComponentGroup.
+description: How the top-level device object of a library built on modbus-connection comes together.
 ---
 
 modbus-connection is a foundation you build a **device library** on. A good device
@@ -19,16 +19,23 @@ The device object:
    instances,
 3. sets itself up once — reading everything that never changes and settling
    which components this device serves — from the first `async_update()`,
-4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
+4. polls each of them on its own, so one that fails does not take the others
+   down with it, and
 5. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from modbus_connection import IllegalDataAddressError
-from modbus_connection.model import Component, ComponentGroup
+from modbus_connection import (
+    IllegalDataAddressError,
+    IllegalFunctionError,
+    ModbusConnectionError,
+    ModbusError,
+)
+from modbus_connection.model import Component
 
 from .sensors import Sensors
 from .controller import Controller
@@ -43,9 +50,17 @@ async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not have it."""
     try:
         await component.async_update()
-    except IllegalDataAddressError:
+    except (IllegalDataAddressError, IllegalFunctionError):
         return None
     return component
+
+
+@dataclass
+class UpdateReport:
+    """What one poll managed to refresh."""
+
+    updated: list[str] = field(default_factory=list)
+    failed: dict[str, ModbusError] = field(default_factory=dict)
 
 
 class Trovis557x:
@@ -62,41 +77,53 @@ class Trovis557x:
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
 
-        self._group: ComponentGroup | None = None
+        self._polled: tuple[str, ...] | None = None
 
     async def _async_setup(self) -> None:
-        """Read what never changes, and find which sub-systems this model has.
+        """Read what never changes, and settle which sub-systems this model has.
 
         Runs from the first ``async_update()``, and again on the next one if
         the device was unreachable.
         """
         await self.controller.async_update()  # identity: read once, never polled
 
-        heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
-        hot_water = await _optional(HotWater(self._unit))
+        self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
+        self.hot_water = await _optional(HotWater(self._unit))
 
-        self.heating_circuit_2 = heating_circuit_2
-        self.hot_water = hot_water
-        self._group = ComponentGroup(
-            self._unit,
-            [
-                c
-                for c in (
-                    self.sensors,
-                    self.heating_circuit_1,
-                    heating_circuit_2,
-                    hot_water,
-                )
-                if c is not None
-            ],
+        self._polled = tuple(
+            n
+            for n in ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+            if getattr(self, n) is not None
         )
 
-    async def async_update(self) -> None:
-        """Refresh all polled sub-systems; the first call sets the device up."""
-        if self._group is None:
+    async def async_update(self) -> UpdateReport:
+        """Refresh every polled sub-system; the first call sets the device up."""
+        if self._polled is None:
             await self._async_setup()
-        assert self._group is not None  # _async_setup() always builds it
-        await self._group.async_update()
+        assert self._polled is not None  # _async_setup() always builds it
+
+        report = UpdateReport()
+        for name in self._polled:
+            try:
+                await getattr(self, name).async_update(notify=False)
+            except ModbusConnectionError:
+                raise  # the link is down; the rest would only wait for timeouts
+            except ModbusError as err:
+                report.failed[name] = err
+            else:
+                report.updated.append(name)
+
+        for name in report.updated:  # nothing fires until the cycle is done
+            getattr(self, name).notify()
+        return report
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics."""
+        raw: dict[str, dict[int, int | bool]] = {}
+        for name in ("controller", *(self._polled or ())):
+            for space, values in (await getattr(self, name).async_read_raw()).items():
+                raw.setdefault(space, {}).update(values)
+        return raw
 ```
 
 The consumer then works entirely in Python objects:
@@ -135,10 +162,8 @@ asyncio.run(main())
   backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
 - **One sub-system per `Component`.** Group registers by function; give each its
   own file. It keeps the address map readable and lets a sub-system refresh alone.
-- **Pool with a `ComponentGroup`.** The whole device reads in a handful of Modbus
-  calls instead of one per field.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
-  to setup, so the polling path stays a single call over a fixed group.
+  to setup, so the polling path stays a fixed list of components to read.
