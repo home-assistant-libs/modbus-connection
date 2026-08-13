@@ -237,14 +237,17 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
             last_data := await self.async_get_last_sensor_data()
         ) is not None:
             self._last_value = last_data.native_value  # never an instantaneous one
-        self._handle_coordinator_update()  # the first poll already ran
+        self._process_data()  # the first poll already ran
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        self._process_data()
+        super()._handle_coordinator_update()
+
+    def _process_data(self) -> None:
         value = self.entity_description.value_fn(self.coordinator.device)
         if value is not None or not self.entity_description.is_total:
             self._last_value = value  # a total keeps what it had
-        super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float | None:
