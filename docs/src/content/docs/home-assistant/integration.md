@@ -221,10 +221,8 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     @property
     def available(self) -> bool:
-        # Above super(), which is False for the whole update when the device is off.
-        if self.entity_description.is_total:
-            return True
-        return (
+        # Short-circuits super(), which is False when the whole update failed.
+        return self.entity_description.is_total or (
             super().available
             and self.entity_description.component not in self.coordinator.data.failed
         )
@@ -235,7 +233,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
             last_data := await self.async_get_last_sensor_data()
         ) is not None:
             self._attr_native_value = last_data.native_value
-        self._process_data()  # the first poll already ran
+        self._process_data()
 
     @callback
     def _handle_coordinator_update(self) -> None:
