@@ -269,13 +269,6 @@ night — and a gap there damages long-term statistics and the energy dashboard.
 seeds that held value from the previous state, so a restart does not gap it
 either.
 
-- **Totals only.** Instantaneous readings stay `unknown` when the device does not
-  answer; serving last evening's 3 kW at 3am is false data.
-- A device-side counter reset is safe: `TOTAL_INCREASING` reads the later
-  decrease as a reset.
-- A held value makes the entity look alive, so put the "device is offline" signal
-  on a connectivity or diagnostic entity, never on the counter.
-
 ## Reconnecting is automatic
 
 The connection re-establishes itself. Every request connects first, so the poll
