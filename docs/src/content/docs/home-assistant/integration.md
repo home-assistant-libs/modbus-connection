@@ -285,7 +285,7 @@ async def _async_update_data(self) -> UpdateReport:
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
     self._timeouts = 0
-    return report
+    ...  # report handling as above
 ```
 
 The next poll establishes a fresh link over the same units and components, so
@@ -306,12 +306,13 @@ components at their new addresses:
 ```python
 async def _async_update_data(self) -> UpdateReport:
     try:
-        return await self.device.async_update()
+        report = await self.device.async_update()
     except SunSpecMapShiftError as err:
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
+    ...  # report handling as above
 ```
 
 `SunSpecMapShiftError` is **not** a `ModbusError` — it needs its own `except`
