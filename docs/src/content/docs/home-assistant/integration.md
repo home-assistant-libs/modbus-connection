@@ -210,6 +210,62 @@ retyped field fails in CI rather than at runtime. The field's `unit=` and enum
 members tell you which `native_unit_of_measurement` and `device_class` the
 description should carry.
 
+## When only part of the device answers
+
+A library that polls [each component as its own failure domain](/modbus-connection/patterns/library/#resilient-polling)
+returns a report instead of failing the whole update, so the coordinator's data
+says which sub-systems refreshed:
+
+```python
+class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
+    async def _async_update_data(self) -> UpdateReport:
+        try:
+            return await self.device.async_update()
+        except ModbusError as err:
+            raise UpdateFailed(str(err)) from err
+```
+
+Entities backed by a failed component then go unavailable — which is right for an
+instantaneous reading: power, voltage, temperature, a state.
+
+It is wrong for a **long-term statistic**. A sensor whose `state_class` is `TOTAL`
+or `TOTAL_INCREASING` — a lifetime yield, an energy counter, a running total —
+must stay available and hold its last value. Devices legitimately go offline (a
+solar inverter powers down every night), and an unavailable total damages Home
+Assistant's long-term statistics and leaves gaps in the energy dashboard.
+
+Derive that from the entity description rather than special-casing entities:
+
+```python
+@dataclass(frozen=True, kw_only=True)
+class MyDeviceSensorDescription(SensorEntityDescription):
+    """Describe a sensor backed by a device attribute."""
+
+    value_fn: Callable[[MyDevice], float | None]
+    component: str  # the sub-system this sensor reads from
+
+    @property
+    def always_available(self) -> bool:
+        """A total holds its last value; the device is allowed to be off."""
+        return self.state_class in (
+            SensorStateClass.TOTAL,
+            SensorStateClass.TOTAL_INCREASING,
+        )
+
+
+class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
+    entity_description: MyDeviceSensorDescription
+
+    @property
+    def available(self) -> bool:
+        if self.entity_description.always_available:
+            return True
+        return (
+            super().available
+            and self.entity_description.component not in self.coordinator.data.failed
+        )
+```
+
 ## Reconnecting is automatic
 
 The connection re-establishes itself. Every request connects first, so the poll
@@ -336,5 +392,7 @@ wiring.
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
 - [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
+- [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
+      offline, so long-term statistics keep their history.
 - [ ] Diagnostics download returns the raw register map via `async_read_raw()`.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).
