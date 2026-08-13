@@ -185,6 +185,9 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         return report
 ```
 
+Each entity reads one attribute off the device, and names the sub-system it came
+from:
+
 ```python
 @dataclass(frozen=True, kw_only=True)
 class MyDeviceSensorDescription(SensorEntityDescription):
