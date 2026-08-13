@@ -116,6 +116,14 @@ class Trovis557x:
         for name in report.updated:  # nothing fires until the cycle is done
             getattr(self, name).notify()
         return report
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics."""
+        raw: dict[str, dict[int, int | bool]] = {}
+        for name in self._polled or ():
+            for space, values in (await getattr(self, name).async_read_raw()).items():
+                raw.setdefault(space, {}).update(values)
+        return raw
 ```
 
 The consumer then works entirely in Python objects:
