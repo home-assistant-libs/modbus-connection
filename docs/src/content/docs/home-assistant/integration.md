@@ -234,6 +234,11 @@ must stay available and hold its last value. Devices legitimately go offline (a
 solar inverter powers down every night), and an unavailable total damages Home
 Assistant's long-term statistics and leaves gaps in the energy dashboard.
 
+A powered-down device answers nothing at all, so that exemption has to sit
+*above* the coordinator's own availability, not beside it: the update fails as a
+whole, and `CoordinatorEntity.available` would otherwise take every total down
+with it. Covering only the per-component case leaves the nightly one broken.
+
 Staying available covers the device going offline while Home Assistant runs. A
 restart is the other half of the same problem: coordinator entities start with no
 data, so a total whose component has not read yet is `unknown` — until the device
@@ -283,17 +288,25 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         if (last_data := await self.async_get_last_sensor_data()) is not None:
             self._restored = last_data.native_value
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Drop the restored value once the device has answered for itself."""
+        if self.entity_description.value_fn(self.coordinator.device) is not None:
+            self._restored = None
+        super()._handle_coordinator_update()
+
     @property
     def native_value(self) -> float | None:
         value = self.entity_description.value_fn(self.coordinator.device)
-        return self._restored if value is None else value
+        return value if value is not None else self._restored
 ```
 
 - **Totals only, on both counts.** Restoring an instantaneous reading is actively
   wrong: last evening's 3 kW served at 3am is false data in history and
   statistics.
-- **A restored value is a fallback, not an override.** The first successful read
-  replaces it.
+- **A restored value only bridges the startup gap.** Once the device has answered
+  for itself the restore is dropped, and a `None` after that is genuinely
+  `unknown` — the device returned no value, and saying so is the honest state.
 - A counter that reset device-side during the downtime is safe: `TOTAL_INCREASING`
   reads the later decrease as a reset, so restoring cannot corrupt the sum.
 - A held or restored value makes the entity look alive, so put the "device is
