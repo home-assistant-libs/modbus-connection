@@ -239,16 +239,23 @@ A powered-down device answers nothing at all, so that exemption has to sit
 whole, and `CoordinatorEntity.available` would otherwise take every total down
 with it. Covering only the per-component case leaves the nightly one broken.
 
-Staying available covers the device going offline while Home Assistant runs. A
-restart is the other half of the same problem: coordinator entities start with no
-data, so a total whose component has not read yet is `unknown` — until the device
-comes back, which for a nightly inverter means dawn. Restore it from the last
-state with
+Staying available is only half of it, because a total can gap without ever going
+unavailable: a failed block, a refused register, a value function that returns
+`None` while the rest of the poll succeeds — each publishes `unknown`, which
+leaves the same hole. The rule is simpler than the list of ways to break it: **a
+total holds its last known value.** Whatever went wrong, the counter is monotonic,
+so the value we last read is still a valid floor — unlike a stale instantaneous
+reading, which really would be fiction.
+
+That leaves one honest `unknown`: before the first-ever read there is nothing to
+hold. A restart lands exactly there, since coordinator entities start with no
+data — for a nightly inverter that means `unknown` until dawn. Seed the held value
+from the previous state with
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor),
 whose `async_get_last_sensor_data()` returns the native value and unit a
 coordinator-backed sensor needs.
 
-Derive both from the entity description rather than special-casing entities:
+Derive it from the entity description rather than special-casing entities:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -270,7 +277,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
 class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
     entity_description: MyDeviceSensorDescription
 
-    _restored: float | None = None
+    _last_value: float | None = None
 
     @property
     def available(self) -> bool:
@@ -286,32 +293,33 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         if not self.entity_description.is_total:
             return  # never restore an instantaneous reading
         if (last_data := await self.async_get_last_sensor_data()) is not None:
-            self._restored = last_data.native_value
+            self._last_value = last_data.native_value
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Drop the restored value once the device has answered for itself."""
-        if self.entity_description.value_fn(self.coordinator.device) is not None:
-            self._restored = None
+        """Remember what a total last actually read."""
+        value = self.entity_description.value_fn(self.coordinator.device)
+        if value is not None:
+            self._last_value = value
         super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float | None:
         value = self.entity_description.value_fn(self.coordinator.device)
-        return value if value is not None else self._restored
+        if value is None and self.entity_description.is_total:
+            return self._last_value
+        return value  # an instantaneous reading we don't have is unknown
 ```
 
-- **Totals only, on both counts.** Restoring an instantaneous reading is actively
+- **Totals only.** Holding or restoring an instantaneous reading is actively
   wrong: last evening's 3 kW served at 3am is false data in history and
-  statistics.
-- **A restored value only bridges the startup gap.** Once the device has answered
-  for itself the restore is dropped, and a `None` after that is genuinely
-  `unknown` — the device returned no value, and saying so is the honest state.
-- A counter that reset device-side during the downtime is safe: `TOTAL_INCREASING`
-  reads the later decrease as a reset, so restoring cannot corrupt the sum.
-- A held or restored value makes the entity look alive, so put the "device is
-  offline" signal on a separate connectivity or diagnostic entity — never on the
-  energy counter itself.
+  statistics. Those stay `unknown` when the device does not answer.
+- A counter that reset device-side while you were not reading is safe:
+  `TOTAL_INCREASING` reads the later decrease as a reset, so neither holding nor
+  restoring can corrupt the sum.
+- A held value makes the entity look alive, so put the "device is offline" signal
+  on a separate connectivity or diagnostic entity — never on the energy counter
+  itself.
 
 ## Reconnecting is automatic
 
