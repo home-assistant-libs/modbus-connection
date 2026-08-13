@@ -118,11 +118,6 @@ class Trovis557x:
         return report
 ```
 
-Each component is its own failure domain: a bad block costs that sub-system and
-nothing else. You give up pooling *across* components — each still pools its own
-fields — which in practice usually costs no extra reads at all, since sub-systems
-tend to own separate stretches of the register map.
-
 - `ModbusTimeoutError` is a
   [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
   `ModbusConnectionError`, not a subclass — hence the order of those two
