@@ -249,14 +249,12 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         return self._last_value
 ```
 
-An entity whose sub-system failed goes unavailable, which is right for an
-instantaneous reading. It is wrong for a **long-term statistic**: a sensor whose
-`state_class` is `TOTAL` or `TOTAL_INCREASING` holds its last value instead,
-because devices legitimately go offline — a solar inverter powers down every
-night — and a gap there damages long-term statistics and the energy dashboard.
+An entity whose sub-system failed goes unavailable, except a **long-term
+statistic**: a `TOTAL` or `TOTAL_INCREASING` sensor holds its last value, because
+devices legitimately go offline — a solar inverter powers down every night — and
+a gap damages long-term statistics and the energy dashboard.
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
-seeds that held value from the previous state, so a restart does not gap it
-either.
+seeds it across a restart.
 
 ## Reconnecting is automatic
 
