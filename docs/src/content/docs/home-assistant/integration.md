@@ -237,25 +237,22 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if not self.entity_description.is_total:
-            return  # never restore an instantaneous reading
-        if (last_data := await self.async_get_last_sensor_data()) is not None:
-            self._last_value = last_data.native_value
+        if self.entity_description.is_total and (
+            last_data := await self.async_get_last_sensor_data()
+        ) is not None:
+            self._last_value = last_data.native_value  # never an instantaneous one
+        self._handle_coordinator_update()  # the first poll already ran
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Remember what a total last actually read."""
         value = self.entity_description.value_fn(self.coordinator.device)
-        if value is not None:
-            self._last_value = value
+        if value is not None or not self.entity_description.is_total:
+            self._last_value = value  # a total keeps what it had
         super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float | None:
-        value = self.entity_description.value_fn(self.coordinator.device)
-        if value is None and self.entity_description.is_total:
-            return self._last_value
-        return value  # an instantaneous reading we don't have is unknown
+        return self._last_value
 ```
 
 The `lambda` is type-checked against the device library, so a renamed or retyped
