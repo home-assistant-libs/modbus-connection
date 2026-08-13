@@ -335,12 +335,10 @@ whichever backend the integration ships:
 Home Assistant lets a user **download diagnostics** for a device. For a Modbus
 device the most useful payload is the raw register map — every register the
 integration reads, with its raw value — so an issue report shows exactly what the
-device returned. `Component` and `ManualComponent` expose `async_read_raw()` for
-this: it runs the same reads as `async_update()` — including any
-[`repeating_group`](/modbus-connection/modelling/repeats/) second pass — but
-returns the raw words and bits keyed by absolute address,
-`{space: {address: value}}`, undecoded. Have the device merge its components'
-maps into one, so diagnostics is a single call:
+device returned. A `Component` exposes `async_read_raw()` for this: it runs the
+same reads as `async_update()`, but returns the raw words and bits keyed by
+absolute address, `{space: {address: value}}`, undecoded. Have the device merge
+its components' maps into one, so diagnostics is a single call:
 
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
