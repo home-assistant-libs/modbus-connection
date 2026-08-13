@@ -164,57 +164,8 @@ only when your link carries several units and just one of them needs pacing.
 
 ## The coordinator
 
-A `DataUpdateCoordinator._async_update_data` becomes a one-liner: refresh the
-device, and let its typed attributes back the entities.
-
-```python
-async def _async_update_data(self) -> None:
-    try:
-        await self.device.async_update()
-    except ModbusError as err:
-        raise UpdateFailed(str(err)) from err
-```
-
-Each entity's native value is then just an attribute read on the device library.
-Put that read in the entity description as a `value_fn`, so a platform is a
-table of descriptions and one entity class:
-
-```python
-@dataclass(frozen=True, kw_only=True)
-class MyDeviceSensorDescription(SensorEntityDescription):
-    """Describe a sensor backed by a device attribute."""
-
-    value_fn: Callable[[MyDevice], float | None]
-
-
-SENSORS: tuple[MyDeviceSensorDescription, ...] = (
-    MyDeviceSensorDescription(
-        key="outside_temperature",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        value_fn=lambda device: device.sensors.outside_1,
-    ),
-)
-
-
-class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
-    entity_description: MyDeviceSensorDescription
-
-    @property
-    def native_value(self) -> float | None:
-        return self.entity_description.value_fn(self.coordinator.device)
-```
-
-The `lambda` is type-checked against the device library, so a renamed or
-retyped field fails in CI rather than at runtime. The field's `unit=` and enum
-members tell you which `native_unit_of_measurement` and `device_class` the
-description should carry.
-
-## When only part of the device answers
-
-A library that polls [each component as its own failure domain](/modbus-connection/patterns/library/#the-shape)
-returns a report instead of failing the whole update, so the coordinator's data
-says which sub-systems refreshed:
+`async_update()` returns an `UpdateReport` — which sub-systems refreshed, and
+which failed — so the coordinator's data is that report:
 
 ```python
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
@@ -233,18 +184,9 @@ setup, whose identity read is not contained. Check `report.updated` too — a po
 where every sub-system failed raises nothing, so without it a silent device looks
 healthy forever.
 
-Entities backed by a failed component then go unavailable, which is right for an
-instantaneous reading: power, voltage, temperature, a state.
-
-It is wrong for a **long-term statistic**. A sensor whose `state_class` is `TOTAL`
-or `TOTAL_INCREASING` must hold its last value instead: devices legitimately go
-offline — a solar inverter powers down every night — and a gap there damages
-long-term statistics and the energy dashboard.
-
-Derive it from the entity description rather than special-casing entities, and
-seed the held value with
-[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
-so a restart does not gap it either:
+An entity's value is then an attribute read on the device library. Put it in the
+entity description as a `value_fn`, next to the sub-system it reads from, so a
+platform is a table of descriptions and one entity class:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -261,6 +203,17 @@ class MyDeviceSensorDescription(SensorEntityDescription):
             SensorStateClass.TOTAL,
             SensorStateClass.TOTAL_INCREASING,
         )
+
+
+SENSORS: tuple[MyDeviceSensorDescription, ...] = (
+    MyDeviceSensorDescription(
+        key="outside_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        component="sensors",
+        value_fn=lambda device: device.sensors.outside_1,
+    ),
+)
 
 
 class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
@@ -301,6 +254,20 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         return value  # an instantaneous reading we don't have is unknown
 ```
 
+The `lambda` is type-checked against the device library, so a renamed or retyped
+field fails in CI rather than at runtime. The field's `unit=` and enum members
+tell you which `native_unit_of_measurement` and `device_class` the description
+should carry.
+
+An entity whose sub-system failed goes unavailable, which is right for an
+instantaneous reading. It is wrong for a **long-term statistic**: a sensor whose
+`state_class` is `TOTAL` or `TOTAL_INCREASING` holds its last value instead,
+because devices legitimately go offline — a solar inverter powers down every
+night — and a gap there damages long-term statistics and the energy dashboard.
+[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
+seeds that held value from the previous state, so a restart does not gap it
+either.
+
 - **Totals only.** Instantaneous readings stay `unknown` when the device does not
   answer; serving last evening's 3 kW at 3am is false data.
 - A device-side counter reset is safe: `TOTAL_INCREASING` reads the later
@@ -326,9 +293,9 @@ serial-to-network bridges wedge this way — call `disconnect()` once polls keep
 failing with `ModbusTimeoutError`:
 
 ```python
-async def _async_update_data(self) -> None:
+async def _async_update_data(self) -> UpdateReport:
     try:
-        await self.device.async_update()
+        report = await self.device.async_update()
     except ModbusTimeoutError as err:
         self._timeouts += 1
         if self._timeouts >= 3:  # a stuck link, not a slow reply
@@ -337,6 +304,7 @@ async def _async_update_data(self) -> None:
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
     self._timeouts = 0
+    return report
 ```
 
 The next poll establishes a fresh link over the same units and components, so
@@ -355,9 +323,9 @@ raising `SunSpecMapShiftError`. Reload the entry so setup rescans and rebuilds t
 components at their new addresses:
 
 ```python
-async def _async_update_data(self) -> None:
+async def _async_update_data(self) -> UpdateReport:
     try:
-        await self.device.async_update()
+        return await self.device.async_update()
     except SunSpecMapShiftError as err:
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
         raise UpdateFailed(str(err)) from err
@@ -428,12 +396,13 @@ wiring.
       can differ; a fixed address is a constant in the integration.
 - [ ] `async_setup_entry` constructs the `ModbusConnection` and registers
       `connection.close` with `entry.async_on_unload`.
-- [ ] Coordinator calls the library's `async_update()` and maps `ModbusError` to
-      `UpdateFailed`.
+- [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
+      `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
-- [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
+- [ ] Entities read typed attributes; field `unit=` feeds entity metadata. An
+      entity goes unavailable when its own sub-system is in `report.failed`.
 - [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
       offline, and restore their last value with `RestoreSensor` across a
       restart, so long-term statistics keep their history.

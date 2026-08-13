@@ -1,6 +1,6 @@
 ---
 title: The device object
-description: How the top-level device object of a library built on modbus-connection comes together — one typed class over Components, polled so a failure stays local.
+description: How the top-level device object of a library built on modbus-connection comes together.
 ---
 
 modbus-connection is a foundation you build a **device library** on. A good device
