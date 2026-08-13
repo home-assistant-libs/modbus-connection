@@ -130,27 +130,50 @@ asyncio.run(main())
 
 ## Resilient polling
 
-One `ComponentGroup` over the whole device is the simplest polling path, and it is
-fine for a handful of sub-systems. But a group's read plan is
+A group's read plan is
 [all-or-nothing](/modbus-connection/modelling/reading/#when-a-block-read-fails):
-one refused — or merely slow — block anywhere in it fails the entire update. On a
-real inverter that is one 48-register block timing out and all 88 values going
-unavailable together.
+one refused — or merely slow — block fails the whole update. On a real inverter
+that is a single 48-register block timing out and all 88 values going unavailable
+together.
 
-So once a device is big enough for that to hurt, treat **each component as a
-failure domain** and poll them one at a time. You give up pooling *across*
-components — each still pools its own fields — and get an update where one sick
-sub-system costs you that sub-system only:
+Once a device is big enough for that to hurt, drop the group and treat **each
+component as a failure domain**: poll them one at a time, contain what fails, and
+report it. You give up pooling *across* components — each still pools its own
+fields.
 
 ```python
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from modbus_connection import ModbusConnectionError, ModbusError
+from modbus_connection import (
+    IllegalDataAddressError,
+    IllegalFunctionError,
+    ModbusConnectionError,
+    ModbusError,
+)
+from modbus_connection.model import Component
 
-# Every component this device polls, in read order.
+from .sensors import Sensors
+from .controller import Controller
+from .heating_circuit import HeatingCircuit
+from .hot_water import HotWater
+
+if TYPE_CHECKING:
+    from modbus_connection import ModbusUnit
+
+# Every sub-system that can be polled, in read order.
 _POLLED = ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+
+
+async def _optional[C: Component](component: C) -> C | None:
+    """Read an optional sub-system; None if this device does not have it."""
+    try:
+        await component.async_update()
+    except (IllegalDataAddressError, IllegalFunctionError):
+        return None
+    return component
 
 
 @dataclass
@@ -162,10 +185,29 @@ class UpdateReport:
 
 
 class Trovis557x:
-    # __init__ and _async_setup() as above, except that setup ends with
-    #   self._polled = tuple(n for n in _POLLED if getattr(self, n) is not None)
-    # — the poll list filtered to what this model actually has, which doubles
-    # as the "set up" marker in place of the group.
+    """A Samson TROVIS 557x heating controller."""
+
+    def __init__(self, unit: ModbusUnit) -> None:
+        self._unit = unit
+
+        self.controller = Controller(unit)
+        self.sensors = Sensors(unit)
+        self.heating_circuit_1 = HeatingCircuit(unit, index=1)
+        self.heating_circuit_2: HeatingCircuit | None = None
+        self.hot_water: HotWater | None = None
+
+        # _POLLED filtered to what this model has. None until setup ran, so it
+        # doubles as the setup marker, in place of the group.
+        self._polled: tuple[str, ...] | None = None
+
+    async def _async_setup(self) -> None:
+        """Read what never changes, and settle which sub-systems this model has."""
+        await self.controller.async_update()  # identity: read once, never polled
+
+        self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
+        self.hot_water = await _optional(HotWater(self._unit))
+
+        self._polled = tuple(n for n in _POLLED if getattr(self, n) is not None)
 
     async def async_update(self) -> UpdateReport:
         """Refresh every polled sub-system; the first call sets the device up."""
@@ -175,9 +217,8 @@ class Trovis557x:
 
         report = UpdateReport()
         for name in self._polled:
-            component = getattr(self, name)
             try:
-                await component.async_update(notify=False)
+                await getattr(self, name).async_update(notify=False)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusError as err:
@@ -190,23 +231,20 @@ class Trovis557x:
         return report
 ```
 
-- **Contain a component, abort on the link.** `ModbusTimeoutError` is a
+- `ModbusTimeoutError` is a
   [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
-  `ModbusConnectionError`, not a subclass, so the order above is exactly right: a
-  slow block stays contained while a dead link aborts the cycle.
-- **Notify at the end, and only the components that refreshed.** With
-  `notify=False` on each read, no listener sees a half-updated device.
-- **Report, don't raise.** A failed component keeps its previous values — the
-  store is only written when a component reads fully — so the report is what tells
-  the consumer which values are stale, and it decides what that means. Only a dead
-  link raises.
-- **Let a failed setup retry.** Because `self._polled` is the setup marker, a
-  device that was unreachable during setup simply sets up on the next poll.
-
-Setup reads follow the same rule. `_optional()` must treat only
-`IllegalDataAddressError` and `IllegalFunctionError` as "this device does not have
-it" — anything else is a bad moment, not a missing sub-system, and latching
-absence from it silently drops a component for the lifetime of the object.
+  `ModbusConnectionError`, not a subclass, so the order of those two `except`
+  clauses is what keeps a slow block contained and a dead link fatal.
+- Reading with `notify=False` and notifying after the cycle means no listener
+  ever sees a half-updated device.
+- A failed component keeps its previous values — the store is only written on a
+  full read — so the report tells the consumer what is stale, and the consumer
+  decides what that means.
+- `self._polled` is the setup marker, so a device unreachable during setup sets
+  up on the next poll.
+- Only `IllegalDataAddressError` and `IllegalFunctionError` mean "this device
+  does not have it". Latching absence from any other error silently drops a
+  sub-system for the lifetime of the object.
 
 ## Principles
 
