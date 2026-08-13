@@ -196,7 +196,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     value_fn: Callable[[MyDevice], float | None]
     component: str  # the sub-system this sensor reads from
 
-    @property
+    @cached_property
     def is_total(self) -> bool:
         """A total holds its last value; the device is allowed to be off."""
         return self.state_class in (
