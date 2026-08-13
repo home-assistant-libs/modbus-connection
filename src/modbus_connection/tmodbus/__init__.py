@@ -245,8 +245,6 @@ def _map_errors[**P, R](
         except TimeoutError as err:
             raise ModbusTimeoutError(f"{prefix}: {err}") from err
         except (HeaderMismatchError, FunctionCodeError) as err:
-            # A desynchronized stream survives retries; drop the link so the
-            # next request opens a fresh one.
             with contextlib.suppress(ModbusConnectionError):
                 await self._conn.disconnect()
             raise ModbusDesyncError(f"{prefix}: {err}") from err

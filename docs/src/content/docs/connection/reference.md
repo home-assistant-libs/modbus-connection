@@ -346,9 +346,8 @@ framing), or a well-formed answer to a different request than the one sent
 
 The reply **answers a different exchange** than the one in flight: a mismatched
 header, or the wrong function code. Retrying would read the same offset, so the
-backend has already [`disconnect()`](#disconnect)ed when this raises and the next
-request opens a fresh link. Only the tmodbus backend can match replies to
-requests; pymodbus surfaces such a reply as a timeout.
+connection has already [`disconnect()`](#disconnect)ed when this raises and the
+next request opens a fresh link.
 
 ### `ModbusExceptionError`
 
