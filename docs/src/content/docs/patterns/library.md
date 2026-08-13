@@ -45,9 +45,6 @@ from .hot_water import HotWater
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
-# Every sub-system that can be polled, in read order.
-_POLLED = ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
-
 
 async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not have it."""
@@ -80,8 +77,6 @@ class Trovis557x:
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
 
-        # _POLLED filtered to what this model has, None until setup ran — so it
-        # doubles as the setup marker.
         self._polled: tuple[str, ...] | None = None
 
     async def _async_setup(self) -> None:
@@ -95,7 +90,11 @@ class Trovis557x:
         self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
         self.hot_water = await _optional(HotWater(self._unit))
 
-        self._polled = tuple(n for n in _POLLED if getattr(self, n) is not None)
+        self._polled = tuple(
+            n
+            for n in ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+            if getattr(self, n) is not None
+        )
 
     async def async_update(self) -> UpdateReport:
         """Refresh every polled sub-system; the first call sets the device up."""
