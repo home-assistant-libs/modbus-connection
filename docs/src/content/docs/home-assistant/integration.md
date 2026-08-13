@@ -177,7 +177,10 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
         if not report.updated:
-            raise UpdateFailed("no sub-system answered")
+            errors = list(report.failed.values())
+            raise UpdateFailed(
+                f"no sub-system answered: {errors[0]}"
+            ) from ExceptionGroup("every sub-system failed", errors)
 
         for name in sorted(report.failed.keys() - self._failed):
             _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
