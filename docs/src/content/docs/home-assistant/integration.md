@@ -220,10 +220,23 @@ says which sub-systems refreshed:
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
     async def _async_update_data(self) -> UpdateReport:
         try:
-            return await self.device.async_update()
+            report = await self.device.async_update()
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
+        if not report.updated:
+            raise UpdateFailed("no sub-system answered")
+        return report
 ```
+
+Catch `ModbusError`, not just `ModbusConnectionError`: a dead link is all the
+*poll* raises, but the first update also runs setup, and an identity read that
+times out or is refused comes out as whatever it was. Setup leaves the device
+un-set-up, so the next update retries it.
+
+Check `report.updated` as well, because a poll where every sub-system failed
+raises nothing at all — it is a report full of failures, which is otherwise
+indistinguishable from a healthy update. Failing it is what marks the device
+unavailable and drives any reconnect handling you have.
 
 Entities backed by a failed component then go unavailable — which is right for an
 instantaneous reading: power, voltage, temperature, a state.
