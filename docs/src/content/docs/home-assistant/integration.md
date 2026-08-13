@@ -249,11 +249,6 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         return self._last_value
 ```
 
-The `lambda` is type-checked against the device library, so a renamed or retyped
-field fails in CI rather than at runtime. The field's `unit=` and enum members
-tell you which `native_unit_of_measurement` and `device_class` the description
-should carry.
-
 An entity whose sub-system failed goes unavailable, which is right for an
 instantaneous reading. It is wrong for a **long-term statistic**: a sensor whose
 `state_class` is `TOTAL` or `TOTAL_INCREASING` holds its last value instead,
