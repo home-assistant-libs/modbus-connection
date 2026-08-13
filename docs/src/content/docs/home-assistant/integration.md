@@ -343,6 +343,8 @@ its components' maps into one, so diagnostics is a single call:
 async def async_get_config_entry_diagnostics(hass, entry):
     coordinator = entry.runtime_data
     return {
+        "updated": coordinator.data.updated,
+        "failed": {name: str(err) for name, err in coordinator.data.failed.items()},
         "registers": await coordinator.device.async_read_raw(),
     }
 ```
