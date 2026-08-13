@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modbus_connection import IllegalDataAddressError
+from modbus_connection import IllegalDataAddressError, IllegalFunctionError
 from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
@@ -43,7 +43,7 @@ async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not have it."""
     try:
         await component.async_update()
-    except IllegalDataAddressError:
+    except (IllegalDataAddressError, IllegalFunctionError):
         return None
     return component
 
@@ -128,6 +128,86 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Resilient polling
+
+One `ComponentGroup` over the whole device is the simplest polling path, and it is
+fine for a handful of sub-systems. But a group's read plan is
+[all-or-nothing](/modbus-connection/modelling/reading/#when-a-block-read-fails):
+one refused — or merely slow — block anywhere in it fails the entire update. On a
+real inverter that is one 48-register block timing out and all 88 values going
+unavailable together.
+
+So once a device is big enough for that to hurt, treat **each component as a
+failure domain** and poll them one at a time. You give up pooling *across*
+components — each still pools its own fields — and get an update where one sick
+sub-system costs you that sub-system only:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from modbus_connection import ModbusConnectionError, ModbusError
+
+# Every component this device polls, in read order.
+_POLLED = ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+
+
+@dataclass
+class UpdateReport:
+    """What one poll managed to refresh."""
+
+    updated: list[str] = field(default_factory=list)
+    failed: dict[str, ModbusError] = field(default_factory=dict)
+
+
+class Trovis557x:
+    # __init__ and _async_setup() as above, except that setup ends with
+    #   self._polled = tuple(n for n in _POLLED if getattr(self, n) is not None)
+    # — the poll list filtered to what this model actually has, which doubles
+    # as the "set up" marker in place of the group.
+
+    async def async_update(self) -> UpdateReport:
+        """Refresh every polled sub-system; the first call sets the device up."""
+        if self._polled is None:
+            await self._async_setup()
+        assert self._polled is not None  # _async_setup() always builds it
+
+        report = UpdateReport()
+        for name in self._polled:
+            component = getattr(self, name)
+            try:
+                await component.async_update(notify=False)
+            except ModbusConnectionError:
+                raise  # the link is down; the rest would only wait for timeouts
+            except ModbusError as err:
+                report.failed[name] = err
+            else:
+                report.updated.append(name)
+
+        for name in report.updated:  # nothing fires until the cycle is done
+            getattr(self, name).notify()
+        return report
+```
+
+- **Contain a component, abort on the link.** `ModbusTimeoutError` is a
+  [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
+  `ModbusConnectionError`, not a subclass, so the order above is exactly right: a
+  slow block stays contained while a dead link aborts the cycle.
+- **Notify at the end, and only the components that refreshed.** With
+  `notify=False` on each read, no listener sees a half-updated device.
+- **Report, don't raise.** A failed component keeps its previous values — the
+  store is only written when a component reads fully — so the report is what tells
+  the consumer which values are stale, and it decides what that means. Only a dead
+  link raises.
+- **Let a failed setup retry.** Because `self._polled` is the setup marker, a
+  device that was unreachable during setup simply sets up on the next poll.
+
+Setup reads follow the same rule. `_optional()` must treat only
+`IllegalDataAddressError` and `IllegalFunctionError` as "this device does not have
+it" — anything else is a bad moment, not a missing sub-system, and latching
+absence from it silently drops a component for the lifetime of the object.
+
 ## Principles
 
 - **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
@@ -141,4 +221,6 @@ asyncio.run(main())
   the address, so the model *is* the datasheet.
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
-  to setup, so the polling path stays a single call over a fixed group.
+  to setup, so the polling path stays a fixed list of components to read.
+- **A component is a failure domain.** Poll them one by one and report what
+  failed; the device stays as available as the device actually is.
