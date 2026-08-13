@@ -118,20 +118,6 @@ class Trovis557x:
         return report
 ```
 
-- `ModbusTimeoutError` is a
-  [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
-  `ModbusConnectionError`, not a subclass — hence the order of those two
-  `except` clauses.
-- `notify=False` plus a notify pass at the end keeps listeners from seeing a
-  half-updated device.
-- A failed component keeps its previous values, so the report is what tells the
-  consumer which ones are stale.
-- `self._polled` is the setup marker: a device unreachable during setup sets up
-  on the next poll.
-- Only `IllegalDataAddressError` and `IllegalFunctionError` mean "this device
-  does not have it". Latching absence from anything else drops a sub-system for
-  the lifetime of the object.
-
 The consumer then works entirely in Python objects:
 
 ```python
