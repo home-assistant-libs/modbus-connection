@@ -132,9 +132,7 @@ asyncio.run(main())
 
 A group's read plan is
 [all-or-nothing](/modbus-connection/modelling/reading/#when-a-block-read-fails):
-one refused — or merely slow — block fails the whole update. On a real inverter
-that is a single 48-register block timing out and all 88 values going unavailable
-together.
+one bad block fails the whole update.
 
 Once a device is big enough for that to hurt, drop the group and treat **each
 component as a failure domain**: poll them one at a time, contain what fails, and
@@ -233,18 +231,17 @@ class Trovis557x:
 
 - `ModbusTimeoutError` is a
   [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
-  `ModbusConnectionError`, not a subclass, so the order of those two `except`
-  clauses is what keeps a slow block contained and a dead link fatal.
-- Reading with `notify=False` and notifying after the cycle means no listener
-  ever sees a half-updated device.
-- A failed component keeps its previous values — the store is only written on a
-  full read — so the report tells the consumer what is stale, and the consumer
-  decides what that means.
-- `self._polled` is the setup marker, so a device unreachable during setup sets
-  up on the next poll.
+  `ModbusConnectionError`, not a subclass — hence the order of those two
+  `except` clauses.
+- `notify=False` plus a notify pass at the end keeps listeners from seeing a
+  half-updated device.
+- A failed component keeps its previous values, so the report is what tells the
+  consumer which ones are stale.
+- `self._polled` is the setup marker: a device unreachable during setup sets up
+  on the next poll.
 - Only `IllegalDataAddressError` and `IllegalFunctionError` mean "this device
-  does not have it". Latching absence from any other error silently drops a
-  sub-system for the lifetime of the object.
+  does not have it". Latching absence from anything else drops a sub-system for
+  the lifetime of the object.
 
 ## Principles
 

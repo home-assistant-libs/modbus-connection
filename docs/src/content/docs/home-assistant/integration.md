@@ -228,42 +228,29 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         return report
 ```
 
-Catch `ModbusError`, not just `ModbusConnectionError`: a dead link is all the
-*poll* raises, but the first update also runs setup, and an identity read that
-times out or is refused comes out as whatever it was. Setup leaves the device
-un-set-up, so the next update retries it.
+Catch `ModbusError`, not just `ModbusConnectionError`: the first update also runs
+setup, whose identity read is not contained. Check `report.updated` too — a poll
+where every sub-system failed raises nothing, so without it a silent device looks
+healthy forever.
 
-Check `report.updated` as well, because a poll where every sub-system failed
-raises nothing at all — it is a report full of failures, which is otherwise
-indistinguishable from a healthy update. Failing it is what marks the device
-unavailable and drives any reconnect handling you have.
-
-Entities backed by a failed component then go unavailable — which is right for an
+Entities backed by a failed component then go unavailable, which is right for an
 instantaneous reading: power, voltage, temperature, a state.
 
 It is wrong for a **long-term statistic**. A sensor whose `state_class` is `TOTAL`
-or `TOTAL_INCREASING` — a lifetime yield, an energy counter, a running total —
-must stay available and hold its last value. Devices legitimately go offline (a
-solar inverter powers down every night), and an unavailable total damages Home
-Assistant's long-term statistics and leaves gaps in the energy dashboard.
+or `TOTAL_INCREASING` must hold its last value instead: devices legitimately go
+offline — a solar inverter powers down every night — and a gap there damages
+long-term statistics and the energy dashboard. Holding is honest for a counter
+that only climbs; for an instantaneous reading it would be fiction.
 
-A powered-down device answers nothing at all, so that exemption has to sit
-*above* the coordinator's own availability, not beside it: the update fails as a
-whole, and `CoordinatorEntity.available` would otherwise take every total down
-with it. Covering only the per-component case leaves the nightly one broken.
-
-Staying available is only half of it, because a total can gap without ever going
-unavailable: a failed block, a refused register, a value function that returns
-`None` while the rest of the poll succeeds — each publishes `unknown`, which
-leaves the same hole. The rule is simpler than the list of ways to break it: **a
-total holds its last known value.** Whatever went wrong, the counter is monotonic,
-so the value we last read is still a valid floor — unlike a stale instantaneous
-reading, which really would be fiction.
+Two things follow. The exemption has to sit *above* the coordinator's
+availability, since a powered-down device fails the update as a whole and
+`CoordinatorEntity.available` would otherwise take every total down with it. And
+availability is only half of it — a value function returning `None` publishes
+`unknown`, which leaves the same hole, so hold the last value there too.
 
 That leaves one honest `unknown`: before the first-ever read there is nothing to
-hold. A restart lands exactly there, since coordinator entities start with no
-data — for a nightly inverter that means `unknown` until dawn. Seed the held value
-from the previous state with
+hold, which is where a restart lands. Seed the held value from the previous state
+with
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor),
 whose `async_get_last_sensor_data()` returns the native value and unit a
 coordinator-backed sensor needs.
@@ -324,15 +311,12 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         return value  # an instantaneous reading we don't have is unknown
 ```
 
-- **Totals only.** Holding or restoring an instantaneous reading is actively
-  wrong: last evening's 3 kW served at 3am is false data in history and
-  statistics. Those stay `unknown` when the device does not answer.
-- A counter that reset device-side while you were not reading is safe:
-  `TOTAL_INCREASING` reads the later decrease as a reset, so neither holding nor
-  restoring can corrupt the sum.
+- **Totals only.** Instantaneous readings stay `unknown` when the device does not
+  answer; serving last evening's 3 kW at 3am is false data.
+- A device-side counter reset is safe: `TOTAL_INCREASING` reads the later
+  decrease as a reset.
 - A held value makes the entity look alive, so put the "device is offline" signal
-  on a separate connectivity or diagnostic entity — never on the energy counter
-  itself.
+  on a connectivity or diagnostic entity, never on the counter.
 
 ## Reconnecting is automatic
 
