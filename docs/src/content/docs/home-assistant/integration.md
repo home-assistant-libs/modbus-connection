@@ -231,9 +231,10 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self.entity_description.is_total and (
-            last_data := await self.async_get_last_sensor_data()
-        ) is not None:
+        if (
+            self.entity_description.is_total
+            and (last_data := await self.async_get_last_sensor_data()) is not None
+        ):
             self._attr_native_value = last_data.native_value
         self._process_data()
 

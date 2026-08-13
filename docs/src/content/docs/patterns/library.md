@@ -120,7 +120,7 @@ class Trovis557x:
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics."""
         raw: dict[str, dict[int, int | bool]] = {}
-        for name in self._polled or ():
+        for name in ("controller", *(self._polled or ())):  # identity included
             for space, values in (await getattr(self, name).async_read_raw()).items():
                 raw.setdefault(space, {}).update(values)
         return raw
