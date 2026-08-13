@@ -179,15 +179,9 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         if not report.updated:
             raise UpdateFailed("no sub-system answered")
 
-        # Only what newly failed: a sub-system that stays down would otherwise
-        # log every poll.
-        if new := report.failed.keys() - self._failed:
-            _LOGGER.warning(
-                "Keeping previous values for %s",
-                "; ".join(f"{name}: {report.failed[name]}" for name in sorted(new)),
-            )
-        elif self._failed and not report.failed:
-            _LOGGER.info("Every sub-system answered again")
+        # Only what newly failed; one that stays down would log every poll.
+        for name in sorted(report.failed.keys() - self._failed):
+            _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
         self._failed = frozenset(report.failed)
         return report
 ```
