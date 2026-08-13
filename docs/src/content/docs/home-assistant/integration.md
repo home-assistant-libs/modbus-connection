@@ -219,8 +219,6 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
 class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
     entity_description: MyDeviceSensorDescription
 
-    _last_value: float | None = None
-
     @property
     def available(self) -> bool:
         # Above super(), which is False for the whole update when the device is off.
@@ -236,7 +234,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         if self.entity_description.is_total and (
             last_data := await self.async_get_last_sensor_data()
         ) is not None:
-            self._last_value = last_data.native_value  # never an instantaneous one
+            self._attr_native_value = last_data.native_value
         self._process_data()  # the first poll already ran
 
     @callback
@@ -247,11 +245,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
     def _process_data(self) -> None:
         value = self.entity_description.value_fn(self.coordinator.device)
         if value is not None or not self.entity_description.is_total:
-            self._last_value = value  # a total keeps what it had
-
-    @property
-    def native_value(self) -> float | None:
-        return self._last_value
+            self._attr_native_value = value  # a total keeps what it had
 ```
 
 An entity whose sub-system failed goes unavailable, except a **long-term
