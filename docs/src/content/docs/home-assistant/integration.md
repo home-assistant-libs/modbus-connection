@@ -382,8 +382,8 @@ wiring.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
-- [ ] Entities read typed attributes; field `unit=` feeds entity metadata. An
-      entity goes unavailable when its own sub-system is in `report.failed`.
+- [ ] Entities read typed attributes. An entity goes unavailable when its own
+      sub-system is in `report.failed`.
 - [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
       offline, and restore their last value with `RestoreSensor` across a
       restart, so long-term statistics keep their history.
