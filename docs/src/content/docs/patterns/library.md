@@ -159,6 +159,3 @@ asyncio.run(main())
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
   to setup, so the polling path stays a fixed list of components to read.
-- **Poll one component at a time and report what failed.** The device stays as
-  available as the device actually is. Each still pools its own fields, so this
-  is a handful of Modbus calls, not one per field.
