@@ -212,7 +212,7 @@ description should carry.
 
 ## When only part of the device answers
 
-A library that polls [each component as its own failure domain](/modbus-connection/patterns/library/#resilient-polling)
+A library that polls [each component as its own failure domain](/modbus-connection/patterns/library/#the-shape)
 returns a report instead of failing the whole update, so the coordinator's data
 says which sub-systems refreshed:
 

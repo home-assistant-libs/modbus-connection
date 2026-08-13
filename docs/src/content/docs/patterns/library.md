@@ -1,6 +1,6 @@
 ---
 title: The device object
-description: How the top-level device object of a library built on modbus-connection comes together — one typed class over Components and a ComponentGroup.
+description: How the top-level device object of a library built on modbus-connection comes together — one typed class over Components, polled so a failure stays local.
 ---
 
 modbus-connection is a foundation you build a **device library** on. A good device
@@ -19,125 +19,9 @@ The device object:
    instances,
 3. sets itself up once — reading everything that never changes and settling
    which components this device serves — from the first `async_update()`,
-4. pools the ones it polls into one [`ComponentGroup`](/modbus-connection/modelling/component-group/), and
+4. polls each of them on its own, so one that fails does not take the others
+   down with it, and
 5. exposes `async_update()` plus typed access to each sub-system.
-
-```python
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-from modbus_connection import IllegalDataAddressError, IllegalFunctionError
-from modbus_connection.model import Component, ComponentGroup
-
-from .sensors import Sensors
-from .controller import Controller
-from .heating_circuit import HeatingCircuit
-from .hot_water import HotWater
-
-if TYPE_CHECKING:
-    from modbus_connection import ModbusUnit
-
-
-async def _optional[C: Component](component: C) -> C | None:
-    """Read an optional sub-system; None if this device does not have it."""
-    try:
-        await component.async_update()
-    except (IllegalDataAddressError, IllegalFunctionError):
-        return None
-    return component
-
-
-class Trovis557x:
-    """A Samson TROVIS 557x heating controller."""
-
-    def __init__(self, unit: ModbusUnit) -> None:
-        self._unit = unit
-
-        # Sub-systems, each a Component. Repeated ones take an index.
-        self.controller = Controller(unit)
-        self.sensors = Sensors(unit)
-        self.heating_circuit_1 = HeatingCircuit(unit, index=1)
-        # Optional: filled in by the first update if this model has them.
-        self.heating_circuit_2: HeatingCircuit | None = None
-        self.hot_water: HotWater | None = None
-
-        self._group: ComponentGroup | None = None
-
-    async def _async_setup(self) -> None:
-        """Read what never changes, and find which sub-systems this model has.
-
-        Runs from the first ``async_update()``, and again on the next one if
-        the device was unreachable.
-        """
-        await self.controller.async_update()  # identity: read once, never polled
-
-        heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
-        hot_water = await _optional(HotWater(self._unit))
-
-        self.heating_circuit_2 = heating_circuit_2
-        self.hot_water = hot_water
-        self._group = ComponentGroup(
-            self._unit,
-            [
-                c
-                for c in (
-                    self.sensors,
-                    self.heating_circuit_1,
-                    heating_circuit_2,
-                    hot_water,
-                )
-                if c is not None
-            ],
-        )
-
-    async def async_update(self) -> None:
-        """Refresh all polled sub-systems; the first call sets the device up."""
-        if self._group is None:
-            await self._async_setup()
-        assert self._group is not None  # _async_setup() always builds it
-        await self._group.async_update()
-```
-
-The consumer then works entirely in Python objects:
-
-```python
-import asyncio
-from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
-from trovis_modbus import Trovis557x
-
-
-async def main() -> None:
-    connection = ModbusConnection(
-        ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
-    )
-    try:
-        unit = connection.for_unit(246)
-        device = Trovis557x(unit)
-        await device.async_update()
-
-        print("Outside temperature:", device.sensors.outside_1)
-        print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
-        if device.hot_water is not None:  # absent on some models
-            print("Hot water:", device.hot_water.temperature)
-    finally:
-        await connection.close()
-
-
-asyncio.run(main())
-```
-
-## Resilient polling
-
-A group's read plan is
-[all-or-nothing](/modbus-connection/modelling/reading/#when-a-block-read-fails):
-one bad block fails the whole update.
-
-Once a device is big enough for that to hurt, drop the group and treat **each
-component as a failure domain**: poll them one at a time, contain what fails, and
-report it. You give up pooling *across* components — each still pools its own
-fields.
 
 ```python
 from __future__ import annotations
@@ -188,18 +72,24 @@ class Trovis557x:
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
 
+        # Sub-systems, each a Component. Repeated ones take an index.
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
+        # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
 
-        # _POLLED filtered to what this model has. None until setup ran, so it
-        # doubles as the setup marker, in place of the group.
+        # _POLLED filtered to what this model has, None until setup ran — so it
+        # doubles as the setup marker.
         self._polled: tuple[str, ...] | None = None
 
     async def _async_setup(self) -> None:
-        """Read what never changes, and settle which sub-systems this model has."""
+        """Read what never changes, and settle which sub-systems this model has.
+
+        Runs from the first ``async_update()``, and again on the next one if
+        the device was unreachable.
+        """
         await self.controller.async_update()  # identity: read once, never polled
 
         self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
@@ -229,6 +119,11 @@ class Trovis557x:
         return report
 ```
 
+Each component is its own failure domain: a bad block costs that sub-system and
+nothing else. You give up pooling *across* components — each still pools its own
+fields — which in practice usually costs no extra reads at all, since sub-systems
+tend to own separate stretches of the register map.
+
 - `ModbusTimeoutError` is a
   [sibling](/modbus-connection/connection/reference/#modbustimeouterror) of
   `ModbusConnectionError`, not a subclass — hence the order of those two
@@ -243,6 +138,35 @@ class Trovis557x:
   does not have it". Latching absence from anything else drops a sub-system for
   the lifetime of the object.
 
+The consumer then works entirely in Python objects:
+
+```python
+import asyncio
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import ModbusConnection
+from trovis_modbus import Trovis557x
+
+
+async def main() -> None:
+    connection = ModbusConnection(
+        ModbusTcpParams(host="192.168.1.50", port=502, framer="rtu")
+    )
+    try:
+        unit = connection.for_unit(246)
+        device = Trovis557x(unit)
+        await device.async_update()
+
+        print("Outside temperature:", device.sensors.outside_1)
+        print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        if device.hot_water is not None:  # absent on some models
+            print("Hot water:", device.hot_water.temperature)
+    finally:
+        await connection.close()
+
+
+asyncio.run(main())
+```
+
 ## Principles
 
 - **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
@@ -250,12 +174,11 @@ class Trovis557x:
   backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
 - **One sub-system per `Component`.** Group registers by function; give each its
   own file. It keeps the address map readable and lets a sub-system refresh alone.
-- **Pool with a `ComponentGroup`.** The whole device reads in a handful of Modbus
-  calls instead of one per field.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
   to setup, so the polling path stays a fixed list of components to read.
 - **A component is a failure domain.** Poll them one by one and report what
-  failed; the device stays as available as the device actually is.
+  failed; the device stays as available as the device actually is. Each still
+  pools its own fields, so this is a handful of Modbus calls, not one per field.
