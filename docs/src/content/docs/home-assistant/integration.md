@@ -221,7 +221,6 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     @property
     def available(self) -> bool:
-        # Short-circuits super(), which is False when the whole update failed.
         return self.entity_description.is_total or (
             super().available
             and self.entity_description.component not in self.coordinator.data.failed
