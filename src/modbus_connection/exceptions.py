@@ -66,14 +66,7 @@ class ModbusProtocolError(ModbusError):
 
 
 class ModbusDesyncError(ModbusProtocolError):
-    """The reply answers a different exchange than the one in flight.
-
-    Corruption is transient — retrying rereads the line. A desynchronized
-    stream is not: every retry reads the same offset, so the backend drops
-    the link before raising, and the next request opens a fresh one. Only a
-    backend that can match replies to requests raises this; the others
-    surface such a reply as a timeout.
-    """
+    """The reply answers a different exchange; the backend dropped the link."""
 
 
 class ModbusExceptionError(ModbusError):

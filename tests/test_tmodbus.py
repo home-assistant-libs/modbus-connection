@@ -148,12 +148,7 @@ async def test_mismatched_replies_raise_desync(
     connection_to: Callable[[_FakeClient], ModbusConnection],
     client_class: type[_FakeClient],
 ) -> None:
-    """A reply answering a different exchange drops the link and raises.
-
-    Retrying a desynchronized stream reads the same offset, so the backend
-    disconnects before raising; the next request opens a fresh link. Still
-    a ModbusProtocolError, and the typed cause is preserved.
-    """
+    """A reply answering a different exchange drops the link and raises."""
     client = client_class()
     connection = connection_to(client)
     unit = connection.for_unit(1)
