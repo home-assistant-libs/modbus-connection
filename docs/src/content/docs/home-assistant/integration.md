@@ -198,7 +198,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
 
     @cached_property
     def is_total(self) -> bool:
-        """A total holds its last value; the device is allowed to be off."""
+        """Whether this sensor accumulates rather than measures."""
         return self.state_class in (
             SensorStateClass.TOTAL,
             SensorStateClass.TOTAL_INCREASING,
