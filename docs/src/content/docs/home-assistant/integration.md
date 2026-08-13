@@ -234,7 +234,16 @@ must stay available and hold its last value. Devices legitimately go offline (a
 solar inverter powers down every night), and an unavailable total damages Home
 Assistant's long-term statistics and leaves gaps in the energy dashboard.
 
-Derive that from the entity description rather than special-casing entities:
+Staying available covers the device going offline while Home Assistant runs. A
+restart is the other half of the same problem: coordinator entities start with no
+data, so a total whose component has not read yet is `unknown` — until the device
+comes back, which for a nightly inverter means dawn. Restore it from the last
+state with
+[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor),
+whose `async_get_last_sensor_data()` returns the native value and unit a
+coordinator-backed sensor needs.
+
+Derive both from the entity description rather than special-casing entities:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -245,7 +254,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     component: str  # the sub-system this sensor reads from
 
     @property
-    def always_available(self) -> bool:
+    def is_total(self) -> bool:
         """A total holds its last value; the device is allowed to be off."""
         return self.state_class in (
             SensorStateClass.TOTAL,
@@ -253,18 +262,43 @@ class MyDeviceSensorDescription(SensorEntityDescription):
         )
 
 
-class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
+class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
     entity_description: MyDeviceSensorDescription
+
+    _restored: float | None = None
 
     @property
     def available(self) -> bool:
-        if self.entity_description.always_available:
+        if self.entity_description.is_total:
             return True
         return (
             super().available
             and self.entity_description.component not in self.coordinator.data.failed
         )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if not self.entity_description.is_total:
+            return  # never restore an instantaneous reading
+        if (last_data := await self.async_get_last_sensor_data()) is not None:
+            self._restored = last_data.native_value
+
+    @property
+    def native_value(self) -> float | None:
+        value = self.entity_description.value_fn(self.coordinator.device)
+        return self._restored if value is None else value
 ```
+
+- **Totals only, on both counts.** Restoring an instantaneous reading is actively
+  wrong: last evening's 3 kW served at 3am is false data in history and
+  statistics.
+- **A restored value is a fallback, not an override.** The first successful read
+  replaces it.
+- A counter that reset device-side during the downtime is safe: `TOTAL_INCREASING`
+  reads the later decrease as a reset, so restoring cannot corrupt the sum.
+- A held or restored value makes the entity look alive, so put the "device is
+  offline" signal on a separate connectivity or diagnostic entity — never on the
+  energy counter itself.
 
 ## Reconnecting is automatic
 
@@ -393,6 +427,7 @@ wiring.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
 - [ ] Entities read typed attributes; field `unit=` feeds entity metadata.
 - [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
-      offline, so long-term statistics keep their history.
+      offline, and restore their last value with `RestoreSensor` across a
+      restart, so long-term statistics keep their history.
 - [ ] Diagnostics download returns the raw register map via `async_read_raw()`.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).
