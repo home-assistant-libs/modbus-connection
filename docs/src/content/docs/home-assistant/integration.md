@@ -239,23 +239,12 @@ instantaneous reading: power, voltage, temperature, a state.
 It is wrong for a **long-term statistic**. A sensor whose `state_class` is `TOTAL`
 or `TOTAL_INCREASING` must hold its last value instead: devices legitimately go
 offline — a solar inverter powers down every night — and a gap there damages
-long-term statistics and the energy dashboard. Holding is honest for a counter
-that only climbs; for an instantaneous reading it would be fiction.
+long-term statistics and the energy dashboard.
 
-Two things follow. The exemption has to sit *above* the coordinator's
-availability, since a powered-down device fails the update as a whole and
-`CoordinatorEntity.available` would otherwise take every total down with it. And
-availability is only half of it — a value function returning `None` publishes
-`unknown`, which leaves the same hole, so hold the last value there too.
-
-That leaves one honest `unknown`: before the first-ever read there is nothing to
-hold, which is where a restart lands. Seed the held value from the previous state
-with
-[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor),
-whose `async_get_last_sensor_data()` returns the native value and unit a
-coordinator-backed sensor needs.
-
-Derive it from the entity description rather than special-casing entities:
+Derive it from the entity description rather than special-casing entities, and
+seed the held value with
+[`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
+so a restart does not gap it either:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -281,6 +270,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     @property
     def available(self) -> bool:
+        # Above super(), which is False for the whole update when the device is off.
         if self.entity_description.is_total:
             return True
         return (
