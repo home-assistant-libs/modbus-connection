@@ -65,6 +65,10 @@ class ModbusProtocolError(ModbusError):
     to a different request than the one sent."""
 
 
+class ModbusDesyncError(ModbusProtocolError):
+    """The reply answers a different exchange; the backend dropped the link."""
+
+
 class ModbusExceptionError(ModbusError):
     """The device returned a Modbus exception response.
 

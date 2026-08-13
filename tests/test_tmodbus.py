@@ -20,6 +20,7 @@ from modbus_connection import (
     ExceptionCode,
     IllegalDataAddressError,
     ModbusConnectionError,
+    ModbusDesyncError,
     ModbusProtocolError,
     ModbusTcpParams,
 )
@@ -35,6 +36,7 @@ class _FakeClient:
         self._read_data = read_data
         self.read_calls: list[tuple[int, int, int]] = []
         self.write_calls: list[tuple[int, int, bytes]] = []
+        self.disconnected = False
 
     def for_unit_id(self, unit_id: int) -> _FakeClient:
         return self
@@ -43,7 +45,7 @@ class _FakeClient:
         pass
 
     async def disconnect(self) -> None:
-        pass
+        self.disconnected = True
 
     async def read_file_record(
         self, file_number: int, record_number: int, record_length: int
@@ -142,21 +144,40 @@ async def test_invalid_response_maps_to_protocol_error(
     [_FunctionCodeClient, _HeaderMismatchClient],
     ids=["function-code", "header-mismatch"],
 )
-async def test_mismatched_replies_map_to_protocol_error(
+async def test_mismatched_replies_raise_desync(
     connection_to: Callable[[_FakeClient], ModbusConnection],
     client_class: type[_FakeClient],
 ) -> None:
-    """The 0.5.1 InvalidResponseError subclasses stay protocol errors.
+    """A reply answering a different exchange drops the link and raises."""
+    client = client_class()
+    connection = connection_to(client)
+    unit = connection.for_unit(1)
 
-    A reply carrying the wrong function code or answering a different
-    transaction is a corrupt exchange, not a device refusal; the typed
-    cause is preserved for whoever wants the detail.
-    """
-    unit = connection_to(client_class()).for_unit(1)
-
-    with pytest.raises(ModbusProtocolError) as excinfo:
+    with pytest.raises(ModbusDesyncError) as excinfo:
         await unit.read_holding_registers(0, 1)
+    assert isinstance(excinfo.value, ModbusProtocolError)
     assert isinstance(excinfo.value.__cause__, InvalidResponseError)
+    assert client.disconnected
+    assert not connection.connected
+
+
+class _DesyncTeardownClient(_FunctionCodeClient):
+    """Desynchronizes, then fails teardown too."""
+
+    async def disconnect(self) -> None:
+        raise OSError("already gone")
+
+
+async def test_desync_survives_a_failing_disconnect(
+    connection_to: Callable[[_FakeClient], ModbusConnection],
+) -> None:
+    """A teardown failure doesn't mask the desync; the link is still dropped."""
+    connection = connection_to(_DesyncTeardownClient())
+    unit = connection.for_unit(1)
+
+    with pytest.raises(ModbusDesyncError):
+        await unit.read_holding_registers(0, 1)
+    assert not connection.connected
 
 
 async def test_exception_response_maps_to_the_typed_subclass(

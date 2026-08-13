@@ -24,6 +24,7 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Modbus/TLS | ✅ | ✅ |
 | ESPHome `serial_proxy` target | ✅ | ❌ |
 | Distinguishes a corrupt reply from no reply | ✅ | ❌ |
+| Raises `ModbusDesyncError` for a reply to a different exchange | ✅ | ❌ |
 | Busy-device response | Retried, then raised | Raised immediately |
 | Diagnostics (FC08) and comm-event codes (FC0B/FC0C) | ❌ | ✅ |
 
