@@ -179,15 +179,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         return report
 ```
 
-Catch `ModbusError`, not just `ModbusConnectionError`: the first update also runs
-setup, whose identity read is not contained. Check `report.updated` too — a poll
-where every sub-system failed raises nothing, so without it a silent device looks
-healthy forever.
-
-An entity's value is then an attribute read on the device library. Put it in the
-entity description as a `value_fn`, next to the sub-system it reads from, so a
-platform is a table of descriptions and one entity class:
-
 ```python
 @dataclass(frozen=True, kw_only=True)
 class MyDeviceSensorDescription(SensorEntityDescription):
