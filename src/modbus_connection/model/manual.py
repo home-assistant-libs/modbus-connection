@@ -165,7 +165,7 @@ class ManualComponent(_ComponentBase):
         Pass ``notify=False`` to skip the listeners, for a caller that
         notifies them itself.
 
-        Raises ``BlockReadError`` if the device rejects a block.
+        Raises ``ModbusExceptionError`` if the device rejects a block.
         """
         await self._refresh(collect_raw=False, notify=notify)
         return dict(self._values)
