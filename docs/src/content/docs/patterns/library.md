@@ -118,8 +118,10 @@ class MyDevice:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
                 report.failed[name] = err
-                if not report.updated:
-                    break  # a silent device, not a slow block: stop paying timeouts
+                if not report.updated and all(
+                    isinstance(e, ModbusTimeoutError) for e in report.failed.values()
+                ):
+                    break  # nothing has answered yet, so the rest would time out too
             except ModbusError as err:
                 report.failed[name] = err
             else:
