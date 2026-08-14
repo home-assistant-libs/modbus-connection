@@ -6,8 +6,7 @@ description: How the top-level device object of a library built on modbus-connec
 modbus-connection is a foundation you build a **device library** on. A good device
 library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
-the shape, using the [`trovis-modbus`](https://github.com/Tom-Bom-badil/trovis-modbus)
-library (a Samson TROVIS 557x heating controller) as the worked example.
+the shape, over a heating controller with a few sub-systems.
 
 ## The shape
 
@@ -19,8 +18,10 @@ The device object:
    instances,
 3. sets itself up once — reading everything that never changes and settling
    which components this device serves — from the first `async_update()`,
-4. polls each of them on its own, so one that fails does not take the others
-   down with it, and
+4. polls each of them on its own — or as a
+   [`ComponentGroup`](/modbus-connection/modelling/component-group/) where their
+   registers interleave — so one that fails does not take the others down with
+   it, and
 5. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
@@ -35,7 +36,7 @@ from modbus_connection import (
     ModbusConnectionError,
     ModbusError,
 )
-from modbus_connection.model import Component
+from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
 from .controller import Controller
@@ -63,8 +64,8 @@ class UpdateReport:
     failed: dict[str, ModbusError] = field(default_factory=dict)
 
 
-class Trovis557x:
-    """A Samson TROVIS 557x heating controller."""
+class MyDevice:
+    """A heating controller reached through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
@@ -76,6 +77,8 @@ class Trovis557x:
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
+        # The circuits tile one run of registers, so they read as one.
+        self.circuits: ComponentGroup | None = None
 
         self._polled: tuple[str, ...] | None = None
 
@@ -89,10 +92,14 @@ class Trovis557x:
 
         self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
         self.hot_water = await _optional(HotWater(self._unit))
+        self.circuits = ComponentGroup(
+            self._unit,
+            [c for c in (self.heating_circuit_1, self.heating_circuit_2) if c],
+        )
 
         self._polled = tuple(
             n
-            for n in ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+            for n in ("sensors", "circuits", "hot_water")
             if getattr(self, n) is not None
         )
 
@@ -132,7 +139,7 @@ The consumer then works entirely in Python objects:
 import asyncio
 from modbus_connection import ModbusTcpParams
 from modbus_connection.tmodbus import ModbusConnection
-from trovis_modbus import Trovis557x
+from my_device import MyDevice
 
 
 async def main() -> None:
@@ -141,11 +148,11 @@ async def main() -> None:
     )
     try:
         unit = connection.for_unit(246)
-        device = Trovis557x(unit)
+        device = MyDevice(unit)
         await device.async_update()
 
         print("Outside temperature:", device.sensors.outside_1)
-        print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        print("Circuit 1 setpoint:", device.heating_circuit_1.room_setpoint_day)
         if device.hot_water is not None:  # absent on some models
             print("Hot water:", device.hot_water.temperature)
     finally:
