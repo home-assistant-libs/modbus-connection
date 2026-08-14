@@ -6,8 +6,7 @@ description: How the top-level device object of a library built on modbus-connec
 modbus-connection is a foundation you build a **device library** on. A good device
 library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
-the shape, using the [`trovis-modbus`](https://github.com/Tom-Bom-badil/trovis-modbus)
-library (a Samson TROVIS 557x heating controller) as the worked example.
+the shape, over a heating controller with a few sub-systems.
 
 ## The shape
 
@@ -63,8 +62,8 @@ class UpdateReport:
     failed: dict[str, ModbusError] = field(default_factory=dict)
 
 
-class Trovis557x:
-    """A Samson TROVIS 557x heating controller."""
+class MyDevice:
+    """A heating controller reached through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
         self._unit = unit
@@ -126,13 +125,17 @@ class Trovis557x:
         return raw
 ```
 
+Sub-systems whose registers interleave can be read together instead, as a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) — fewer
+requests, at the price of failing as one.
+
 The consumer then works entirely in Python objects:
 
 ```python
 import asyncio
 from modbus_connection import ModbusTcpParams
 from modbus_connection.tmodbus import ModbusConnection
-from trovis_modbus import Trovis557x
+from my_device import MyDevice
 
 
 async def main() -> None:
@@ -141,11 +144,11 @@ async def main() -> None:
     )
     try:
         unit = connection.for_unit(246)
-        device = Trovis557x(unit)
+        device = MyDevice(unit)
         await device.async_update()
 
         print("Outside temperature:", device.sensors.outside_1)
-        print("Rk1 day setpoint:", device.heating_circuit_1.room_setpoint_day)
+        print("Circuit 1 setpoint:", device.heating_circuit_1.room_setpoint_day)
         if device.hot_water is not None:  # absent on some models
             print("Hot water:", device.hot_water.temperature)
     finally:
