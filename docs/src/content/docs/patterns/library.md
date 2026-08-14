@@ -34,7 +34,7 @@ from modbus_connection import (
     ModbusConnectionError,
     ModbusError,
 )
-from modbus_connection.model import Component
+from modbus_connection.model import Component, ComponentGroup
 
 from .sensors import Sensors
 from .controller import Controller
@@ -75,6 +75,8 @@ class MyDevice:
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
+        # The circuits tile one run of registers, so they read as one.
+        self.circuits: ComponentGroup | None = None
 
         self._polled: tuple[str, ...] | None = None
 
@@ -88,10 +90,14 @@ class MyDevice:
 
         self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
         self.hot_water = await _optional(HotWater(self._unit))
+        self.circuits = ComponentGroup(
+            self._unit,
+            [c for c in (self.heating_circuit_1, self.heating_circuit_2) if c],
+        )
 
         self._polled = tuple(
             n
-            for n in ("sensors", "heating_circuit_1", "heating_circuit_2", "hot_water")
+            for n in ("sensors", "circuits", "hot_water")
             if getattr(self, n) is not None
         )
 
@@ -125,9 +131,12 @@ class MyDevice:
         return raw
 ```
 
-Sub-systems whose registers interleave can be read together instead, as a
-[`ComponentGroup`](/modbus-connection/modelling/component-group/) — fewer
-requests, at the price of failing as one.
+The circuits poll as one
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) because their
+registers interleave: read separately, each one's block already spans the others,
+so they cost extra requests and still cannot fail apart. A group reports under
+its own name — the caller learns `circuits` went stale, not which circuit was
+unlucky.
 
 The consumer then works entirely in Python objects:
 
