@@ -18,8 +18,10 @@ The device object:
    instances,
 3. sets itself up once — reading everything that never changes and settling
    which components this device serves — from the first `async_update()`,
-4. polls each of them on its own, so one that fails does not take the others
-   down with it, and
+4. polls each of them on its own — or as a
+   [`ComponentGroup`](/modbus-connection/modelling/component-group/) where their
+   registers interleave — so one that fails does not take the others down with
+   it, and
 5. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
@@ -130,10 +132,6 @@ class MyDevice:
                 raw.setdefault(space, {}).update(values)
         return raw
 ```
-
-The circuits tile one run of registers, so they poll as a single
-[`ComponentGroup`](/modbus-connection/modelling/component-group/): every circuit
-in one read, reported under one name.
 
 The consumer then works entirely in Python objects:
 
