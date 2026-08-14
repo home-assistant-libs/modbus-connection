@@ -198,7 +198,7 @@ class ReadPlan(NamedTuple):
     async def execute(self, unit: ModbusUnit, *, collect_raw: bool = False) -> Raw:
         """Read and decode every block.
 
-        Raises ``BlockReadError`` if the device rejects a block.
+        Raises ``ModbusExceptionError`` if the device rejects a block.
         """
         if not self.items:
             return {}
@@ -295,7 +295,7 @@ class _Readable:
     ) -> dict[str, dict[int, int | bool]]:
         """Read and return every target keyed by address space and address.
 
-        Raises ``BlockReadError`` if the device rejects a block.
+        Raises ``ModbusExceptionError`` if the device rejects a block.
         """
         raw = await self._refresh(collect_raw=True, notify=notify)
         return {space: dict(sorted(values.items())) for space, values in raw.items()}

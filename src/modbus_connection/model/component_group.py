@@ -97,6 +97,6 @@ class ComponentGroup(_Readable):
     async def async_update(self, *, notify: bool = True) -> None:
         """Refresh every component with pooled reads.
 
-        Raises ``BlockReadError`` if the device rejects a block.
+        Raises ``ModbusExceptionError`` if the device rejects a block.
         """
         await self._refresh(collect_raw=False, notify=notify)
