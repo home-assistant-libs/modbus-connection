@@ -117,11 +117,10 @@ class MyDevice:
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
+                fatal = not report.updated and not report.failed
                 report.failed[name] = err
-                if not report.updated and all(
-                    isinstance(e, ModbusTimeoutError) for e in report.failed.values()
-                ):
-                    break  # nothing has answered yet, so the rest would time out too
+                if fatal:
+                    break  # assume the rest time out too
             except ModbusError as err:
                 report.failed[name] = err
             else:
