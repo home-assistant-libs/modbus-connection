@@ -124,12 +124,12 @@ export default defineConfig({
           label: "Home Assistant",
           items: [
             {
-              label: "Modbus YAML configuration",
-              slug: "home-assistant/yaml-configuration",
-            },
-            {
               label: "Integration structure",
               slug: "home-assistant/integration",
+            },
+            {
+              label: "Modbus YAML configuration",
+              slug: "home-assistant/yaml-configuration",
             },
           ],
         },
