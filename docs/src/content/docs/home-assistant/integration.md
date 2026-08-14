@@ -248,8 +248,16 @@ class MyTotalSensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     def _process_data(self) -> None:
         value = self.entity_description.value_fn(self.coordinator.device)
-        if value is not None:
-            self._attr_native_value = value
+        if value is None:
+            return
+        last = self._attr_native_value
+        if (
+            self.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
+            and last is not None
+            and last * 0.99 <= value < last
+        ):
+            return  # a counter read mid-update, not a meter that was reset
+        self._attr_native_value = value
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
