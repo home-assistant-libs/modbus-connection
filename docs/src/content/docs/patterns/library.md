@@ -131,12 +131,9 @@ class MyDevice:
         return raw
 ```
 
-The circuits poll as one
-[`ComponentGroup`](/modbus-connection/modelling/component-group/) because their
-registers interleave: read separately, each one's block already spans the others,
-so they cost extra requests and still cannot fail apart. A group reports under
-its own name — the caller learns `circuits` went stale, not which circuit was
-unlucky.
+The circuits tile one run of registers, so they poll as a single
+[`ComponentGroup`](/modbus-connection/modelling/component-group/): every circuit
+in one read, reported under one name.
 
 The consumer then works entirely in Python objects:
 
