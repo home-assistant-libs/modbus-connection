@@ -61,13 +61,15 @@ update then applies nothing.
 fields (their counts must already have been read). `async_update()` does this as
 its second pass; call it directly only to refresh the groups alone.
 
-#### `async_read_raw()`
+#### `async_read_raw(*, notify=True)`
 
 `async` — run the same reads as `async_update()` (refreshing the fields and
 firing listeners) and additionally return the raw words and bits as
 `{space: {address: value}}`, keyed by the four Modbus spaces (`"holding"`,
 `"input"`, `"coil"`, `"discrete"`) with addresses ascending. Raises the typed
-exception if the device rejects a block, like `async_update()`.
+exception if the device rejects a block, like `async_update()`. Pass
+`notify=False` for a dump that does not fire listeners — the fields still
+refresh, since the read is a real one.
 
 #### `write(field, value)`
 
@@ -129,11 +131,12 @@ unless `notify=False`. Raises
 the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror) if
 the device rejects any block.
 
-#### `async_read_raw()`
+#### `async_read_raw(*, notify=True)`
 
 `async` — like `Component.async_read_raw()`, merged across the members: the
 pooled reads run, members refresh and notify, and the raw
-`{space: {address: value}}` map comes back.
+`{space: {address: value}}` map comes back. `notify=False` skips the members'
+listeners.
 
 #### `notify()`
 

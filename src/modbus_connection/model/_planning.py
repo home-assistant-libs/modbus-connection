@@ -290,10 +290,16 @@ class _Readable:
             self.notify()
         return raw
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+    async def async_read_raw(
+        self, *, notify: bool = True
+    ) -> dict[str, dict[int, int | bool]]:
         """Read and return every target keyed by address space and address.
+
+        The read is a real one, so the decoded fields are updated too. Pass
+        ``notify=False`` to leave listeners alone — a diagnostics dump usually
+        should not look like a poll to whatever is watching.
 
         Raises ``BlockReadError`` if the device rejects a block.
         """
-        raw = await self._refresh(collect_raw=True)
+        raw = await self._refresh(collect_raw=True, notify=notify)
         return {space: dict(sorted(values.items())) for space, values in raw.items()}
