@@ -199,14 +199,6 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     value_fn: Callable[[MyDevice], float | None]
     component: str  # the sub-system this sensor reads from
 
-    @cached_property
-    def is_total(self) -> bool:
-        """Whether this sensor accumulates rather than measures."""
-        return self.state_class in (
-            SensorStateClass.TOTAL,
-            SensorStateClass.TOTAL_INCREASING,
-        )
-
 
 SENSORS: tuple[MyDeviceSensorDescription, ...] = (
     MyDeviceSensorDescription(
@@ -219,22 +211,33 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
 )
 
 
-class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
+class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
     entity_description: MyDeviceSensorDescription
 
     @property
     def available(self) -> bool:
-        return self.entity_description.is_total or (
+        return (
             super().available
             and self.entity_description.component not in self.coordinator.data.failed
         )
 
+    @property
+    def native_value(self) -> float | None:
+        return self.entity_description.value_fn(self.coordinator.device)
+
+
+class MyTotalSensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
+    """A long-term statistic: it holds its last value, and may outlive the device."""
+
+    entity_description: MyDeviceSensorDescription
+
+    @property
+    def available(self) -> bool:
+        return True
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if (
-            self.entity_description.is_total
-            and (last_data := await self.async_get_last_sensor_data()) is not None
-        ):
+        if (last_data := await self.async_get_last_sensor_data()) is not None:
             self._attr_native_value = last_data.native_value
         self._process_data()
 
@@ -245,8 +248,21 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 
     def _process_data(self) -> None:
         value = self.entity_description.value_fn(self.coordinator.device)
-        if value is not None or not self.entity_description.is_total:
-            self._attr_native_value = value  # a total keeps what it had
+        if value is not None:
+            self._attr_native_value = value
+
+
+async def async_setup_entry(hass, entry, async_add_entities) -> None:
+    coordinator = entry.runtime_data
+    async_add_entities(
+        (
+            MyTotalSensor
+            if description.state_class
+            in (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
+            else MySensor
+        )(coordinator, description)
+        for description in SENSORS
+    )
 ```
 
 An entity whose sub-system failed goes unavailable, except a **long-term
