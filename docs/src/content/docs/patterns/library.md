@@ -19,9 +19,9 @@ The device object:
 3. sets itself up once — reading everything that never changes and settling
    which components this device serves — from the first `async_update()`,
 4. polls each of them on its own — or as a
-   [`ComponentGroup`](/modbus-connection/modelling/component-group/) where their
-   registers interleave — so one that fails does not take the others down with
-   it, and
+   [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
+   read already spans the other's registers — so one that fails does not take the
+   others down with it, and
 5. exposes `async_update()` plus typed access to each sub-system.
 
 ```python
@@ -77,7 +77,7 @@ class MyDevice:
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
-        # The circuits tile one run of registers, so they read as one.
+        # One circuit's read already spans the other's, so they read as one.
         self.circuits: ComponentGroup | None = None
 
         self._polled: tuple[str, ...] | None = None
