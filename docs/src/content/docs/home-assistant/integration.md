@@ -176,7 +176,8 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             report = await self.device.async_update()
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
-        if not report.updated:
+        # Both empty means this device serves nothing we poll, not a failure.
+        if report.failed and not report.updated:
             errors = list(report.failed.values())
             raise UpdateFailed(
                 f"no sub-system answered: {errors[0]}"
@@ -219,23 +220,18 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
 )
 
 
-class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
+class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
     entity_description: MyDeviceSensorDescription
 
     @property
     def available(self) -> bool:
-        return self.entity_description.is_total or (
+        return (
             super().available
             and self.entity_description.component not in self.coordinator.data.failed
         )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if (
-            self.entity_description.is_total
-            and (last_data := await self.async_get_last_sensor_data()) is not None
-        ):
-            self._attr_native_value = last_data.native_value
         self._process_data()
 
     @callback
@@ -244,9 +240,37 @@ class MySensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
         super()._handle_coordinator_update()
 
     def _process_data(self) -> None:
-        value = self.entity_description.value_fn(self.coordinator.device)
-        if value is not None or not self.entity_description.is_total:
-            self._attr_native_value = value  # a total keeps what it had
+        self._attr_native_value = self.entity_description.value_fn(
+            self.coordinator.device
+        )
+
+
+class MyTotalSensor(MySensor, RestoreSensor):
+    """A long-term statistic: it holds its last value, and may outlive the device."""
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        # Before super(), which ends by reading the device over the restored value.
+        if (last_data := await self.async_get_last_sensor_data()) is not None:
+            self._attr_native_value = last_data.native_value
+        await super().async_added_to_hass()
+
+    def _process_data(self) -> None:
+        if (
+            value := self.entity_description.value_fn(self.coordinator.device)
+        ) is not None:
+            self._attr_native_value = value
+
+
+async def async_setup_entry(hass, entry, async_add_entities) -> None:
+    coordinator = entry.runtime_data
+    async_add_entities(
+        (MyTotalSensor if description.is_total else MySensor)(coordinator, description)
+        for description in SENSORS
+    )
 ```
 
 An entity whose sub-system failed goes unavailable, except a **long-term
@@ -255,6 +279,11 @@ devices legitimately go offline — a solar inverter powers down every night —
 a gap damages long-term statistics and the energy dashboard.
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
 seeds it across a restart.
+
+Two classes rather than one `is_total` branch: the question is settled once, when
+the entity is built, and only the sensors that need restoring register with Home
+Assistant's restore store — which writes every registered entity to disk on a
+timer, whether or not anything reads it back.
 
 ## Reconnecting is automatic
 
