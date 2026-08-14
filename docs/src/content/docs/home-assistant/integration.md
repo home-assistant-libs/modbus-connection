@@ -287,20 +287,24 @@ unresponsive** — a bridge that keeps the socket open while the device behind i
 stops answering, so every poll times out against the same dead link. Most
 integrations never hit this and need nothing here. If yours is known to — some
 serial-to-network bridges wedge this way — call `disconnect()` once polls keep
-failing with `ModbusTimeoutError`:
+timing out. Read that off the report: a device built to the
+[library pattern](/modbus-connection/patterns/library/) contains a timeout as a
+failed component rather than raising it, so an `except ModbusTimeoutError` here
+would never run.
 
 ```python
 async def _async_update_data(self) -> UpdateReport:
     try:
         report = await self.device.async_update()
-    except ModbusTimeoutError as err:
+    except ModbusError as err:
+        raise UpdateFailed(str(err)) from err
+
+    if report.updated:
+        self._timeouts = 0
+    elif all(isinstance(err, ModbusTimeoutError) for err in report.failed.values()):
         self._timeouts += 1
         if self._timeouts >= 3:  # a stuck link, not a slow reply
             await self.connection.disconnect()
-        raise UpdateFailed(str(err)) from err
-    except ModbusError as err:
-        raise UpdateFailed(str(err)) from err
-    self._timeouts = 0
     ...  # report handling as above
 ```
 
