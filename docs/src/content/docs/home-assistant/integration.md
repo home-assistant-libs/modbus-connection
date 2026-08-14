@@ -256,7 +256,7 @@ class MyTotalSensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
             and last is not None
             and last * 0.99 <= value < last
         ):
-            return  # a counter read mid-update, not a meter that was reset
+            return  # ignore firmware issue causing minor decrease
         self._attr_native_value = value
 
 
