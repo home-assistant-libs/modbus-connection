@@ -67,9 +67,8 @@ its second pass; call it directly only to refresh the groups alone.
 firing listeners) and additionally return the raw words and bits as
 `{space: {address: value}}`, keyed by the four Modbus spaces (`"holding"`,
 `"input"`, `"coil"`, `"discrete"`) with addresses ascending. Raises the typed
-exception if the device rejects a block, like `async_update()`. Pass
-`notify=False` for a dump that does not fire listeners — the fields still
-refresh, since the read is a real one.
+exception if the device rejects a block, like `async_update()`. `notify=False`
+skips the listeners; the fields still refresh.
 
 #### `write(field, value)`
 
