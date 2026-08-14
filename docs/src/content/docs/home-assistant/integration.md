@@ -200,8 +200,6 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     component: str  # the sub-system this sensor reads from
 
 
-TOTALS = (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
-
 SENSORS: tuple[MyDeviceSensorDescription, ...] = (
     MyDeviceSensorDescription(
         key="outside_temperature",
@@ -257,9 +255,12 @@ class MyTotalSensor(CoordinatorEntity[MyCoordinator], RestoreSensor):
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
     coordinator = entry.runtime_data
     async_add_entities(
-        (MyTotalSensor if description.state_class in TOTALS else MySensor)(
-            coordinator, description
-        )
+        (
+            MyTotalSensor
+            if description.state_class
+            in (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
+            else MySensor
+        )(coordinator, description)
         for description in SENSORS
     )
 ```
