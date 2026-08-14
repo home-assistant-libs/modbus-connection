@@ -2017,6 +2017,24 @@ async def test_component_diagnostics_returns_raw_registers_by_address() -> None:
     }
 
 
+async def test_diagnostics_can_leave_listeners_alone() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 7, 3: 0x0001, 4: 0x86A0})
+    unit.coils[0] = True
+    diag = _Diag(unit)
+    fired: list[int] = []
+    diag.add_update_listener(lambda: fired.append(1))
+
+    await diag.async_read_raw(notify=False)
+
+    # The read is real, so the fields are current — only the listeners sat out.
+    assert diag.count == 7
+    assert not fired
+
+    await diag.async_read_raw()
+    assert fired == [1]
+
+
 async def test_group_diagnostics_covers_every_space() -> None:
     class Holding(Component):
         a = integer(0, signed=False)
