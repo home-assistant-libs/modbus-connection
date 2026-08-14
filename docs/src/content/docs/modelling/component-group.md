@@ -10,10 +10,10 @@ block reads spanning every member. Fields, writes and listeners stay on the
 members themselves.
 
 A physical device is usually several sub-systems on one unit — a water heater,
-three heating circuits, a set of sensors — and polling each one separately means
-many small Modbus reads where a few larger ones would do. A group fetches
-adjacent registers from *different* components in the same Modbus call, and each
-component's listeners still fire after the update.
+three heating circuits, a set of sensors — and some of them interleave in the
+register map. A group fetches adjacent registers from *different* components in
+the same Modbus call, and each component's listeners still fire after the
+update.
 
 ```python
 from modbus_connection.model import ComponentGroup
@@ -21,6 +21,29 @@ from modbus_connection.model import ComponentGroup
 group = ComponentGroup(unit, [water_heater, circuit_1, circuit_2, circuit_3])
 await group.async_update()  # one pooled set of reads; each component notified
 ```
+
+## In a device object
+
+A [device object](/modbus-connection/patterns/library/) polls its sub-systems one
+at a time, so a failure stays with the sub-system that had it. A group is one of
+those units — the members that share blocks refresh together, and everything else
+keeps its own failure domain:
+
+```python
+    async def _async_setup(self) -> None:
+        ...
+        self._polled = {
+            "sensors": self.sensors,
+            # The circuits tile one run of registers: read alone, each one's
+            # block already spans the others, so three reads would fail as one.
+            "circuits": ComponentGroup(self._unit, self.circuits),
+            "hot_water": self.hot_water,
+        }
+```
+
+The poll loop does not change. The group updates like any other member and
+reports under its own name, so a caller learns that `circuits` went stale
+without learning which circuit was unlucky — the cost of pooling them.
 
 ## How it plans
 
@@ -91,8 +114,10 @@ exception carries.
 
 ## When to use which
 
-- One sub-system, or sub-systems polled on different schedules → individual
-  `Component.async_update()`.
-- Several sub-systems of one device polled together → a `ComponentGroup`.
+- Sub-systems whose registers interleave → a `ComponentGroup`. Splitting them
+  issues more reads that still cannot fail apart.
+- Sub-systems with their own stretch of the map, or polled on different
+  schedules → individual `Component.async_update()`, so one failing leaves the
+  rest reporting.
 - A layout not known until runtime (from config) → a
   [`ManualComponent`](/modbus-connection/modelling/manual-component/).
