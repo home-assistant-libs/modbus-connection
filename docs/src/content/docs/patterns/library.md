@@ -35,6 +35,7 @@ from modbus_connection import (
     IllegalFunctionError,
     ModbusConnectionError,
     ModbusError,
+    ModbusTimeoutError,
 )
 from modbus_connection.model import Component, ComponentGroup
 
@@ -115,6 +116,10 @@ class MyDevice:
                 await getattr(self, name).async_update(notify=False)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
+            except ModbusTimeoutError as err:
+                if not report.updated and not report.failed:
+                    raise  # the first block timed out: assume the rest do too
+                report.failed[name] = err
             except ModbusError as err:
                 report.failed[name] = err
             else:
