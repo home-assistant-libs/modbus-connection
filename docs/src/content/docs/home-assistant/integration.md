@@ -176,8 +176,7 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             report = await self.device.async_update()
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
-        # Both empty means this device serves nothing we poll, not a failure.
-        if report.failed and not report.updated:
+        if not report.updated:
             errors = list(report.failed.values())
             raise UpdateFailed(
                 f"no sub-system answered: {errors[0]}"
