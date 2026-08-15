@@ -280,6 +280,63 @@ a gap damages long-term statistics and the energy dashboard.
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
 seeds it across a restart.
 
+### Splitting the poll
+
+The coordinator above refreshes the whole device at one interval. Where part of
+the device changes far more slowly than the rest, give that part its own
+coordinator and leave everything else where it is:
+
+```python
+class MyComponentCoordinator[T: Component](DataUpdateCoordinator[None]):
+    """One sub-system's poll."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: MyConfigEntry,
+        subsystem: T,
+        interval: timedelta,
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{entry.title} {subsystem.__class__.__name__}",
+            update_interval=interval,
+        )
+        self.subsystem = subsystem
+
+    async def _async_update_data(self) -> None:
+        try:
+            await self.subsystem.async_update()
+        except ModbusError as err:
+            raise UpdateFailed(str(err)) from err
+```
+
+The values live on the component, so there is no report to carry: `available` is
+`last_update_success` already, and an entity reads
+`self.entity_description.value_fn(self.coordinator.subsystem)`. Typing the
+description against `T` keeps a description from reading a sub-system this
+coordinator does not poll.
+
+Move a component only if **every** register in it changes slowly — one live
+register pins the whole component to the fast schedule. A component that mixes
+the two is worth carving in half first: a new `Component` over the slow registers
+is still additive, and often the only way the split pays.
+
+Only one poller may recycle the connection. Leave the
+[wedged-link disconnect](#reconnecting-is-automatic) with the device coordinator;
+a slow one counting its own timeouts can drop the link under a poll already in
+flight.
+
+A coordinator may poll a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) where
+sub-systems read as one.
+
+Where the whole map reads in a request or two, or every sub-system changes at the
+same rate, one coordinator stays simpler. Count the requests that would move, not
+the registers.
+
 ## Reconnecting is automatic
 
 The connection re-establishes itself. Every request connects first, so the poll
