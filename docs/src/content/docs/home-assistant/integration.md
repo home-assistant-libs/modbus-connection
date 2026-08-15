@@ -280,6 +280,54 @@ a gap damages long-term statistics and the energy dashboard.
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
 seeds it across a restart.
 
+### Splitting the poll
+
+The coordinator above refreshes the whole device at one interval. Where a
+sub-system changes at a different rate — settings only when something writes
+them — split that one out into its own coordinator and leave the rest as they
+are:
+
+```python
+class MySettingsCoordinator[T: Component](DataUpdateCoordinator[None]):
+    """One sub-system's poll."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: MyConfigEntry,
+        subsystem: T,
+        interval: timedelta,
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{entry.title} {subsystem.__class__.__name__}",
+            update_interval=interval,
+        )
+        self.subsystem = subsystem
+
+    async def _async_update_data(self) -> None:
+        try:
+            await self.subsystem.async_update()
+        except ModbusError as err:
+            raise UpdateFailed(str(err)) from err
+```
+
+The values live on the component, so there is no report to carry: `available` is
+`last_update_success` already, and an entity reads
+`self.entity_description.value_fn(self.coordinator.subsystem)`. Typing the
+description against `T` keeps a description from reading a sub-system this
+coordinator does not poll. After a write, refresh that sub-system alone with
+`async_request_refresh()`.
+
+A coordinator may poll a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) where
+sub-systems read as one.
+
+Where the whole map reads in a request or two, or every sub-system changes at the
+same rate, one coordinator stays simpler.
+
 ## Reconnecting is automatic
 
 The connection re-establishes itself. Every request connects first, so the poll
