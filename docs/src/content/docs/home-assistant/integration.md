@@ -320,10 +320,9 @@ description against `T` keeps a description from reading a sub-system this
 coordinator does not poll.
 
 Move a component only if **every** register in it changes slowly — one live
-register pins the whole component to the fast schedule, since the block is read
-either way. A component that mixes the two is worth carving in half first: a new
-`Component` over the slow registers is still additive, and often the only way the
-split pays.
+register pins the whole component to the fast schedule. A component that mixes
+the two is worth carving in half first: a new `Component` over the slow registers
+is still additive, and often the only way the split pays.
 
 Only one poller may recycle the connection. Leave the
 [wedged-link disconnect](#reconnecting-is-automatic) with the device coordinator;
