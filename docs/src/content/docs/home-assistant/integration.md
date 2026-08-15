@@ -288,7 +288,7 @@ them — split that one out into its own coordinator and leave the rest as they
 are:
 
 ```python
-class MySettingsCoordinator[T: Component](DataUpdateCoordinator[None]):
+class MyComponentCoordinator[T: Component](DataUpdateCoordinator[None]):
     """One sub-system's poll."""
 
     def __init__(
