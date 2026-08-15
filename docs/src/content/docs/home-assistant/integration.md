@@ -317,9 +317,7 @@ The values live on the component, so there is no report to carry: `available` is
 `last_update_success` already, and an entity reads
 `self.entity_description.value_fn(self.coordinator.subsystem)`. Typing the
 description against `T` keeps a description from reading a sub-system this
-coordinator does not poll. After a write, refresh that sub-system alone with
-`async_request_refresh()`, or its entities show the old value until the next slow
-poll.
+coordinator does not poll.
 
 Move a component only if **every** register in it changes slowly — one live
 register pins the whole component to the fast schedule, since the block is read
