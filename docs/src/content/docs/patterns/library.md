@@ -8,9 +8,15 @@ library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
 the shape, over a heating controller with a few sub-systems.
 
+Each component has one of three lifetimes, two of them in
+[the shape](#the-shape) below: **setup-only** — identity and model info, read
+once — and **polled**, read on every update. The third is **slow-polled**: a
+component whose every register changes slowly enough to earn
+[its own schedule](/modbus-connection/home-assistant/integration/#splitting-the-poll).
+
 ## The shape
 
-The device object:
+A device object with several components to poll:
 
 1. takes a `ModbusUnit` — never a connection, and never a host/port. The consumer
    owns the connection and hands you a unit.
