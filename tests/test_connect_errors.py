@@ -69,12 +69,12 @@ async def test_pymodbus_connect_timeout_maps_to_timeout_error(
 ) -> None:
     # A connect timeout is a timeout, not a link-down condition.
     async def boom(self: object) -> bool:
-        raise TimeoutError("connect timed out")
+        raise TimeoutError
 
     monkeypatch.setattr(
         pymodbus_backend.AsyncModbusTcpClient, "connect", boom, raising=True
     )
-    with pytest.raises(ModbusTimeoutError):
+    with pytest.raises(ModbusTimeoutError, match="could not connect to 127.0.0.1"):
         await pymodbus_connect_tcp("127.0.0.1", port=502)
 
 
@@ -118,12 +118,12 @@ async def test_tmodbus_connect_timeout_maps_to_timeout_error(
         connected = False
 
         async def connect(self) -> None:
-            raise TimeoutError("connect timed out")
+            raise TimeoutError
 
     monkeypatch.setattr(
         tmodbus_backend, "create_async_tcp_client", lambda *a, **k: RaisingClient()
     )
-    with pytest.raises(ModbusTimeoutError):
+    with pytest.raises(ModbusTimeoutError, match="could not connect to 127.0.0.1"):
         await tmodbus_connect_tcp("127.0.0.1", port=502)
 
 

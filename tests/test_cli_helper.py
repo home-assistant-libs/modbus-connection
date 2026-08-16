@@ -32,6 +32,7 @@ from modbus_connection.cli_helper import (
 from modbus_connection.mock import MockModbusConnection
 from modbus_connection.model import (
     Component,
+    ManualComponent,
     coil,
     enum,
     flags,
@@ -546,3 +547,43 @@ async def test_print_component_defaults_title_to_class_name() -> None:
     buffer = io.StringIO()
     print_component(meter, file=buffer)
     assert buffer.getvalue().splitlines()[0] == "_Meter"
+
+
+async def test_field_rows_omits_a_field_restrict_fields_dropped() -> None:
+    """A dropped field never reads, so an empty row would read as an empty read."""
+    meter = _read_meter()
+    meter.restrict_fields(["temperature", "relay"])
+    await meter.async_update()
+    rows = dict(field_rows(meter))
+
+    assert rows["temperature"] == "23.5 °C"
+    assert "count" not in rows
+    assert "state" not in rows
+
+
+async def test_field_rows_reads_a_manual_component() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({0: 235, 1: 7})
+    manual = ManualComponent(unit)
+    manual.add("temperature", gauge(0, 0.1, unit="°C"))
+    manual.add("count", integer(1))
+    await manual.async_update()
+
+    assert field_rows(manual) == [("temperature", "23.5 °C"), ("count", "7")]
+
+
+def test_field_rows_renders_an_unread_manual_field() -> None:
+    manual = ManualComponent(MockModbusConnection().for_unit(1))
+    manual.add("temperature", gauge(0, 0.1, unit="°C"))
+    assert field_rows(manual) == [("temperature", "—")]
+
+
+async def test_group_rows_returns_a_manual_components_groups() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({10: 3300, 12: 3298})
+    manual = ManualComponent(unit)
+    manual.add("cells", repeating_group(2, _Cell, stride=2))
+    await manual.async_update()
+
+    groups = dict(group_rows(manual))
+    assert [cell.voltage for cell in groups["cells"]] == [3.3, 3.298]

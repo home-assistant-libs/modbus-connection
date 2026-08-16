@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import logging
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
@@ -56,6 +57,10 @@ __all__ = [
     "connect_tls",
     "connect_udp",
 ]
+
+# tmodbus logs a failed connect with exc_info and raises it too, so a caller that
+# handles the exception still gets a traceback from logging's last-resort handler.
+logging.getLogger("tmodbus").addHandler(logging.NullHandler())
 
 # tmodbus binds a unit id when the client is created, but this library selects the
 # unit via ``ModbusConnection.for_unit()`` instead. The base client is only used
@@ -131,7 +136,7 @@ class ModbusConnection(BaseModbusConnection):
         try:
             await client.connect()
         except TimeoutError as err:
-            raise ModbusTimeoutError(str(err)) from err
+            raise ModbusTimeoutError(error_message) from err
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(error_message) from err
         return client

@@ -104,13 +104,13 @@ def _connect_error(
     """Translate a pymodbus construct/connect failure to the neutral type."""
     if isinstance(err, ParameterException):
         return ValueError(str(err))
-    if isinstance(err, TimeoutError):
-        return ModbusTimeoutError(str(err))
     message = (
         f"could not open serial port {target}"
         if isinstance(params, ModbusSerialParams)
         else f"could not connect to {target}"
     )
+    if isinstance(err, TimeoutError):
+        return ModbusTimeoutError(message)
     return ModbusConnectionError(message)
 
 

@@ -47,7 +47,6 @@ That's the whole thing — parse, connect, wrap, read, print:
 ```python
 import argparse
 import asyncio
-import logging
 
 from modbus_connection import ModbusError
 from modbus_connection.cli_helper import (
@@ -61,10 +60,6 @@ from my_device import MyDevice  # your modelled Component / device object
 
 
 async def main() -> int:
-    # The backend logs a failed connect with exc_info, which Python's
-    # last-resort handler dumps as a traceback over your own message.
-    logging.getLogger().addHandler(logging.NullHandler())
-
     parser = argparse.ArgumentParser(description="Query a device and print values.")
     add_connection_args(parser)
     # The unit id is not part of connecting — it varies per device and per tool —
@@ -75,9 +70,7 @@ async def main() -> int:
     try:
         conn = await connect_from_args(args)
     except ModbusError as err:
-        # A connect timeout carries no message, so fall back to its type —
-        # via str(), since an exception is always truthy.
-        print(f"Could not connect: {str(err) or type(err).__name__}")
+        print(f"Could not connect: {err}")
         return 1
 
     counting = CountingUnit(conn.for_unit(args.unit))
@@ -103,10 +96,6 @@ python query.py 192.168.1.50 --unit 246 --framer rtu
 python query.py /dev/ttyUSB0 --transport serial --unit 246 --baudrate 19200
 python query.py --help          # works without a backend installed
 ```
-
-A device library that probes for its model raises its own error when it does not
-recognise one — not a `ModbusError`. Catch that around the read too, or the first
-unfamiliar device tracebacks at whoever is holding it.
 
 ## Through an ESPHome serial proxy
 
@@ -138,9 +127,10 @@ as a block in `--help` and stay clear of your CLI's own options — like the
 `--unit` you add yourself.
 
 By default it offers every transport and framing. Pass `connections=` the
-`(transport, framer)` pairs your device actually supports and the CLI narrows to
-match — a device that only speaks RTU-over-TCP needs no serial, TLS, `--transport`
-or `--framer` clutter:
+`(transport, framer)` pairs your device actually supports, **most-used first** —
+`--transport` defaults to the first — and the CLI narrows to match: a device that
+only speaks RTU-over-TCP needs no serial, TLS, `--transport` or `--framer`
+clutter:
 
 ```python
 # Only RTU-over-TCP: no --transport flag, --framer fixed to rtu, no serial/TLS args.
@@ -149,10 +139,6 @@ add_connection_args(parser, connections=(("tcp", "rtu"),))
 
 A `None` framer means the backend default (and is required for TLS). The parser it
 produces is read back by `connect_from_args`, so the two always stay in step.
-
-`--transport` defaults to the **first** pair you pass, so list the one the target
-is usually reached over first. With `("serial", "rtu")` leading, a documented
-`query.py 192.168.1.50` opens a serial port named `192.168.1.50`.
 
 ### `connect_from_args`
 
@@ -203,16 +189,10 @@ or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
 name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
 status or fault word should not hide a set bit.
 
-`print_component` reflects over a component's class-level fields, so reach for
-`field_rows` where there are none to find:
-
-- a [`ManualComponent`](/modbus-connection/modelling/manual-component/) declares
-  its fields at runtime, so `print_component` finds only the `values` property and
-  prints the whole dict as one row.
-- a component narrowed by [`restrict_fields`](/modbus-connection/modelling/restricting-fields/) keeps the descriptors it no longer
-  reads, so every unserved field prints as `—` — indistinguishable from a read
-  that came back empty, which is the one thing a query script exists to tell
-  apart.
+A [`ManualComponent`](/modbus-connection/modelling/manual-component/) prints its
+runtime-added targets, and a component narrowed by
+[`restrict_fields`](/modbus-connection/modelling/restricting-fields/) prints only
+the fields it still reads — so a `—` always means the device gave nothing back.
 
 If you model your device as a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/), loop over its
