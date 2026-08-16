@@ -8,6 +8,9 @@ library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
 the shape, over a heating controller with a few sub-systems.
 
+It is the shape for a device that **polls several components**. Where one
+component covers the whole device, that component is the device object.
+
 ## The shape
 
 The device object:
@@ -167,6 +170,18 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Two lifetimes
+
+A component is either **polled** — read on every `async_update()`, hence listed
+in `_polled` — or **setup-only**: read once from `_async_setup()` and never
+again. `controller` above is setup-only, as are identity, firmware, nameplate,
+and settings a user changes on the panel rather than over the bus.
+
+Setup-only is not "polled slowly"
+([that is a second coordinator](/modbus-connection/home-assistant/integration/#splitting-the-poll)).
+It is off the polling path entirely, so it costs nothing per cycle and cannot
+fail a poll — but it stays in `async_read_raw()`, so diagnostics still carry it.
 
 ## Principles
 
