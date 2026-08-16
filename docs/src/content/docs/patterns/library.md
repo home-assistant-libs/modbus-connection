@@ -8,14 +8,11 @@ library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
 the shape, over a heating controller with a few sub-systems.
 
-Each component has one of three lifetimes: **setup-only**, read once at
-[setup](#the-shape) and never again — identity, firmware, nameplate, settings
-changed on the panel rather than over the bus; **polled**, read on
-[every update](/modbus-connection/modelling/reading/); or **slow-polled**, given
-[its own schedule](/modbus-connection/home-assistant/integration/#splitting-the-poll)
-where every register in it changes slowly. Setup-only is not slow-polled: it is
-off the polling path, so it costs nothing per cycle and cannot fail a poll, while
-still appearing in `async_read_raw()`.
+Each component has one of three lifetimes, two of them in
+[the shape](#the-shape) below: **setup-only** — identity and model info, read
+once — and **polled**, read on every update. The third is **slow-polled**: a
+component whose every register changes slowly enough to earn
+[its own schedule](/modbus-connection/home-assistant/integration/#splitting-the-poll).
 
 ## The shape
 
