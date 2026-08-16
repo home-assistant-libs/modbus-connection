@@ -8,12 +8,18 @@ library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
 the shape, over a heating controller with a few sub-systems.
 
-It is the shape for a device that **polls several components**. Where one
-component covers the whole device, that component is the device object.
+Each component has one of three lifetimes: **setup-only**, read once at
+[setup](#the-shape) and never again — identity, firmware, nameplate, settings
+changed on the panel rather than over the bus; **polled**, read on
+[every update](/modbus-connection/modelling/reading/); or **slow-polled**, given
+[its own schedule](/modbus-connection/home-assistant/integration/#splitting-the-poll)
+where every register in it changes slowly. Setup-only is not slow-polled: it is
+off the polling path, so it costs nothing per cycle and cannot fail a poll, while
+still appearing in `async_read_raw()`.
 
 ## The shape
 
-The device object:
+A device object with several components to poll:
 
 1. takes a `ModbusUnit` — never a connection, and never a host/port. The consumer
    owns the connection and hands you a unit.
@@ -170,18 +176,6 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
-
-## Two lifetimes
-
-A component is either **polled** — read on every `async_update()`, hence listed
-in `_polled` — or **setup-only**: read once from `_async_setup()` and never
-again. `controller` above is setup-only, as are identity, firmware, nameplate,
-and settings a user changes on the panel rather than over the bus.
-
-Setup-only is not "polled slowly"
-([that is a second coordinator](/modbus-connection/home-assistant/integration/#splitting-the-poll)).
-It is off the polling path entirely, so it costs nothing per cycle and cannot
-fail a poll — but it stays in `async_read_raw()`, so diagnostics still carry it.
 
 ## Principles
 
