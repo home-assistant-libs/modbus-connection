@@ -2526,3 +2526,37 @@ def test_declared_fields_excludes_repeating_groups() -> None:
         subs = repeating_group(2, Sub, stride=1)
 
     assert list(Parent.declared_fields) == ["own"]
+
+
+class _Scaling(Component):
+    """Exists to be type-checked: a scaled field is not an integer one."""
+
+    plain = uint32(0)
+    scaled = uint32(2, scale=0.01)
+    offsetted = uint32(4, offset=10.0)
+    signed = int32(6)
+    signed_scaled = int32(8, scale=0.001)
+    word = integer(20)
+    dynamic = integer(22, scale_register=23)
+
+
+def _wants_int(value: int | None) -> None:
+    """Accepts only what stays integral."""
+
+
+def _wants_float(value: float | None) -> None:
+    """Accepts what scaling makes fractional."""
+
+
+def test_scaling_decides_the_declared_type_statically() -> None:
+    # The body is the assertion — mypy fails this file if a scaled field goes
+    # back to being typed int, which reads as integral and silently truncates
+    # in the consumer rather than here.
+    field = _Scaling(MockModbusConnection().for_unit(1))
+    _wants_int(field.plain)
+    _wants_int(field.signed)
+    _wants_int(field.word)
+    _wants_float(field.scaled)
+    _wants_float(field.offsetted)
+    _wants_float(field.signed_scaled)
+    _wants_float(field.dynamic)

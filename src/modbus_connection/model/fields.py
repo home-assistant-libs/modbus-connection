@@ -541,6 +541,20 @@ def gauge(
     )
 
 
+@overload
+def integer(
+    address: int,
+    *,
+    signed: bool = True,
+    nan: int | Iterable[int] | None = None,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int]: ...
+
+
+@overload
 def integer(
     address: int,
     *,
@@ -553,7 +567,22 @@ def integer(
     scale_register_stride: int = 0,
     unit: str | None = None,
     force_fc16: bool = False,
-) -> NumberField[int]:
+) -> NumberField[float]: ...
+
+
+def integer(
+    address: int,
+    *,
+    offset: float = 0.0,
+    signed: bool = True,
+    nan: int | Iterable[int] | None = None,
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    scale_register: int | None = None,
+    scale_register_stride: int = 0,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int] | NumberField[float]:
     """Create an integer register field."""
     return NumberField(
         address,
@@ -585,6 +614,20 @@ def raw_register(
     )
 
 
+@overload
+def uint32(
+    address: int,
+    *,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int]: ...
+
+
+@overload
 def uint32(
     address: int,
     *,
@@ -596,7 +639,21 @@ def uint32(
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
-) -> NumberField[int]:
+) -> NumberField[float]: ...
+
+
+def uint32(
+    address: int,
+    *,
+    scale: float = 1.0,
+    offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int] | NumberField[float]:
     """An unsigned 32-bit value over two consecutive registers."""
     return NumberField(
         address,
@@ -613,6 +670,20 @@ def uint32(
     )
 
 
+@overload
+def int32(
+    address: int,
+    *,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int]: ...
+
+
+@overload
 def int32(
     address: int,
     *,
@@ -624,7 +695,21 @@ def int32(
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
-) -> NumberField[int]:
+) -> NumberField[float]: ...
+
+
+def int32(
+    address: int,
+    *,
+    scale: float = 1.0,
+    offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int] | NumberField[float]:
     """A signed 32-bit value over two consecutive registers."""
     return NumberField(
         address,
@@ -668,6 +753,20 @@ def float32(
     )
 
 
+@overload
+def uint64(
+    address: int,
+    *,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int]: ...
+
+
+@overload
 def uint64(
     address: int,
     *,
@@ -679,7 +778,21 @@ def uint64(
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
-) -> NumberField[int]:
+) -> NumberField[float]: ...
+
+
+def uint64(
+    address: int,
+    *,
+    scale: float = 1.0,
+    offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int] | NumberField[float]:
     """An unsigned 64-bit value over four consecutive registers."""
     return NumberField(
         address,
@@ -696,6 +809,20 @@ def uint64(
     )
 
 
+@overload
+def int64(
+    address: int,
+    *,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int]: ...
+
+
+@overload
 def int64(
     address: int,
     *,
@@ -707,7 +834,21 @@ def int64(
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
-) -> NumberField[int]:
+) -> NumberField[float]: ...
+
+
+def int64(
+    address: int,
+    *,
+    scale: float = 1.0,
+    offset: float = 0.0,
+    nan: int | Iterable[int] | None = None,
+    word_order: WordOrder = "big",
+    stride: int = 0,
+    writable: bool | WriteValidator = False,
+    unit: str | None = None,
+    force_fc16: bool = False,
+) -> NumberField[int] | NumberField[float]:
     """A signed 64-bit value over four consecutive registers."""
     return NumberField(
         address,
