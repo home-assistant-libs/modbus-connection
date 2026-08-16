@@ -189,11 +189,6 @@ or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
 name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
 status or fault word should not hide a set bit.
 
-A [`ManualComponent`](/modbus-connection/modelling/manual-component/) prints its
-runtime-added targets, and a component narrowed by
-[`restrict_fields`](/modbus-connection/modelling/restricting-fields/) prints only
-the fields it still reads — so a `—` always means the device gave nothing back.
-
 If you model your device as a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/), loop over its
 components and `print_component` each one. To format the output yourself (JSON,
