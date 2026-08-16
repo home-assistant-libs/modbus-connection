@@ -131,7 +131,7 @@ class ModbusConnection(BaseModbusConnection):
         try:
             await client.connect()
         except TimeoutError as err:
-            raise ModbusTimeoutError(str(err)) from err
+            raise ModbusTimeoutError(error_message) from err
         except (TModbusError, OSError) as err:
             raise ModbusConnectionError(error_message) from err
         return client

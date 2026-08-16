@@ -17,6 +17,7 @@ from .model import (
     CoilField,
     Component,
     DiscreteInputField,
+    ManualComponent,
     RegisterField,
     RepeatingGroupField,
 )
@@ -384,35 +385,57 @@ def _format_value(value: object) -> str:
 _BASE_ATTRS = frozenset(dir(Component))
 
 
-def field_rows(component: Component) -> list[tuple[str, str]]:
-    """Return display rows for every field on ``component``."""
+def _row(name: str, decoded: object, unit: str | None) -> tuple[str, str]:
+    value = _format_value(decoded)
+    # A field with no value carries no unit: "— °C" reads as a measurement
+    # that came back empty, when nothing was measured at all.
+    return (name, f"{value} {unit}" if unit and decoded is not None else value)
+
+
+def field_rows(component: Component | ManualComponent) -> list[tuple[str, str]]:
+    """Return display rows for every field ``component`` serves.
+
+    A field ``restrict_fields`` dropped is left out rather than shown empty.
+    """
+    if isinstance(component, ManualComponent):
+        return [
+            _row(key, component.get(key), field.unit)
+            for key, (field, _) in component._registers.items()
+        ] + [_row(key, component.get(key), None) for key in component._bits]
+
     cls = type(component)
+    served = set(component._register_fields) | set(component._bit_fields)
     rows: list[tuple[str, str]] = []
     for name in dir(component):
         if name.startswith("_") or name in _BASE_ATTRS:
             continue
         descriptor = inspect.getattr_static(cls, name, None)
-        if not isinstance(
-            descriptor, (RegisterField, CoilField, DiscreteInputField, property)
-        ):
+        if isinstance(descriptor, (RegisterField, CoilField, DiscreteInputField)):
+            if name not in served:
+                continue
+            unit = descriptor.unit if isinstance(descriptor, RegisterField) else None
+        elif isinstance(descriptor, property):
+            unit = None
+        else:
             continue
-        decoded = getattr(component, name)
-        value = _format_value(decoded)
-        unit = descriptor.unit if isinstance(descriptor, RegisterField) else None
-        # A field with no value carries no unit: "— °C" reads as a measurement
-        # that came back empty, when nothing was measured at all.
-        rows.append(
-            (name, f"{value} {unit}" if unit and decoded is not None else value)
-        )
+        rows.append(_row(name, getattr(component, name), unit))
     return rows
 
 
-def group_rows(component: Component) -> list[tuple[str, list[Component]]]:
+def group_rows(
+    component: Component | ManualComponent,
+) -> list[tuple[str, list[Component]]]:
     """Return each ``repeating_group`` on ``component`` with its instances.
 
     An unread register-counted group has no instances yet and yields an empty
     list, which is the honest answer rather than an omission.
     """
+    if isinstance(component, ManualComponent):
+        return [
+            (key, component.get(key))
+            for key in (*component._static_groups, *component._repeating_fields)
+        ]
+
     cls = type(component)
     groups: list[tuple[str, list[Component]]] = []
     for name in dir(component):
@@ -424,7 +447,7 @@ def group_rows(component: Component) -> list[tuple[str, list[Component]]]:
 
 
 def print_component(
-    component: Component,
+    component: Component | ManualComponent,
     *,
     title: str | None = None,
     file: TextIO | None = None,

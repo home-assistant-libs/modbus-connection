@@ -127,9 +127,10 @@ as a block in `--help` and stay clear of your CLI's own options — like the
 `--unit` you add yourself.
 
 By default it offers every transport and framing. Pass `connections=` the
-`(transport, framer)` pairs your device actually supports and the CLI narrows to
-match — a device that only speaks RTU-over-TCP needs no serial, TLS, `--transport`
-or `--framer` clutter:
+`(transport, framer)` pairs your device actually supports, **most-used first** —
+`--transport` defaults to the first — and the CLI narrows to match: a device that
+only speaks RTU-over-TCP needs no serial, TLS, `--transport` or `--framer`
+clutter:
 
 ```python
 # Only RTU-over-TCP: no --transport flag, --framer fixed to rtu, no serial/TLS args.
