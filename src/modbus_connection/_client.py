@@ -31,7 +31,7 @@ class ModbusTcpParams:
     """Connection parameters for a Modbus TCP link."""
 
     host: str
-    """Host name or IP address of the device."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 502
     """TCP port."""
@@ -45,16 +45,16 @@ class ModbusTcpParams:
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
+        object.__setattr__(self, "host", self.host.lower())
 
     @property
     def endpoint(self) -> tuple[str, str, int]:
         """Hashable identity of the addressed device: transport, host, and port.
 
         Two params objects with equal endpoints point at the same device even
-        when link settings such as ``framer`` differ. The host is lowercased,
-        as DNS names and IPv6 hex digits are case-insensitive.
+        when link settings such as ``framer`` differ.
         """
-        return ("tcp", self.host.lower(), self.port)
+        return ("tcp", self.host, self.port)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -62,7 +62,7 @@ class ModbusUdpParams:
     """Connection parameters for a Modbus UDP link."""
 
     host: str
-    """Host name or IP address of the device."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 502
     """UDP port."""
@@ -76,16 +76,16 @@ class ModbusUdpParams:
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
+        object.__setattr__(self, "host", self.host.lower())
 
     @property
     def endpoint(self) -> tuple[str, str, int]:
         """Hashable identity of the addressed device: transport, host, and port.
 
         Two params objects with equal endpoints point at the same device even
-        when link settings such as ``framer`` differ. The host is lowercased,
-        as DNS names and IPv6 hex digits are case-insensitive.
+        when link settings such as ``framer`` differ.
         """
-        return ("udp", self.host.lower(), self.port)
+        return ("udp", self.host, self.port)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -93,7 +93,7 @@ class ModbusTlsParams:
     """Connection parameters for a Modbus/TLS (Modbus Security) link."""
 
     host: str
-    """Host name or IP address of the device."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 802
     """TLS port."""
@@ -116,6 +116,10 @@ class ModbusTlsParams:
     sslctx: ssl.SSLContext | None = None
     """TLS context overriding the other TLS options."""
 
+    def __post_init__(self) -> None:
+        """Fold the host to lower case."""
+        object.__setattr__(self, "host", self.host.lower())
+
     @property
     def endpoint(self) -> tuple[str, str, int]:
         """Hashable identity of the addressed device: transport, host, and port.
@@ -123,10 +127,9 @@ class ModbusTlsParams:
         Two params objects with equal endpoints point at the same device even
         when the TLS settings differ. The transport tag is ``"tcp"``: a TLS
         link and a plain-TCP link to the same host and port target the same
-        TCP endpoint, hence the same device. The host is lowercased, as DNS
-        names and IPv6 hex digits are case-insensitive.
+        TCP endpoint, hence the same device.
         """
-        return ("tcp", self.host.lower(), self.port)
+        return ("tcp", self.host, self.port)
 
     async def create_ssl_context(self) -> ssl.SSLContext:
         """Return the supplied TLS context or build one from these parameters."""

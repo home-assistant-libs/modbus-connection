@@ -151,6 +151,33 @@ def test_endpoint_same_device(left: Params, right: Params) -> None:
     ("left", "right"),
     [
         pytest.param(
+            ModbusTcpParams(host="Dev.LOCAL"),
+            ModbusTcpParams(host="dev.local"),
+            id="tcp",
+        ),
+        pytest.param(
+            ModbusUdpParams(host="FE80::1"),
+            ModbusUdpParams(host="fe80::1"),
+            id="udp",
+        ),
+        pytest.param(
+            ModbusTlsParams(host="Dev.LOCAL"),
+            ModbusTlsParams(host="dev.local"),
+            id="tls",
+        ),
+    ],
+)
+def test_host_case_does_not_make_params_differ(left: Params, right: Params) -> None:
+    """The host is folded on construction, so equality and hashing agree."""
+    assert left == right
+    assert hash(left) == hash(right)
+    assert left.host == right.host
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        pytest.param(
             ModbusTcpParams(host="dev.local"),
             ModbusTcpParams(host="other.local"),
             id="tcp-different-host",
