@@ -141,8 +141,9 @@ as a dictionary key for grouping shared connections:
 
 `ModbusTlsParams` deliberately shares the `"tcp"` transport tag: a TLS link and
 a plain-TCP link to the same host and port target the same TCP endpoint, hence
-the same device. The host is lowercased in the tuple, since DNS names and IPv6
-hex digits are case-insensitive. The serial device path is compared verbatim —
+the same device. A host is folded to lower case on construction, since DNS names
+and IPv6 hex digits are case-insensitive. The serial device path is compared
+verbatim —
 aliases of the same port (a `/dev/serial/by-id` symlink versus `/dev/ttyUSB0`)
 are not resolved.
 
