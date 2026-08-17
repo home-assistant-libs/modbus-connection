@@ -27,8 +27,10 @@ A device object with several components to poll:
 4. polls each of them on its own — or as a
    [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
    read already spans the other's registers — so one that fails does not take the
-   others down with it, and
-5. exposes `async_update()` plus typed access to each sub-system.
+   others down with it,
+5. polls what it measures apart from what it has been configured to do, so a
+   consumer can schedule the two apart, and
+6. exposes those methods plus typed access to each sub-system.
 
 ```python
 from __future__ import annotations
@@ -49,6 +51,7 @@ from .sensors import Sensors
 from .controller import Controller
 from .heating_circuit import HeatingCircuit
 from .hot_water import HotWater
+from .settings import Settings
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
@@ -81,13 +84,16 @@ class MyDevice:
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
+        # Configured, not measured: the schedule and the mode selectors.
+        self.settings = Settings(unit)
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
         # One circuit's read already spans the other's, so they read as one.
         self.circuits: ComponentGroup | None = None
 
-        self._polled: tuple[str, ...] | None = None
+        self._readings: tuple[str, ...] | None = None
+        self._settings = ("settings",)
 
     async def _async_setup(self) -> None:
         """Read what never changes, and settle which sub-systems this model has.
@@ -104,41 +110,57 @@ class MyDevice:
             [c for c in (self.heating_circuit_1, self.heating_circuit_2) if c],
         )
 
-        self._polled = tuple(
+        self._readings = tuple(
             n
             for n in ("sensors", "circuits", "hot_water")
             if getattr(self, n) is not None
         )
 
-    async def async_update(self) -> UpdateReport:
-        """Refresh every polled sub-system; the first call sets the device up."""
-        if self._polled is None:
-            await self._async_setup()
-        assert self._polled is not None  # _async_setup() always builds it
-
-        report = UpdateReport()
-        for name in self._polled:
+    async def _async_poll(
+        self, names: tuple[str, ...], report: UpdateReport
+    ) -> UpdateReport:
+        """Read each named sub-system on its own, adding what happened to *report*."""
+        for name in names:
             try:
                 await getattr(self, name).async_update(notify=False)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
                 if not report.updated and not report.failed:
-                    raise  # the first block timed out: assume the rest do too
+                    raise  # nothing answered yet: assume the rest time out too
                 report.failed[name] = err
             except ModbusError as err:
                 report.failed[name] = err
             else:
                 report.updated.append(name)
 
-        for name in report.updated:  # nothing fires until the cycle is done
-            getattr(self, name).notify()
+        for name in names:  # nothing fires until this poll is done
+            if name in report.updated:
+                getattr(self, name).notify()
         return report
+
+    async def async_update_readings(self) -> UpdateReport:
+        """Refresh what the controller measures; the first call sets it up."""
+        if self._readings is None:
+            await self._async_setup()
+        assert self._readings is not None  # _async_setup() always builds it
+        return await self._async_poll(self._readings, UpdateReport())
+
+    async def async_update_settings(self) -> UpdateReport:
+        """Refresh what the controller has been configured to do."""
+        if self._readings is None:
+            await self._async_setup()
+        return await self._async_poll(self._settings, UpdateReport())
+
+    async def async_update(self) -> UpdateReport:
+        """Both, for a caller that does not schedule them apart."""
+        report = await self.async_update_readings()
+        return await self._async_poll(self._settings, report)
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics."""
         raw: dict[str, dict[int, int | bool]] = {}
-        for name in ("controller", *(self._polled or ())):
+        for name in ("controller", *(self._readings or ()), *self._settings):
             read = await getattr(self, name).async_read_raw(notify=False)
             for space, values in read.items():
                 raw.setdefault(space, {}).update(values)
@@ -178,45 +200,19 @@ asyncio.run(main())
 
 What a device measures changes constantly. What it has been configured to do
 changes when something writes it. A consumer can only poll the second less often
-than the first if the device object says which is which, so it offers a method per
-group and one that does both:
+than the first if the device object says which is which — hence the two methods
+above, and `async_update()` for a caller that does not care.
 
-```python
-class MyDevice:
-    # ... as above, with _readings and _settings in place of _polled
-
-    async def async_update_readings(self) -> UpdateReport:
-        """Refresh what the device measures."""
-        if self._readings is None:
-            await self._async_setup()
-        assert self._readings is not None
-        return await self._async_poll(self._readings, UpdateReport())
-
-    async def async_update_settings(self) -> UpdateReport:
-        """Refresh what the device has been configured to do."""
-        if self._settings is None:
-            await self._async_setup()
-        assert self._settings is not None
-        return await self._async_poll(self._settings, UpdateReport())
-
-    async def async_update(self) -> UpdateReport:
-        """Both, for a caller that does not schedule them apart."""
-        report = await self.async_update_readings()
-        assert self._settings is not None
-        return await self._async_poll(self._settings, report)
-```
-
-`_async_poll(units, report)` is the loop from [the shape](#the-shape), taking a
-report instead of making one. That is what keeps the fatal-timeout rule honest:
-nothing answered has to mean nothing answered *this cycle*, so `async_update()`
-behaves as it always did, while a settings poll on its own still gives up on its
-first timeout. Setup runs from whichever method is called first.
+`_async_poll` takes the report instead of making one, which is what keeps the
+fatal-timeout rule honest: nothing answered has to mean nothing answered *this
+cycle*, so `async_update()` behaves as it always did while a settings poll on its
+own still gives up on its first timeout. It also notifies only the sub-systems it
+read, so the settings poll does not fire a listener twice.
 
 Name the methods for what they read, never for when to call them — a library
 cannot know a consumer's schedule, and `async_update_slow()` is wrong the moment
 someone wants it now. Each report names only what its own method polled, so a
-component absent from one is not a component that failed. Listeners fire at the
-end of the poll that read them.
+component absent from one is not a component that failed.
 
 Whether to split at all is yours to judge. It pays where the configuration
 registers read in blocks of their own; where they interleave with measurements,
