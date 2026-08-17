@@ -198,6 +198,7 @@ class ModbusConnection(BaseModbusConnection):
         return create_serial(
             params.device,
             unit_id=_PLACEHOLDER_UNIT_ID,
+            timeout=self._timeout,
             baudrate=params.baudrate,
             bytesize=params.bytesize,
             parity=Parity(params.parity),
