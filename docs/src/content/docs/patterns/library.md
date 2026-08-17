@@ -18,7 +18,7 @@ as a [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one
 read already spans the other's registers, so one that fails does not take the rest
 with it.
 
-Over a heating controller:
+Here it is for a heating controller:
 
 ```python
 from __future__ import annotations
