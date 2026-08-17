@@ -5,33 +5,20 @@ description: How the top-level device object of a library built on modbus-connec
 
 modbus-connection is a foundation you build a **device library** on. A good device
 library exposes one **top-level object** that a consumer constructs from a
-`ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
-the shape, over a heating controller with a few sub-systems.
+`ModbusUnit` — never a connection, and never a host/port — and reads sub-systems as
+plain Python attributes.
 
-Each component has one of two lifetimes, both in [the shape](#the-shape) below:
-**setup-only** — identity and model info, read once — and **polled**, read on
-every update. Polled components are grouped by category — what the device
-measures, what it has been configured to do, anything else worth its own interval
-— and each category gets [its own update method](#readings-and-settings), so a
-consumer chooses how often to read each.
+Each sub-system is a [`Component`](/modbus-connection/modelling/overview/). Some
+are read once at setup: identity, model info, and whatever settles which
+components this device serves. The rest are polled, grouped by category — what the
+device measures, what it has been configured to do, anything else worth its own
+interval — with [an update method per category](#readings-and-settings), so a
+consumer chooses how often to read each. Every sub-system is read on its own, or
+as a [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
+read already spans the other's registers, so one that fails does not take the rest
+with it.
 
-## The shape
-
-A device object with several components to poll:
-
-1. takes a `ModbusUnit` — never a connection, and never a host/port. The consumer
-   owns the connection and hands you a unit.
-2. constructs its sub-systems as [`Component`](/modbus-connection/modelling/overview/)
-   instances,
-3. sets itself up once — reading everything that never changes and settling
-   which components this device serves — from the first `async_update()`,
-4. polls each of them on its own — or as a
-   [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
-   read already spans the other's registers — so one that fails does not take the
-   others down with it,
-5. polls what it measures apart from what it has been configured to do, so a
-   consumer can schedule the two apart, and
-6. exposes those methods plus typed access to each sub-system.
+Over a heating controller:
 
 ```python
 from __future__ import annotations
