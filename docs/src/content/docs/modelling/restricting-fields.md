@@ -53,7 +53,7 @@ because how a device reveals its layout is device-specific. Two common approache
 
 - **Probe once at setup** — read each declared range, falling back to
   single-register reads on a refusal, and keep the fields that answered. This
-  belongs to a library's [setup](/modbus-connection/patterns/library/#the-shape),
+  belongs to a library's [setup](/modbus-connection/patterns/library/),
   not its polling path.
 - **Look it up** — if the device reports a model or firmware version somewhere, map
   that to a known field set.
