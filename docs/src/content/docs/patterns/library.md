@@ -151,7 +151,7 @@ class MyDevice:
             assert self._readings is not None
         report = await self._async_poll(self._readings, UpdateReport())
         await self._async_poll(self._settings, report)
-        self._notify(report)  # nothing fires until the whole cycle is done
+        self._notify(report)
         return report
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
