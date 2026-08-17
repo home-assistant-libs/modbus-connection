@@ -85,8 +85,8 @@ class MyDevice:
     async def _async_setup(self) -> None:
         """Read what never changes, and settle which sub-systems this model has.
 
-        Runs from the first ``async_update()``, and again on the next one if
-        the device was unreachable.
+        Runs from the first update, and again on the next one if the device
+        was unreachable.
         """
         await self.controller.async_update()  # identity: read once, never polled
 
@@ -128,7 +128,7 @@ class MyDevice:
             getattr(self, name).notify()
 
     async def async_update_readings(self) -> UpdateReport:
-        """Refresh what the controller measures; the first call sets it up."""
+        """Refresh what the controller measures."""
         if self._readings is None:
             await self._async_setup()
             assert self._readings is not None
