@@ -36,9 +36,8 @@ that library to Home Assistant's entities, config flow and coordinator.
 
 That requirement is precisely the [device-object pattern](/modbus-connection/patterns/library/):
 a standalone package, built on modbus-connection, that exposes a device object
-over `Component`s and consumes a `ModbusUnit`. Build that library first — it is
-what the integration will `import` and list in its `manifest.json` requirements,
-and it means the hard part (the register map) gets tested against the
+over `Component`s and consumes a `ModbusUnit`. Build that library first — it means
+the hard part (the register map) gets tested against the
 [mock](/modbus-connection/patterns/testing/) with no Home Assistant in the loop.
 
 :::note[Custom integrations]
