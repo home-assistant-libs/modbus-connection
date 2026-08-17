@@ -213,7 +213,9 @@ is done. Both are what keep it the method it was before the split.
 Name the methods for what they read, never for when to call them — a library
 cannot know a consumer's schedule, and `async_update_slow()` is wrong the moment
 someone wants it now. Each report names only what its own method polled, so a
-component absent from one is not a component that failed.
+component absent from one is not a component that failed. The names are poll
+units, not attributes: sub-systems pooled into one read report under that unit's
+name, since they refresh and fail together.
 
 Whether to split at all is yours to judge. It pays where the configuration
 registers read in blocks of their own; where they interleave with measurements,

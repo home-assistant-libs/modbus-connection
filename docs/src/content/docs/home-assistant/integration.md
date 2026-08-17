@@ -226,7 +226,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     """Describe a sensor backed by a device attribute."""
 
     value_fn: Callable[[MyDevice], float | None]
-    component: str  # the sub-system this sensor reads from
+    component: str  # the poll unit it refreshes with, which the report names
 
 
 SENSORS: tuple[MyDeviceSensorDescription, ...] = (
@@ -236,6 +236,14 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         component="sensors",
         value_fn=lambda device: device.sensors.outside_1,
+    ),
+    MyDeviceSensorDescription(
+        key="circuit_1_flow",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        # Both circuits are read as one, so the report names them "circuits".
+        component="circuits",
+        value_fn=lambda device: device.heating_circuit_1.flow,
     ),
 )
 
