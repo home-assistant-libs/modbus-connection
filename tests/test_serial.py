@@ -97,5 +97,7 @@ async def test_serial_reads(
         conn = tmodbus_backend.ModbusConnection(params, timeout=2)
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        if backend == "tmodbus":
+            assert conn._client.transport.base_transport.timeout == 2
     finally:
         await conn.close()
