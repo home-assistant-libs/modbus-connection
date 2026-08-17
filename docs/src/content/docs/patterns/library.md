@@ -131,7 +131,7 @@ class MyDevice:
         """Refresh what the controller measures; the first call sets it up."""
         if self._readings is None:
             await self._async_setup()
-        assert self._readings is not None  # _async_setup() always builds it
+            assert self._readings is not None
         report = await self._async_poll(self._readings, UpdateReport())
         self._notify(report)
         return report
@@ -148,7 +148,7 @@ class MyDevice:
         """Both, for a caller that does not schedule them apart."""
         if self._readings is None:
             await self._async_setup()
-        assert self._readings is not None  # _async_setup() always builds it
+            assert self._readings is not None
         report = await self._async_poll(self._readings, UpdateReport())
         await self._async_poll(self._settings, report)
         self._notify(report)  # nothing fires until the whole cycle is done
