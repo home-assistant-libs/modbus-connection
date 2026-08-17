@@ -182,6 +182,9 @@ than the first if the device object says which is which, so it offers a method p
 group and one that does both:
 
 ```python
+class MyDevice:
+    # ... as above, with _readings and _settings in place of _polled
+
     async def async_update_readings(self) -> UpdateReport:
         """Refresh what the device measures."""
         if self._readings is None:
