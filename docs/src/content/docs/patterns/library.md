@@ -8,11 +8,11 @@ library exposes one **top-level object** that a consumer constructs from a
 `ModbusUnit`, and reads sub-systems as plain Python attributes. This page shows
 the shape, over a heating controller with a few sub-systems.
 
-Each component has one of three lifetimes, two of them in
-[the shape](#the-shape) below: **setup-only** — identity and model info, read
-once — and **polled**, read on every update. The third is **slow-polled**: a
-component whose every register changes slowly enough to earn
-[its own schedule](/modbus-connection/home-assistant/integration/#splitting-the-poll).
+Each component has one of two lifetimes, both in [the shape](#the-shape) below:
+**setup-only** — identity and model info, read once — and **polled**, read on
+every update. A polled component holds either what the device measures or what it
+has been configured to do, and those two can
+[refresh apart](#readings-and-settings).
 
 ## The shape
 
@@ -173,6 +173,57 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Readings and settings
+
+What a device measures changes constantly. What it has been configured to do
+changes when something writes it. A consumer can only poll the second less often
+than the first if the device object says which is which, so it offers a method per
+group and one that does both:
+
+```python
+    async def async_update_readings(self) -> UpdateReport:
+        """Refresh what the device measures."""
+        if self._readings is None:
+            await self._async_setup()
+        assert self._readings is not None
+        return await self._async_poll(self._readings, UpdateReport())
+
+    async def async_update_settings(self) -> UpdateReport:
+        """Refresh what the device has been configured to do."""
+        if self._settings is None:
+            await self._async_setup()
+        assert self._settings is not None
+        return await self._async_poll(self._settings, UpdateReport())
+
+    async def async_update(self) -> UpdateReport:
+        """Both, for a caller that does not schedule them apart."""
+        report = await self.async_update_readings()
+        assert self._settings is not None
+        return await self._async_poll(self._settings, report)
+```
+
+`_async_poll(units, report)` is the loop from [the shape](#the-shape), taking a
+report instead of making one. That is what keeps the fatal-timeout rule honest:
+nothing answered has to mean nothing answered *this cycle*, so `async_update()`
+behaves as it always did, while a settings poll on its own still gives up on its
+first timeout. Setup runs from whichever method is called first.
+
+Name the methods for what they read, never for when to call them — a library
+cannot know a consumer's schedule, and `async_update_slow()` is wrong the moment
+someone wants it now. Each report names only what its own method polled, so a
+component absent from one is not a component that failed. Listeners fire at the
+end of the poll that read them.
+
+Whether to split at all is yours to judge. It pays where the configuration
+registers read in blocks of their own; where they interleave with measurements,
+planning the two halves apart can cost more requests than one poll. A component
+that mixes the two cannot move — carve it in half first, or leave it. And a split
+that cannot take every setting with it is worse than none: a caller would write a
+setting, refresh, and not read it back.
+
+Sibling classes need not match. Where a model's map is measurement only, that
+class keeps its single `async_update()` rather than an empty settings poll.
 
 ## Principles
 

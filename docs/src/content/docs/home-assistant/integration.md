@@ -282,60 +282,41 @@ seeds it across a restart.
 
 ### Splitting the poll
 
-The coordinator above refreshes the whole device at one interval. Where part of
-the device changes far more slowly than the rest, give that part its own
-coordinator and leave everything else where it is:
+The coordinator above refreshes the whole device at one interval. Where the library
+[polls settings apart from readings](/modbus-connection/patterns/library/#readings-and-settings),
+a second coordinator picks those up on its own, slower interval:
 
 ```python
-class MyComponentCoordinator[T: Component](DataUpdateCoordinator[None]):
-    """One sub-system's poll."""
+class MySettingsCoordinator(DataUpdateCoordinator[UpdateReport]):
+    """What the device has been configured to do, on its own schedule."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: MyConfigEntry,
-        subsystem: T,
-        interval: timedelta,
-    ) -> None:
-        super().__init__(
-            hass,
-            _LOGGER,
-            config_entry=entry,
-            name=f"{entry.title} {subsystem.__class__.__name__}",
-            update_interval=interval,
-        )
-        self.subsystem = subsystem
-
-    async def _async_update_data(self) -> None:
+    async def _async_update_data(self) -> UpdateReport:
         try:
-            await self.subsystem.async_update()
+            return await self.device.async_update_settings()
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
 ```
 
-The values live on the component, so there is no report to carry: `available` is
-`last_update_success` already, and an entity reads
-`self.entity_description.value_fn(self.coordinator.subsystem)`. Typing the
-description against `T` keeps a description from reading a sub-system this
-coordinator does not poll.
+An entity attaches to whichever coordinator polls the component it reads, so
+`available` is that coordinator's `last_update_success`, and a write asks that
+same coordinator to refresh once it took effect. Ask the library which components
+those are — a list of names kept here goes stale the moment the library adds one,
+and entity metadata such as `state_class` is not evidence about registers.
 
-Move a component only if **every** register in it changes slowly — one live
-register pins the whole component to the fast schedule. A component that mixes
-the two is worth carving in half first: a new `Component` over the slow registers
-is still additive, and often the only way the split pays.
+The interval is absolute, not a multiple of the fast one: it exists to notice a
+change made from the device's own panel or another client, since a write from here
+refreshes immediately.
 
 Only one poller may recycle the connection. Leave the
-[wedged-link disconnect](#reconnecting-is-automatic) with the device coordinator;
-a slow one counting its own timeouts can drop the link under a poll already in
+[wedged-link disconnect](#reconnecting-is-automatic) with the readings coordinator;
+a second one counting its own timeouts can drop the link under a poll already in
 flight.
 
-A coordinator may poll a
-[`ComponentGroup`](/modbus-connection/modelling/component-group/) where
-sub-systems read as one.
-
-Where the whole map reads in a request or two, or every sub-system changes at the
-same rate, one coordinator stays simpler. Count the requests that would move, not
-the registers.
+A coordinator may also poll a single
+[`Component`](/modbus-connection/modelling/overview/) or
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) a library
+exposes, for a sub-system that has no place in either poll. Where the library has
+one poll, one coordinator stays simpler.
 
 ## Reconnecting is automatic
 
