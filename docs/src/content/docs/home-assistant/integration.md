@@ -363,7 +363,7 @@ nothing is rebuilt and the entry still is not reloaded. Hand the coordinator the
 connection alongside the device for this — it is the only place an entity-facing
 layer needs it.
 
-Count in one coordinator only — the one running the readings poll. A second one
+Count in one coordinator only — the one on the fastest interval. A second one
 dropping the link under a poll already in flight is the failure this prevents.
 
 ## Reload when the SunSpec map shifts
