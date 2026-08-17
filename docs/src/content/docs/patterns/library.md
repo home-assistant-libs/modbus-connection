@@ -156,8 +156,11 @@ class MyDevice:
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics."""
+        if self._readings is None:
+            await self._async_setup()
+            assert self._readings is not None
         raw: dict[str, dict[int, int | bool]] = {}
-        for name in ("controller", *(self._readings or ()), *self._settings):
+        for name in ("controller", *self._readings, *self._settings):
             read = await getattr(self, name).async_read_raw(notify=False)
             for space, values in read.items():
                 raw.setdefault(space, {}).update(values)
