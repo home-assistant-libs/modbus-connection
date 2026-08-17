@@ -4,7 +4,7 @@ description: How modbus-connection fits a Home Assistant integration.
 ---
 
 modbus-connection is a clean foundation for a **built-in Home Assistant
-integration** — one that ships in Home Assistant Core. The split it enforces — a
+integration**. The split it enforces — a
 connection owned at the top, stateless units handed down, typed components over
 them — lines up exactly with how Home Assistant wants a device integration
 structured.
@@ -37,7 +37,16 @@ that library to Home Assistant's entities, config flow and coordinator.
 That requirement is precisely the [device-object pattern](/modbus-connection/patterns/library/):
 a standalone package, built on modbus-connection, that exposes a device object
 over `Component`s and consumes a `ModbusUnit`. Build that library first — it is
-what the integration will `import` and list in its `manifest.json` requirements.
+what the integration will `import` and list in its `manifest.json` requirements,
+and it means the hard part (the register map) gets tested against the
+[mock](/modbus-connection/patterns/testing/) with no Home Assistant in the loop.
+
+:::note[Custom integrations]
+A custom integration is not bound by the separate-library rule — you can ship the
+device code inside the integration itself. We still recommend modelling it as its
+own library: it keeps the register map testable without Home Assistant, and it is
+what you would need anyway to submit the integration to Core later.
+:::
 
 ## The recommended layering
 
@@ -53,23 +62,6 @@ An integration built this way has three clear layers:
    the `ModbusConnection`, gathers its connection details in its own config flow,
    hands a `ModbusUnit` to the library, and polls it from a
    `DataUpdateCoordinator`.
-
-Keeping the device library separate is not just good practice here — it is a
-condition for merging into Core, and it means the hard part (the register map)
-gets tested against the [mock](/modbus-connection/patterns/testing/) with no Home
-Assistant in the loop.
-
-:::note[Custom integrations]
-A custom integration is not bound by the separate-library rule — you can ship the
-device code inside the integration itself. We still recommend modelling it as its
-own library: it keeps the register map testable without Home Assistant, and it is
-what you would need anyway to submit the integration to Core later.
-:::
-
-Because the integration imports a concrete backend
-([tmodbus or pymodbus](/modbus-connection/getting-started/backends/)), make sure
-that backend's extra is actually installed — either as your device library's own
-dependency (`modbus-connection[tmodbus]`) or as a `manifest.json` requirement.
 
 ## The config flow
 
@@ -87,11 +79,13 @@ from modbus_connection import ModbusError, ModbusTcpParams
 from modbus_connection.tmodbus import ModbusConnection
 
 
-async def _async_probe(host: str, port: int, unit_id: int) -> str:
-    """Return the device serial, or raise ModbusError if it can't be reached."""
+async def _async_probe(host: str, port: int, unit_id: int) -> tuple[str, str]:
+    """Return the device's serial and model, or raise ModbusError if unreachable."""
     connection = ModbusConnection(ModbusTcpParams(host=host, port=port))
     try:
-        return await MyDevice.async_probe(connection.for_unit(unit_id))
+        device = MyDevice(connection.for_unit(unit_id))
+        await device.async_update()
+        return device.controller.serial_number, device.controller.model
     finally:
         await connection.close()
 
@@ -103,7 +97,7 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                serial = await _async_probe(
+                serial, model = await _async_probe(
                     user_input[CONF_HOST],
                     user_input[CONF_PORT],
                     user_input[CONF_UNIT_ID],
@@ -113,17 +107,12 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 await self.async_set_unique_id(serial)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=serial, data=user_input)
+                return self.async_create_entry(title=model, data=user_input)
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 ```
-
-Constructing a connection performs no I/O and the probe's first read opens the
-link, so the `finally: close()` covers both the reachable and the unreachable
-case. A config-flow probe is also where you read a stable identifier — a serial
-number or MAC — to use as the entry's unique id.
 
 ## Setting up the entry
 
@@ -138,7 +127,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
     entry.async_on_unload(connection.close)
 
     device = MyDevice(connection.for_unit(entry.data[CONF_UNIT_ID]))
-    coordinator = MyCoordinator(hass, entry, device)
+    coordinator = MyCoordinator(
+        hass, entry, device, device.async_update, SCAN_INTERVAL, recycles_link=True
+    )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
@@ -169,7 +160,7 @@ which failed — so the coordinator's data is that report:
 
 ```python
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
-    """One of the device's polls. ``recycles_link`` is explained below."""
+    """Run one of the device's update methods on its own interval."""
 
     _failed: frozenset[str] = frozenset()
 
@@ -177,6 +168,7 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         self,
         hass: HomeAssistant,
         entry: MyConfigEntry,
+        device: MyDevice,
         poll: Callable[[], Awaitable[UpdateReport]],
         interval: timedelta,
         *,
@@ -189,6 +181,7 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             name=entry.title,
             update_interval=interval,
         )
+        self.device = device
         self._poll = poll
         self._recycles_link = recycles_link
 
@@ -207,14 +200,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
         self._failed = frozenset(report.failed)
         return report
-```
-
-A device with one poll needs one of them:
-
-```python
-coordinator = MyCoordinator(
-    hass, entry, device.async_update, SCAN_INTERVAL, recycles_link=True
-)
 ```
 
 Each entity reads one attribute off the device, and names the sub-system it came
@@ -255,7 +240,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
     def available(self) -> bool:
         return (
             super().available
-            and self.entity_description.component not in self.coordinator.data.failed
+            and self.entity_description.component in self.coordinator.data.updated
         )
 
     @property
@@ -325,10 +310,15 @@ construct one coordinator per poll:
 
 ```python
 readings = MyCoordinator(
-    hass, entry, device.async_update_readings, SCAN_INTERVAL, recycles_link=True
+    hass,
+    entry,
+    device,
+    device.async_update_readings,
+    SCAN_INTERVAL,
+    recycles_link=True,
 )
 settings = MyCoordinator(
-    hass, entry, device.async_update_settings, timedelta(minutes=5)
+    hass, entry, device, device.async_update_settings, timedelta(minutes=5)
 )
 ```
 
