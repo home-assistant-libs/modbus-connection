@@ -145,7 +145,7 @@ class MyDevice:
         return report
 
     async def async_update(self) -> UpdateReport:
-        """Both, for a caller that does not schedule them apart."""
+        """Refresh what the controller measures and what it was configured with."""
         if self._readings is None:
             await self._async_setup()
             assert self._readings is not None
