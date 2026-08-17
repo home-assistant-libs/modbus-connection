@@ -10,9 +10,10 @@ the shape, over a heating controller with a few sub-systems.
 
 Each component has one of two lifetimes, both in [the shape](#the-shape) below:
 **setup-only** — identity and model info, read once — and **polled**, read on
-every update. A polled component holds either what the device measures or what it
-has been configured to do, and those two can
-[refresh apart](#readings-and-settings).
+every update. Polled components are grouped by category — what the device
+measures, what it has been configured to do, anything else worth its own interval
+— and each category gets [its own update method](#readings-and-settings), so a
+consumer chooses how often to read each.
 
 ## The shape
 
@@ -211,7 +212,9 @@ asyncio.run(main())
 What a device measures changes constantly. What it has been configured to do
 changes when something writes it. A consumer can only poll the second less often
 than the first if the device object says which is which — hence the two methods
-above, and `async_update()` for a caller that does not care.
+above, and `async_update()` for a caller that does not care. Two is the common
+split, not a rule: a set of components a consumer would schedule differently again
+earns a third method on the same terms.
 
 `_async_poll` takes the report instead of making one, which is what keeps the
 fatal-timeout rule honest: nothing answered has to mean nothing answered *this
