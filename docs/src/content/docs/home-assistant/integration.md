@@ -203,7 +203,7 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
 
     @cached_property
     def device_info(self) -> DeviceInfo:
-        """Describe the device to the registry, from what setup read."""
+        """Describe the device to the registry."""
         controller = self.device.controller
         return DeviceInfo(
             identifiers={(DOMAIN, controller.serial_number)},
