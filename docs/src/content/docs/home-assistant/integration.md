@@ -217,7 +217,7 @@ class MyDeviceSensorDescription(SensorEntityDescription):
     """Describe a sensor backed by a device attribute."""
 
     value_fn: Callable[[MyDevice], float | None]
-    component: str  # the poll unit it refreshes with, which the report names
+    report_name: str  # the name mentioned in the update report
 
 
 SENSORS: tuple[MyDeviceSensorDescription, ...] = (
@@ -225,7 +225,7 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
         key="outside_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        component="sensors",
+        report_name="sensors",
         value_fn=lambda device: device.sensors.outside_1,
     ),
     MyDeviceSensorDescription(
@@ -233,7 +233,7 @@ SENSORS: tuple[MyDeviceSensorDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         # Both circuits are read as one, so the report names them "circuits".
-        component="circuits",
+        report_name="circuits",
         value_fn=lambda device: device.heating_circuit_1.flow,
     ),
 )
@@ -246,7 +246,7 @@ class MySensor(CoordinatorEntity[MyCoordinator], SensorEntity):
     def available(self) -> bool:
         return (
             super().available
-            and self.entity_description.component in self.coordinator.data.updated
+            and self.entity_description.report_name in self.coordinator.data.updated
         )
 
     @property
