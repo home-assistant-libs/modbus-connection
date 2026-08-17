@@ -195,37 +195,11 @@ asyncio.run(main())
 
 ## Readings and settings
 
-What a device measures changes constantly. What it has been configured to do
+What a device measures changes constantly; what it has been configured to do
 changes when something writes it. A consumer can only poll the second less often
-than the first if the device object says which is which — hence the two methods
-above, and `async_update()` for a caller that does not care. Two is the common
-split, not a rule: a set of components a consumer would schedule differently again
-earns a third method on the same terms.
-
-`_async_poll` takes the report instead of making one, which is what keeps the
-fatal-timeout rule honest: nothing answered has to mean nothing answered *this
-cycle*, so a settings poll on its own still gives up on its first timeout while
-`async_update()` gives up only if its very first block does. Notifying is separate
-for the same reason — `_notify(report)` fires once, at the end of whichever call
-the consumer made, so `async_update()` still fires nothing until the whole cycle
-is done. Both are what keep it the method it was before the split.
-
-Name the methods for what they read, never for when to call them — a library
-cannot know a consumer's schedule, and `async_update_slow()` is wrong the moment
-someone wants it now. Each report names only what its own method polled, so a
-component absent from one is not a component that failed. The names are poll
-units, not attributes: sub-systems pooled into one read report under that unit's
-name, since they refresh and fail together.
-
-Whether to split at all is yours to judge. It pays where the configuration
-registers read in blocks of their own; where they interleave with measurements,
-planning the two halves apart can cost more requests than one poll. A component
-that mixes the two cannot move — carve it in half first, or leave it. And a split
-that cannot take every setting with it is worse than none: a caller would write a
-setting, refresh, and not read it back.
-
-Sibling classes need not match. Where a model's map is measurement only, that
-class keeps its single `async_update()` rather than an empty settings poll.
+than the first if the device object says which is which, so each category gets its
+own method — and `async_update()` does the lot, for a caller that does not
+schedule them apart. Two categories is the common split, not a rule.
 
 ## Principles
 
@@ -239,3 +213,17 @@ class keeps its single `async_update()` rather than an empty settings poll.
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
   to setup, so the polling path stays a fixed list of components to read.
+- **Name a poll for what it reads, never for when to call it.** A library cannot
+  know a consumer's schedule: `async_update_slow()` is wrong the moment someone
+  wants it now.
+- **One update, one notification.** Listeners fire when the call the consumer made
+  is done, so `async_update()` still fires nothing until the whole cycle is over.
+- **A report names poll units, not attributes.** Sub-systems pooled into one read
+  report under that unit's name — they refresh and fail together — and each report
+  names only what its own method polled.
+- **Split where the blocks divide.** Settings that read in blocks of their own earn
+  their own method; interleaved with measurements they cost more to plan apart than
+  one poll saves, and a component holding both cannot move at all. A split that
+  leaves some settings behind is worse than none: a caller writes one, refreshes,
+  and does not read it back. A model whose map is measurement only keeps its single
+  `async_update()`.
