@@ -209,8 +209,4 @@ asyncio.run(main())
   — the model, the static registers, which optional components exist — belongs
   to setup, so the polling path stays a fixed list of components to read.
 - **Split where the blocks divide.** Give the settings their own update method
-  when they sit in blocks of their own. Where they share blocks with measurements,
-  two polls read more than one does, and a component holding both cannot move at
-  all. A split that leaves some settings behind is worse than none: write one,
-  refresh, and the new value does not come back. A device that only measures keeps
-  one update method.
+  when they sit in blocks of their own.
