@@ -72,7 +72,6 @@ class MyDevice:
         self.controller = Controller(unit)
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
-        # Configured, not measured: the schedule and the mode selectors.
         self.settings = Settings(unit)
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
