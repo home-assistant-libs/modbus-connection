@@ -169,11 +169,32 @@ which failed — so the coordinator's data is that report:
 
 ```python
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
+    """One of the device's polls. ``recycles_link`` is explained below."""
+
     _failed: frozenset[str] = frozenset()
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: MyConfigEntry,
+        poll: Callable[[], Awaitable[UpdateReport]],
+        interval: timedelta,
+        *,
+        recycles_link: bool = False,
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=entry.title,
+            update_interval=interval,
+        )
+        self._poll = poll
+        self._recycles_link = recycles_link
 
     async def _async_update_data(self) -> UpdateReport:
         try:
-            report = await self.device.async_update()
+            report = await self._poll()
         except ModbusError as err:
             raise UpdateFailed(str(err)) from err
         if not report.updated:
@@ -186,6 +207,14 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
         self._failed = frozenset(report.failed)
         return report
+```
+
+A device with one poll needs one of them:
+
+```python
+coordinator = MyCoordinator(
+    hass, entry, device.async_update, SCAN_INTERVAL, recycles_link=True
+)
 ```
 
 Each entity reads one attribute off the device, and names the sub-system it came
@@ -282,35 +311,18 @@ seeds it across a restart.
 
 ### Splitting the poll
 
-The coordinator above refreshes the whole device at one interval. Where the library
+Where the library
 [polls settings apart from readings](/modbus-connection/patterns/library/#readings-and-settings),
-a second coordinator picks those up on its own, slower interval:
+construct one coordinator per poll:
 
 ```python
-class MySettingsCoordinator(DataUpdateCoordinator[UpdateReport]):
-    """What the device has been configured to do, on its own schedule."""
-
-    async def _async_update_data(self) -> UpdateReport:
-        try:
-            return await self.device.async_update_settings()
-        except ModbusError as err:
-            raise UpdateFailed(str(err)) from err
+readings = MyCoordinator(
+    hass, entry, device.async_update_readings, SCAN_INTERVAL, recycles_link=True
+)
+settings = MyCoordinator(
+    hass, entry, device.async_update_settings, timedelta(minutes=5)
+)
 ```
-
-The interval is absolute, not a multiple of the fast one: it exists to notice a
-change made from the device's own panel or another client, since a write from here
-refreshes immediately.
-
-Only one poller may recycle the connection. Leave the
-[wedged-link disconnect](#reconnecting-is-automatic) with the readings coordinator;
-a second one counting its own timeouts can drop the link under a poll already in
-flight.
-
-A coordinator may also poll a single
-[`Component`](/modbus-connection/modelling/overview/) or
-[`ComponentGroup`](/modbus-connection/modelling/component-group/) a library
-exposes, for a sub-system that has no place in either poll. Where the library has
-one poll, one coordinator stays simpler.
 
 ## Reconnecting is automatic
 
@@ -335,10 +347,10 @@ reports instead means the device is answering, so the link is not wedged:
 ```python
 async def _async_update_data(self) -> UpdateReport:
     try:
-        report = await self.device.async_update()
+        report = await self._poll()
     except ModbusTimeoutError as err:
         self._timeouts += 1
-        if self._timeouts >= 3:  # a stuck link, not a slow reply
+        if self._recycles_link and self._timeouts >= 3:  # stuck, not slow
             await self.connection.disconnect()
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
@@ -351,6 +363,9 @@ The next poll establishes a fresh link over the same units and components, so
 nothing is rebuilt and the entry still is not reloaded. Hand the coordinator the
 connection alongside the device for this — it is the only place an entity-facing
 layer needs it.
+
+`recycles_link` is why exactly one coordinator counts: a second one dropping the
+link under a poll already in flight is the failure this is meant to prevent.
 
 ## Reload when the SunSpec map shifts
 
