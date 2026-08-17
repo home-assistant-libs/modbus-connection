@@ -12,7 +12,7 @@ Each sub-system is a [`Component`](/modbus-connection/modelling/overview/). Some
 are read once at setup: identity, model info, and whatever settles which
 components this device serves. The rest are polled, grouped by category — what the
 device measures, what it has been configured to do, anything else worth its own
-interval — with [an update method per category](#readings-and-settings), so a
+interval — with an update method per category, so a
 consumer chooses how often to read each. Every sub-system is read on its own, or
 as a [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
 read already spans the other's registers, so one that fails does not take the rest
@@ -196,14 +196,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Readings and settings
-
-What a device measures changes constantly; what it has been configured to do
-changes when something writes it. A consumer can only poll the second less often
-than the first if the device object says which is which, so each category gets its
-own method — and `async_update()` does the lot, for a caller that does not
-schedule them apart. Two categories is the common split, not a rule.
-
 ## Principles
 
 - **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
@@ -216,17 +208,9 @@ schedule them apart. Two categories is the common split, not a rule.
 - **Decide once, poll forever.** Everything that cannot change between two polls
   — the model, the static registers, which optional components exist — belongs
   to setup, so the polling path stays a fixed list of components to read.
-- **Name a poll for what it reads, never for when to call it.** A library cannot
-  know a consumer's schedule: `async_update_slow()` is wrong the moment someone
-  wants it now.
-- **One update, one notification.** Listeners fire when the call the consumer made
-  is done, so `async_update()` still fires nothing until the whole cycle is over.
-- **A report names poll units, not attributes.** Sub-systems pooled into one read
-  report under that unit's name — they refresh and fail together — and each report
-  names only what its own method polled.
-- **Split where the blocks divide.** Settings that read in blocks of their own earn
-  their own method; interleaved with measurements they cost more to plan apart than
-  one poll saves, and a component holding both cannot move at all. A split that
-  leaves some settings behind is worse than none: a caller writes one, refreshes,
-  and does not read it back. A model whose map is measurement only keeps its single
-  `async_update()`.
+- **Split where the blocks divide.** Give the settings their own update method
+  when they sit in blocks of their own. Where they share blocks with measurements,
+  two polls read more than one does, and a component holding both cannot move at
+  all. A split that leaves some settings behind is worse than none: write one,
+  refresh, and the new value does not come back. A device that only measures keeps
+  one update method.

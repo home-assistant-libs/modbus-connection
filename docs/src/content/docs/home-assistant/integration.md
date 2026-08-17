@@ -320,7 +320,7 @@ seeds it across a restart.
 ### Splitting the poll
 
 Where the library
-[polls settings apart from readings](/modbus-connection/patterns/library/#readings-and-settings),
+[polls settings apart from readings](/modbus-connection/patterns/library/),
 construct one coordinator per poll:
 
 ```python
