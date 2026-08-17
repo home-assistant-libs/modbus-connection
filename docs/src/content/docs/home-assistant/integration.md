@@ -126,9 +126,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
     entry.async_on_unload(connection.close)
 
     device = MyDevice(connection.for_unit(entry.data[CONF_UNIT_ID]))
-    coordinator = MyCoordinator(
-        hass, entry, device, device.async_update, SCAN_INTERVAL, recycles_link=True
-    )
+    coordinator = MyCoordinator(hass, entry, device, device.async_update, SCAN_INTERVAL)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
@@ -170,8 +168,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         device: MyDevice,
         poll: Callable[[], Awaitable[UpdateReport]],
         interval: timedelta,
-        *,
-        recycles_link: bool = False,
     ) -> None:
         super().__init__(
             hass,
@@ -182,7 +178,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         )
         self.device = device
         self._poll = poll
-        self._recycles_link = recycles_link
 
     async def _async_update_data(self) -> UpdateReport:
         try:
@@ -212,10 +207,6 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             serial_number=controller.serial_number,
         )
 ```
-
-A [setup-only component](/modbus-connection/patterns/library/) holds the identity,
-so nothing here is re-read on a poll and the property can be cached for the life
-of the entry.
 
 Each entity reads one attribute off the device, and names the sub-system it came
 from:
@@ -325,12 +316,7 @@ construct one coordinator per poll:
 
 ```python
 readings = MyCoordinator(
-    hass,
-    entry,
-    device,
-    device.async_update_readings,
-    SCAN_INTERVAL,
-    recycles_link=True,
+    hass, entry, device, device.async_update_readings, SCAN_INTERVAL
 )
 settings = MyCoordinator(
     hass, entry, device, device.async_update_settings, timedelta(minutes=5)
@@ -363,7 +349,7 @@ async def _async_update_data(self) -> UpdateReport:
         report = await self._poll()
     except ModbusTimeoutError as err:
         self._timeouts += 1
-        if self._recycles_link and self._timeouts >= 3:  # stuck, not slow
+        if self._timeouts >= 3:  # a stuck link, not a slow reply
             await self.connection.disconnect()
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
@@ -377,8 +363,8 @@ nothing is rebuilt and the entry still is not reloaded. Hand the coordinator the
 connection alongside the device for this — it is the only place an entity-facing
 layer needs it.
 
-`recycles_link` is why exactly one coordinator counts: a second one dropping the
-link under a poll already in flight is the failure this is meant to prevent.
+Count in one coordinator only — the one running the readings poll. A second one
+dropping the link under a poll already in flight is the failure this prevents.
 
 ## Reload when the SunSpec map shifts
 
