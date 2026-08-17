@@ -200,7 +200,23 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
             _LOGGER.warning("Failed to fetch %s: %s", name, report.failed[name])
         self._failed = frozenset(report.failed)
         return report
+
+    @cached_property
+    def device_info(self) -> DeviceInfo:
+        """Describe the device to the registry, from what setup read."""
+        controller = self.device.controller
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.config_entry.unique_id)},
+            manufacturer=MANUFACTURER,
+            model=controller.model,
+            sw_version=controller.firmware,
+            serial_number=controller.serial_number,
+        )
 ```
+
+A [setup-only component](/modbus-connection/patterns/library/) holds the identity,
+so nothing here is re-read on a poll and the property can be cached for the life
+of the entry.
 
 Each entity reads one attribute off the device, and names the sub-system it came
 from:
