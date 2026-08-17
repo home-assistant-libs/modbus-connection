@@ -297,12 +297,6 @@ class MySettingsCoordinator(DataUpdateCoordinator[UpdateReport]):
             raise UpdateFailed(str(err)) from err
 ```
 
-An entity attaches to whichever coordinator polls the component it reads, so
-`available` is that coordinator's `last_update_success`, and a write asks that
-same coordinator to refresh once it took effect. Ask the library which components
-those are — a list of names kept here goes stale the moment the library adds one,
-and entity metadata such as `state_class` is not evidence about registers.
-
 The interval is absolute, not a multiple of the fast one: it exists to notice a
 change made from the device's own panel or another client, since a write from here
 refreshes immediately.
