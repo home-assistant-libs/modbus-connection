@@ -133,29 +133,39 @@ class MyDevice:
                 report.failed[name] = err
             else:
                 report.updated.append(name)
-
-        for name in names:  # nothing fires until this poll is done
-            if name in report.updated:
-                getattr(self, name).notify()
         return report
+
+    def _notify(self, report: UpdateReport) -> None:
+        """Fire the listeners of everything this update refreshed."""
+        for name in report.updated:
+            getattr(self, name).notify()
 
     async def async_update_readings(self) -> UpdateReport:
         """Refresh what the controller measures; the first call sets it up."""
         if self._readings is None:
             await self._async_setup()
         assert self._readings is not None  # _async_setup() always builds it
-        return await self._async_poll(self._readings, UpdateReport())
+        report = await self._async_poll(self._readings, UpdateReport())
+        self._notify(report)
+        return report
 
     async def async_update_settings(self) -> UpdateReport:
         """Refresh what the controller has been configured to do."""
         if self._readings is None:
             await self._async_setup()
-        return await self._async_poll(self._settings, UpdateReport())
+        report = await self._async_poll(self._settings, UpdateReport())
+        self._notify(report)
+        return report
 
     async def async_update(self) -> UpdateReport:
         """Both, for a caller that does not schedule them apart."""
-        report = await self.async_update_readings()
-        return await self._async_poll(self._settings, report)
+        if self._readings is None:
+            await self._async_setup()
+        assert self._readings is not None  # _async_setup() always builds it
+        report = await self._async_poll(self._readings, UpdateReport())
+        await self._async_poll(self._settings, report)
+        self._notify(report)  # nothing fires until the whole cycle is done
+        return report
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics."""
@@ -205,9 +215,11 @@ above, and `async_update()` for a caller that does not care.
 
 `_async_poll` takes the report instead of making one, which is what keeps the
 fatal-timeout rule honest: nothing answered has to mean nothing answered *this
-cycle*, so `async_update()` behaves as it always did while a settings poll on its
-own still gives up on its first timeout. It also notifies only the sub-systems it
-read, so the settings poll does not fire a listener twice.
+cycle*, so a settings poll on its own still gives up on its first timeout while
+`async_update()` gives up only if its very first block does. Notifying is separate
+for the same reason — `_notify(report)` fires once, at the end of whichever call
+the consumer made, so `async_update()` still fires nothing until the whole cycle
+is done. Both are what keep it the method it was before the split.
 
 Name the methods for what they read, never for when to call them — a library
 cannot know a consumer's schedule, and `async_update_slow()` is wrong the moment
