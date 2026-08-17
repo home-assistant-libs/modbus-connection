@@ -206,7 +206,7 @@ class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
         """Describe the device to the registry, from what setup read."""
         controller = self.device.controller
         return DeviceInfo(
-            identifiers={(DOMAIN, self.config_entry.unique_id)},
+            identifiers={(DOMAIN, controller.serial_number)},
             manufacturer=MANUFACTURER,
             model=controller.model,
             sw_version=controller.firmware,
