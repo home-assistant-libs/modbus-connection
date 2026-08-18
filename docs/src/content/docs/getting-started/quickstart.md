@@ -56,3 +56,8 @@ From here:
 - [Device modelling](/modbus-connection/modelling/overview/) — map registers to
   typed attributes instead of decoding by hand. Use this for any device with
   more than a handful of values.
+- [Building a library](/modbus-connection/patterns/library/) — writing a device
+  library for others to use? This is the pattern to build it around, with a
+  [query helper](/modbus-connection/patterns/query-helper/) to check a real
+  device and a [mock backend](/modbus-connection/patterns/testing/) to test
+  without one.
