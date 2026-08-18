@@ -87,13 +87,13 @@ instance returns `T | None`; on the class, the field object itself.
 
 ### `NumberField[T]`
 
-`RegisterField` subclass decoding a scaled or mapped integer. Adds constructor
-options `signed=True`, `convert=None` ([`Converter`](#converter)),
+`RegisterField` subclass decoding a scaled or mapped integer. It adds these
+constructor options: `signed=True`, `convert=None` ([`Converter`](#converter)),
 `enum_type=None` (shorthand for `convert`; passing both raises `ValueError`),
 `word_order="big"`, `scale=1.0`, `offset=0.0`, `nan=None`, and
 `scale_exponent_range=None` (a `(low, high)` bound on a register-sourced
 exponent; outside it the value decodes to `None` and writes raise
-`ValueError`). The `nan` sentinel is matched against the raw unsigned value
+`ValueError`). The `nan` sentinel is matched against the raw unsigned value,
 before `signed` or `convert` apply. Results are rounded to the decimals implied
 by `scale` and `offset`.
 
@@ -184,12 +184,12 @@ Every helper takes the point's `address` first, accepts a `stride` keyword for a
 [placed component](/modbus-connection/modelling/placement/), and bakes in the
 SunSpec "unimplemented" value for its type, so an absent point decodes to `None`.
 
-The scaled points — `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`,
-`acc16`, `acc32` and `acc64` — are the helpers whose options the table
-abbreviates to `…`. Each takes `scale=1.0`, `scale_register=None`,
-`scale_register_stride=0` and `unit=None` on top of `stride`, plus
-`writable=False` on the six integers, and bounds a register-sourced exponent to
-the `sunssf` spec range of -10..10: outside it the point decodes to `None` and a
+The table abbreviates the scaled points' options to `…`. The scaled points are
+`int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`, `acc16`, `acc32` and
+`acc64`. Each takes `scale=1.0`, `scale_register=None`,
+`scale_register_stride=0` and `unit=None` on top of `stride`. The six integers
+also take `writable=False`. Each bounds a register-sourced exponent to the
+`sunssf` spec range of -10..10: outside it the point decodes to `None` and a
 write raises `ValueError`. Every other helper takes exactly the signature shown
 against it.
 

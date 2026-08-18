@@ -4,23 +4,23 @@ description: Translate a Home Assistant Modbus YAML configuration into a typed C
 ---
 
 Home Assistant's [Modbus integration](https://www.home-assistant.io/integrations/modbus)
-is configured in YAML: each sensor names an `address`, a `data_type`, an
-`input_type`, and value shaping like `scale`, `offset` and `swap`. Someone who
-already runs a device through Home Assistant's Modbus integration has, in that
-YAML, a **ready-made description of the device's register map**.
+is configured in YAML. Each sensor names an `address`, a `data_type`, an
+`input_type`, and value shaping like `scale`, `offset` and `swap`. If you
+already run a device through Home Assistant's Modbus integration, that YAML is
+a **ready-made description of the device's register map**.
 
 That makes it an excellent starting point for a
-[device library](/modbus-connection/patterns/library/): translate each YAML entry
-into a typed [field](/modbus-connection/modelling/fields/) on a
+[device library](/modbus-connection/patterns/library/). Translate each YAML
+entry into a typed [field](/modbus-connection/modelling/fields/) on a
 [`Component`](/modbus-connection/modelling/overview/). The mapping is almost
 one-to-one.
 
 :::note[This is a translation, not a loader]
 The goal here is to turn a YAML config into a **`Component` class you commit as
 source** — part of building a proper library, with typed attributes and IDE
-completion. It is not about loading YAML at runtime. (If you genuinely must build
-the layout from config the program only sees at runtime, that's what
-[`ManualComponent`](/modbus-connection/modelling/manual-component/) is for.)
+completion. It is not about loading YAML at runtime. If you genuinely must
+build the layout from config the program only sees at runtime, use a
+[`ManualComponent`](/modbus-connection/modelling/manual-component/).
 :::
 
 ## A Home Assistant Modbus sensor
@@ -64,15 +64,17 @@ modbus:
 | `swap: none` / `swap: word` | `word_order="big"` / `"little"` |
 | `unit_of_measurement` | `unit=` |
 
-A sensor with a non-default `scale` becomes a `gauge` (which carries the scale); a
-plain integer with `scale: 1` becomes an `integer`. Coil / discrete-input entities
-(Home Assistant switches and binary sensors) map to `coil` and `discrete_input`.
+A sensor with a non-default `scale` becomes a `gauge` (which carries the
+scale). A plain integer with `scale: 1` becomes an `integer`. Coil and
+discrete-input entities (Home Assistant switches and binary sensors) map to
+`coil` and `discrete_input`.
 
 ## The resulting component
 
-Translating the two sensors above gives a typed class. Because holding and input
-are separate spaces, the input-register sensor moves to its own component (or, if
-you have many, group them with a [`ComponentGroup`](/modbus-connection/modelling/component-group/)):
+Translating the two sensors above gives a typed class. Holding and input are
+separate spaces, so the input-register sensor moves to its own component. If
+you have many, group them with a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/):
 
 ```python
 from modbus_connection.model import Component, gauge, uint32
@@ -88,8 +90,9 @@ class Hub1Inputs(Component):
     energy = uint32(2, word_order="little", unit="Wh")  # swap: word -> CDAB
 ```
 
-Now every value is a typed attribute, checked by your type checker and completed
-by your editor — the payoff of translating to a class rather than reading dicts:
+Now every value is a typed attribute, checked by your type checker and
+completed by your editor. This is what translating to a class gives you over
+reading dicts:
 
 ```python
 hub = Hub1(unit)
@@ -97,8 +100,8 @@ await hub.async_update()
 hub.outside_temperature  # float | None
 ```
 
-The register map now lives in code as the datasheet: addresses, scales, units and
-ranges all sit next to the attribute they describe.
+The register map now lives in code as the datasheet: addresses, scales, units
+and ranges all sit next to the attribute they describe.
 
 ## Caveats worth knowing
 
@@ -126,9 +129,9 @@ you translate:
 ## Writable entities
 
 Home Assistant `switch`, `climate`, `number` and `select` entities write back.
-Mark the corresponding field `writable` (and add a
+Mark the corresponding field `writable`, add a
 [validator](/modbus-connection/modelling/fields/#writable-fields-and-validators)
-to enforce `min_value` / `max_value`), then write by attribute name:
+to enforce `min_value` / `max_value`, and write by attribute name:
 
 ```python
 from modbus_connection.model import Component, coil, gauge
@@ -150,4 +153,4 @@ await climate.write("target_temp", 21.5)
 ```
 
 Some devices honour only FC16 for writes — Home Assistant's `write_type:
-holdings` — so pass `force_fc16=True` on the field.
+holdings`. Pass `force_fc16=True` on the field for those.

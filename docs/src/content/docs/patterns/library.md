@@ -3,20 +3,20 @@ title: The device object
 description: How the top-level device object of a library built on modbus-connection comes together.
 ---
 
-modbus-connection is a foundation you build a **device library** on. A good device
-library exposes one **top-level object** that a consumer constructs from a
-`ModbusUnit` — never a connection, and never a host/port — and reads sub-systems as
-plain Python attributes.
+modbus-connection is a foundation you build a **device library** on. A good
+device library exposes one **top-level object**. A consumer constructs it from a
+`ModbusUnit` — never a connection, and never a host/port — and reads sub-systems
+as plain Python attributes.
 
 Each sub-system is a [`Component`](/modbus-connection/modelling/overview/). Some
 are read once at setup: identity, model info, and whatever settles which
-components this device serves. The rest are polled, grouped by category — what the
-device measures, what it has been configured to do, anything else worth its own
-interval — with an update method per category, so a
-consumer chooses how often to read each. Every sub-system is read on its own, or
-as a [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
-read already spans the other's registers, so one that fails does not take the rest
-with it.
+components this device serves. The rest are polled, grouped by category — what
+the device measures, what it has been configured to do, anything else worth its
+own interval. Give each category its own update method, so a consumer chooses
+how often to read each. Read every sub-system on its own, or as a
+[`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
+read already spans the other's registers. One sub-system failing then does not
+take the rest with it.
 
 Here it is for a heating controller:
 

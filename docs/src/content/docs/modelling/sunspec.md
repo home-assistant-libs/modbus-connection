@@ -3,15 +3,15 @@ title: SunSpec fields
 description: SunSpec point types as ready-made model fields, pre-wired with their unimplemented sentinels and scale-factor registers.
 ---
 
-[SunSpec](https://sunspec.org) defines a standard Modbus information model used by
-most PV inverters, meters and batteries. Each point has a fixed data type and a
-reserved *unimplemented* value the device sends when the point is absent.
+[SunSpec](https://sunspec.org) defines a standard Modbus information model used
+by most PV inverters, meters and batteries. Each point has a fixed data type
+and a reserved *unimplemented* value the device sends when the point is absent.
 
-`modbus_connection.model.sunspec` provides helpers that build model fields
-with the right width, sign and sentinel — so an unimplemented point decodes to
-`None` automatically. They are the same fields you'd otherwise hand-roll with the
-[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate;
-the full signatures live in the
+`modbus_connection.model.sunspec` provides helpers that build model fields with
+the right width, sign and sentinel, so an unimplemented point decodes to `None`
+automatically. They are the same fields you would otherwise hand-roll with the
+[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate.
+The full signatures live in the
 [field reference](/modbus-connection/modelling/fields-reference/#sunspec-point-helpers).
 
 ```python
@@ -29,8 +29,8 @@ Word order is big-endian throughout, per the SunSpec spec.
 
 ## Scale factors (`sunssf`)
 
-Scaled SunSpec points reference a **scale-factor register** — a signed int16
-power-of-ten exponent. Pass `scale_register=` its address, and the value is
+Scaled SunSpec points reference a **scale-factor register**: a signed int16
+power-of-ten exponent. Pass its address as `scale_register=`, and the value is
 returned as `raw * 10**sf`, with `sf` read alongside the point on each update:
 
 ```python
@@ -39,17 +39,17 @@ class Meter(Component):
     w_sf = sunssf(11)  # the exponent register itself
 ```
 
-The scale register is read for you by the planner; you also declare it as a
-`sunssf` field if you want to read its raw value directly. Writing a scaled
-point works too: pass the engineering value and the scale factor is read
-fresh in the same write, so a factor the device shifted meanwhile cannot
-mis-scale it. A not-implemented factor raises `ValueError`.
+The planner reads the scale register for you. Declare it as a `sunssf` field
+only if you also want to read its raw value directly. Writing a scaled point
+works too: pass the engineering value, and the scale factor is read fresh in
+the same write. A factor the device shifted meanwhile therefore cannot
+mis-scale the write. A not-implemented factor raises `ValueError`.
 
 The spec constrains a `sunssf` exponent to **-10..10**. Devices have been seen
-reporting garbage exponents outside that range (typically around an inverter's
-sleep/wake transition), which would scale a sane raw value into an absurd
-reading. A point whose exponent falls outside the spec range therefore decodes
-to `None`, and a write with one raises `ValueError`.
+reporting garbage exponents outside that range, typically around an inverter's
+sleep/wake transition. Such an exponent would scale a sane raw value into an
+absurd reading. A point whose exponent falls outside the spec range therefore
+decodes to `None`, and a write with one raises `ValueError`.
 
 ## Numeric points
 
@@ -70,9 +70,9 @@ All six share one signature: `address`, then keyword-only `scale`,
 
 ## Accumulators
 
-Accumulators are monotonic counters; SunSpec uses `0` to mean "not accumulated",
-which decodes to `None`. An accumulator may reference a scale-factor register
-like the numeric points do.
+Accumulators are monotonic counters. SunSpec uses `0` to mean "not
+accumulated", which decodes to `None`. An accumulator may reference a
+scale-factor register like the numeric points do.
 
 | Helper | Registers |
 | --- | --- |
@@ -92,8 +92,8 @@ it as its own field.
 ## Boolean points
 
 SunSpec models are full of 0/1 enable flags. `boolean` decodes one to a
-`bool`: 0 is `False`, 1 is `True`, the unimplemented `0xFFFF` is `None`, and
-any other code decodes to `None` too (warned once), since an out-of-spec code
+`bool`: 0 is `False`, 1 is `True`, and the unimplemented `0xFFFF` is `None`.
+Any other code decodes to `None` too (warned once), since an out-of-spec code
 should read as unknown rather than truthy. Pass `writable=True` (or a write
 validator) for a controllable flag; writing encodes `True`/`False` as 1/0.
 
@@ -107,8 +107,9 @@ class Storage(Component):
 
 ## Enumerations and bitfields
 
-Pass an `IntEnum` / `IntFlag` to decode to members; omit it for the raw integer.
-Both have `enum16`/`enum32` and `bitfield16`/`bitfield32`/`bitfield64` variants.
+Pass an `IntEnum` / `IntFlag` to decode to members; omit it for the raw
+integer. Both have `enum16`/`enum32` and `bitfield16`/`bitfield32`/`bitfield64`
+variants.
 
 ```python
 from enum import IntEnum
@@ -150,13 +151,13 @@ class Comms(Component):
 ## Multiple-MPPT and other repeats
 
 A SunSpec model advertises how many sub-blocks follow in an `N` point read at
-poll time — the Multiple MPPT Inverter Extension Model (160) counts its MPPT
+poll time. The Multiple MPPT Inverter Extension Model (160) counts its MPPT
 modules this way. Model one sub-block as a `Component` and size the list at
 runtime with [`repeating_group`](/modbus-connection/modelling/repeats/).
 
-A sub-block's scale factors can sit in the model's shared fixed block — model 160
-keeps `DCA_SF`, `DCV_SF`, … there, and that is the default — or the block can
-carry its **own** scale factor per repeat: declare the `sunssf` inside the
+A sub-block's scale factors can sit in the model's shared fixed block — model
+160 keeps `DCA_SF`, `DCV_SF`, … there, and that is the default. Or the block
+can carry its **own** scale factor per repeat: declare the `sunssf` inside the
 sub-block and set the sub-block's `scale_in_block` class attribute, so each
 instance's scale registers shift with it.
 
@@ -175,9 +176,9 @@ class Meter(Component):
     channels = repeating_group(uint16(4), Channel, stride=2)
 ```
 
-See [Repeating groups](/modbus-connection/modelling/repeats/) for the full story
-on counts and nesting, and [Placing a component](/modbus-connection/modelling/placement/)
-for `base_offset`, `stride` and `index`.
+See [Repeating groups](/modbus-connection/modelling/repeats/) for counts and
+nesting, and [Placing a component](/modbus-connection/modelling/placement/) for
+`base_offset`, `stride` and `index`.
 
 Continue with
 [Discovery and generation](/modbus-connection/modelling/sunspec-discovery/) to

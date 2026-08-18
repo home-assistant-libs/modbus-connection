@@ -3,12 +3,12 @@ title: Manual components
 description: Build a read/write group imperatively at runtime when the field layout comes from config rather than a typed class.
 ---
 
-When the field layout comes from **config** (e.g. YAML) rather than a typed class
-— there's no `Component` subclass to declare — use a `ManualComponent`. It's the
-imperative twin of [`Component`](/modbus-connection/modelling/overview/): you
-`add()` targets by key at runtime, and it pools them into as few reads as
-possible, mixing all four tables (holding, input, coils, discrete inputs) in one
-update.
+Sometimes the field layout comes from **config** (e.g. YAML) rather than a
+typed class, so there is no `Component` subclass to declare. Use a
+`ManualComponent` for this case. It is the imperative twin of
+[`Component`](/modbus-connection/modelling/overview/): you `add()` targets by
+key at runtime, and it pools them into as few reads as possible, mixing all
+four tables (holding, input, coils, discrete inputs) in one update.
 
 ```python
 from modbus_connection.model import ManualComponent, gauge, uint32, coil, discrete_input
@@ -33,7 +33,7 @@ await mc.write("relay", True)  # per-key write (holding / coils only)
 | Addressing | `index` / `stride` / `base_offset` | absolute `address`, no index/stride |
 
 It reuses the same planning, write (validator / `force_fc16`), bit, and
-repeating-group machinery as `Component`. It just has no class to hang typed
+repeating-group machinery as `Component`. It has no class to hang typed
 descriptors on, so values come out by key.
 
 ## Adding and removing targets
@@ -43,13 +43,13 @@ mc.add(key, target, *, space=None)
 mc.remove(key)
 ```
 
-- A **register** target takes its `space` on `add()` — `"holding"` (default) or
+- A **register** target takes its `space` on `add()`: `"holding"` (default) or
   `"input"`.
 - A **bit** target's space is fixed by the helper (`coil` → FC01,
-  `discrete_input` → FC02); passing `space` for a bit raises.
+  `discrete_input` → FC02). Passing `space` for a bit raises.
 - A [`repeating_group`](/modbus-connection/modelling/repeats/) can be `add()`ed
-  like any other target; its instances come out via `get(key)` as a `list` of
-  sub-components (sized at poll time for a register count).
+  like any other target. Its instances come out via `get(key)` as a `list` of
+  sub-components, sized at poll time for a register count.
 - The field `address` is **absolute** — there is no `index` / `stride`.
 
 `add()` and `remove()` invalidate the cached plan, so it re-plans on the next
@@ -62,8 +62,8 @@ mc.get("flow_temp")  # the decoded value for one key (None if not yet read)
 mc.values  # a copy of every decoded value as a dict
 ```
 
-`async_update()` returns the same dict it stores, so you can use either the return
-value or `get()` afterwards.
+`async_update()` returns the same dict it stores, so you can use either the
+return value or `get()` afterwards.
 
 ## Writing
 
@@ -71,16 +71,16 @@ value or `get()` afterwards.
 await mc.write("relay", True)
 ```
 
-Writes go by key and share `Component.write`'s behaviour — the `writable`
-validator, and FC06 / FC16 selection with `force_fc16`. Only holding registers and
-coils are writable; a discrete input or input register is read-only, so writing
-one raises.
+Writes go by key and share `Component.write`'s behaviour: the `writable`
+validator, and FC06 / FC16 selection with `force_fc16`. Only holding registers
+and coils are writable. A discrete input or input register is read-only, so
+writing one raises.
 
 ## Readable ranges
 
-Ranges are **per-table** keyword arguments on the constructor —
-`holding_ranges` / `input_ranges` / `coil_ranges` / `discrete_ranges`. Any table
-left unset falls back to gap-based planning:
+Ranges are **per-table** keyword arguments on the constructor:
+`holding_ranges` / `input_ranges` / `coil_ranges` / `discrete_ranges`. Any
+table left unset falls back to gap-based planning:
 
 ```python
 ManualComponent(unit, holding_ranges=((0, 40),), input_ranges=((500, 520),))

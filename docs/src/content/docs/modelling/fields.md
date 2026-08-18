@@ -3,14 +3,14 @@ title: Built-in fields
 description: Every generic field helper — integers, gauges, floats, strings, enums, flags, coils and discrete inputs — with its options.
 ---
 
-A **field** is a descriptor you place on a `Component`. It owns the codec (how raw
-register words become a Python value) but holds no per-read state. Reading the
-attribute returns `T | None` — the decoded value, or `None` before the first read
-or when a sentinel decodes to "no value".
+A **field** is a descriptor you place on a `Component`. It owns the codec (how
+raw register words become a Python value) but holds no per-read state. Reading
+the attribute returns `T | None`: the decoded value, or `None` before the first
+read or when a sentinel decodes to "no value".
 
-Prefer the **helpers** below over constructing field classes directly; they are
+Prefer the **helpers** below over constructing field classes directly. They are
 named presets (width, sign, sentinel, scale) over a small set of codecs. This
-page covers what each helper means and when to use it; the full signatures live
+page covers what each helper means and when to use it. The full signatures live
 in the [field reference](/modbus-connection/modelling/fields-reference/). Every
 helper lives in `modbus_connection.model`:
 
@@ -38,10 +38,10 @@ from modbus_connection.model import (
 
 ## Options shared across register fields
 
-Most register helpers accept the same keyword arguments, and not every option
+Most register helpers accept the same keyword arguments. Not every option
 applies to every helper — a `string` has no `scale`. The
 [field reference](/modbus-connection/modelling/fields-reference/#options-shared-by-the-register-helpers)
-lists all of them; three are worth more than a definition.
+lists all of them. Three need more explanation than a table row.
 
 ### Affine scaling
 
@@ -52,27 +52,27 @@ stored as `raw * 0.1 - 100`. Writable fields invert it as `(value - offset) / sc
 ### The `nan` sentinel
 
 Many devices send a reserved value to mean "this point is not implemented". Pass
-`nan=` that raw value and the field decodes it to `None`:
+that raw value as `nan=` and the field decodes it to `None`:
 
 ```python
 temperature = gauge(5, 0.1, nan=0x8000)  # 0x8000 -> None
 ```
 
-A device may define several distinct "no value" codes for the same register — one
-for an absent register, another for an unplugged probe. Pass all of them:
+A device may define several distinct "no value" codes for the same register —
+one for an absent register, another for an unplugged probe. Pass all of them:
 
 ```python
 temperature = gauge(5, 0.1, nan=(0x8000, 0xF448))  # either -> None
 ```
 
 The values are matched against the **raw** register word, before `signed` is
-applied, so state them as they appear on the wire (`0xF448`, not `-3000`).
+applied. State them as they appear on the wire: `0xF448`, not `-3000`.
 
 ### Word order
 
 `word_order` selects the order of the 16-bit registers in a multi-register value.
-It defaults to `"big"` (the Modbus convention), covering the ABCD arrangement;
-pass `"little"` for CDAB.
+It defaults to `"big"` (the Modbus convention), covering the ABCD arrangement.
+Pass `"little"` for CDAB.
 
 ---
 
@@ -100,8 +100,8 @@ temp = gauge(9, 0.1, offset=-40, unit="°C")  # raw * 0.1 - 40
 
 ### `raw_register`
 
-A single raw register word — no scaling, sign handling, or sentinel. Useful for a
-status word you decode yourself.
+A single raw register word — no scaling, sign handling, or sentinel. Useful for
+a status word you decode yourself.
 
 ```python
 status = raw_register(7)  # the word as-is, 0..65535
@@ -165,11 +165,11 @@ class Device(Component):
     alarms = flags(4, Alarms)
 ```
 
-`signed` interprets the code as two's-complement for devices with negative enum
-codes (e.g. `-1` sent as `0xFFFF`); the default is unsigned.
+`signed` interprets the code as two's-complement, for devices with negative
+enum codes (e.g. `-1` sent as `0xFFFF`). The default is unsigned.
 
-Under the hood both helpers pass the enum class to `NumberField(convert=...)`,
-which accepts any `Callable[[int], T]` — an enum class is just a callable that
+Under the hood both helpers pass the enum class to `NumberField(convert=...)`.
+`convert` accepts any `Callable[[int], T]` — an enum class is a callable that
 raises `ValueError` for unknown codes — or a `Mapping[int, T]`, where a missing
 key means the same. Either way an unknown value decodes to `None`, warned once
 per distinct value. For a mapping an enum class can't express (e.g. onto a
@@ -192,14 +192,14 @@ class Device(Component):
     )
 ```
 
-A callable converter signals an unknown value only by raising `ValueError`;
-any other exception (including `KeyError`) is a bug and propagates, failing
+A callable converter signals an unknown value only by raising `ValueError`.
+Any other exception (including `KeyError`) is a bug and propagates, failing
 the read.
 
 ## Boolean register fields
 
 Many devices report on/off state as a 0/1 **register** rather than a coil.
-`boolean` decodes such a register to `bool | None` — any value other than 0 or 1
+`boolean` decodes such a register to `bool | None`. Any value other than 0 or 1
 decodes to `None` (warned once), so an out-of-spec code reads as unknown rather
 than truthy:
 
@@ -208,9 +208,9 @@ class Relay(Component):
     output = boolean(0, writable=True)  # holding register: 0 = off, 1 = on
 ```
 
-Pass `nan=` for a device with a "no value" sentinel, which decodes to `None`
-without a warning. For an actual coil or discrete input, use the bit fields
-below — `boolean` reads the component's register space.
+Pass `nan=` for a device with a "no value" sentinel; the sentinel decodes to
+`None` without a warning. For an actual coil or discrete input, use the bit
+fields below — `boolean` reads the component's register space.
 
 ## Packed bits in a register
 
@@ -225,10 +225,10 @@ class SiteLimit(Component):
 ```
 
 Fields at the same address are read together, so this costs one register.
-Writing one of them re-reads the register, replaces that field's bits and
-writes the word back, which leaves every other setting alone — including one
-changed since the last poll, by the device itself or by another writer. A value
-too wide for the run raises `ValueError` instead of being truncated.
+Writing one of them re-reads the register, replaces that field's bits, and
+writes the word back. Every other setting is left alone — including one changed
+since the last poll, by the device itself or by another writer. A value too
+wide for the run raises `ValueError` instead of being truncated.
 
 ## Bit fields
 
@@ -249,8 +249,8 @@ class IO(Component):
 
 `writable=True` marks a field writable and writes the value as-is. Passing a
 **validator callable** instead both marks it writable and vets the value before
-each write — it receives the requested value and returns the value to actually
-write, or raises to reject it, before anything reaches the device:
+each write. The validator receives the requested value and returns the value to
+actually write, or raises to reject it, before anything reaches the device:
 
 ```python
 def in_range(value: int) -> int:
@@ -263,7 +263,7 @@ class Boiler(Component):
     setpoint = integer(0, writable=in_range)
 ```
 
-The library ships no validators of its own; for ready-made ones reach for
+The library ships no validators of its own. For ready-made ones, see
 [probatio](https://github.com/frenck/probatio).
 
 For registers, `write()` picks FC06 for a single word and FC16 for multiple. Pass
@@ -274,17 +274,17 @@ For registers, `write()` picks FC06 for a single word and FC16 for multiple. Pas
 `scale_register` points at a separate register whose signed int16 value is read
 alongside the field and applied as `10**sf` — the SunSpec `sunssf` convention.
 
-A `write()` on a dynamically-scaled field takes the engineering value: the
-scale factor is read fresh in the same write and the value is snapped to the
-precision the factor grants before encoding, so `12.349` with a `10**-2`
-factor writes raw `1235`. An exponent whose factor cannot scale — such as
-SunSpec's not-implemented `sunssf` value — raises `ValueError`: a write never
-guesses a scale, where a read decodes the same case to `None`.
+A `write()` on a dynamically-scaled field takes the engineering value. The
+scale factor is read fresh in the same write, and the value is snapped to the
+precision the factor grants before encoding. For example, `12.349` with a
+`10**-2` factor writes raw `1235`. An exponent whose factor cannot scale — such
+as SunSpec's not-implemented `sunssf` value — raises `ValueError`: a write
+never guesses a scale. A read decodes the same case to `None`.
 
 A field may also declare `scale_exponent_range=(low, high)` for a spec that
-bounds the exponent; a register-sourced exponent outside it decodes the value
-to `None` and refuses writes the same way. The SunSpec point types declare the
-`sunssf` spec range (-10..10) out of the box. See the
+bounds the exponent. A register-sourced exponent outside the range decodes the
+value to `None` and refuses writes the same way. The SunSpec point types
+declare the `sunssf` spec range (-10..10) out of the box. See the
 [SunSpec page](/modbus-connection/modelling/sunspec/) for the pre-wired point
 types built on this.
 
@@ -293,9 +293,9 @@ types built on this.
 Almost every device map is expressible with the helpers above. For the rest,
 there are two ways out.
 
-**Shape the value in a `@property`** — composing or transforming several fields,
-packed dates and times. Keep the field private and expose the computed value, so
-static typing stays exact:
+**Shape the value in a `@property`** — for composing or transforming several
+fields, or for packed dates and times. Keep the field private and expose the
+computed value, so static typing stays exact:
 
 ```python
 from modbus_connection.model import Component, string

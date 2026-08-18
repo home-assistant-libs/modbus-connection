@@ -32,15 +32,15 @@ The full operation list, with each method's signature and function code, is in
 the [`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
 
 tmodbus can identify a corrupt frame and raises
-[`ModbusProtocolError`](/modbus-connection/connection/reference/#modbusprotocolerror).
-pymodbus maps both a corrupt reply and a missing reply to
+[`ModbusProtocolError`](/modbus-connection/connection/reference/#modbusprotocolerror)
+for it. pymodbus maps both a corrupt reply and a missing reply to
 [`ModbusTimeoutError`](/modbus-connection/connection/reference/#modbustimeouterror).
 
 tmodbus retries `SERVER_DEVICE_BUSY` responses with exponential backoff for up
-to one minute — a retransmission native to tmodbus, which this library only
-bounds and configures; there is no equivalent layer over pymodbus, so pymodbus
-raises the busy response immediately. Neither backend retries timeouts, dropped
-links, or other exception responses.
+to one minute. This retry is native to tmodbus; this library only bounds and
+configures it. pymodbus has no equivalent layer, so it raises the busy response
+immediately. Neither backend retries timeouts, dropped links, or other
+exception responses.
 
 Constructing a connection with unsupported parameters raises `ValueError`. A
 `ModbusUnit` operation that the selected backend does not implement raises

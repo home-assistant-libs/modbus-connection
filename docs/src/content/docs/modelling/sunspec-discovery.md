@@ -21,7 +21,7 @@ address, and data length. A model ID can occur more than once.
 
 ## Looking up models
 
-The result is a `SunSpecModels` — a plain `dict` keyed by model ID, with three
+The result is a `SunSpecModels`: a plain `dict` keyed by model ID, with three
 lookups on top:
 
 ```python
@@ -30,12 +30,12 @@ models.chain  # every model in chain order
 models.at(40188)  # the model whose header sits there, or None
 ```
 
-`chain` is what tells repeats of one ID apart: a SolarEdge meter is identified
-by the model `1` immediately before it, not by its own ID.
+`chain` tells repeats of one ID apart. For example, a SolarEdge meter is
+identified by the model `1` immediately before it, not by its own ID.
 
 A model's `length` is the data length its header reports. `span` adds the two
-header registers, so it is both the count that reads the whole block and the
-step to the next header.
+header registers. `span` is therefore both the count that reads the whole block
+and the step to the next header.
 
 ## Components at discovered models
 
@@ -57,14 +57,15 @@ if (found := models.first(103, 101)) is not None:
 ```
 
 The header occupies offsets 0 and 1; data begins at offset 2.
-`SunSpecComponent` verifies the header after every update. If the device moves a
-model, it raises `SunSpecMapShiftError`; scan again and construct new components.
+`SunSpecComponent` verifies the header after every update. If the device moves
+a model, it raises `SunSpecMapShiftError`. Scan again and construct new
+components.
 
 ## Generating component classes
 
 You don't have to write those component classes by hand. SunSpec publishes its
 standard model definitions as JSON in
-[sunspec/models](https://github.com/sunspec/models); generate component classes
+[sunspec/models](https://github.com/sunspec/models). Generate component classes
 from model IDs or local `model_N.json` files:
 
 ```bash
@@ -76,10 +77,11 @@ result is ordinary source intended as a starting point. Review it against the
 manufacturer's implementation and commit the adjusted classes to the device
 library.
 
-The output contains a `SunSpecComponent` subclass for each model, fields for its
-points, enum and flag types, and statically expressible repeated groups. Class
-names come from the model's group name, with the model ID added when names
-collide, and each point's label and description become its attribute docstring.
+The output contains a `SunSpecComponent` subclass for each model, fields for
+its points, enum and flag types, and statically expressible repeated groups.
+Class names come from the model's group name, with the model ID added when
+names collide. Each point's label and description become its attribute
+docstring.
 
 ```python
 class OperatingState(IntEnum):
@@ -97,11 +99,11 @@ class InverterThreePhase(SunSpecComponent):
     """Operating State."""
 ```
 
-Layouts whose addresses or strides depend on values read from the device cannot
-always be emitted statically — but they are only unknown because a count point
-is. Pass what the target device reports and the block it sizes becomes an
-ordinary fixed-count `repeating_group`, which is what makes the curve models
-(705, 706, 712) and the trip models (707–710) generate at all:
+Some layouts have addresses or strides that depend on values read from the
+device, so they cannot always be emitted statically. They are only unknown
+because a count point is. Pass what the target device reports and the block it
+sizes becomes an ordinary fixed-count `repeating_group`. This is what makes the
+curve models (705, 706, 712) and the trip models (707–710) generate at all:
 
 ```bash
 python -m modbus_connection.model.sunspec.generate 705 707 \
@@ -113,18 +115,18 @@ Without a count the declaration is left commented, naming the option that would
 emit it, and `SunSpecGenerationError` is raised when a static layout would be
 incorrect. Counts are baked into the generated classes, so a device reporting
 different ones fails on its first read rather than decoding garbage: a curve
-model's length is a function of its counts, and `SunSpecComponent` verifies that
-header.
+model's length is a function of its counts, and `SunSpecComponent` verifies
+that header.
 
 ## Writing a curve
 
-A curve is a block of writable points repeated `NPt` times, and a device expects
-it whole. Written a field at a time it costs a request per point, plus a read of
-the scale register before each scaled write.
+A curve is a block of writable points repeated `NPt` times, and a device
+expects it whole. Written a field at a time, it costs a request per point, plus
+a read of the scale register before each scaled write.
 
 When a model has a repeated block whose points are **all** writable, the
-generator gives the block's owner a method that writes it, over a `write_block`
-helper emitted into the same module:
+generator gives the block's owner a method that writes the block in one
+request. The method calls a `write_block` helper emitted into the same module:
 
 ```python
 class DERVoltVarCrv(Component):
@@ -153,7 +155,7 @@ await volt_var.crv[1].write_pt(
 ```
 
 The method is named after its block rather than given one fixed name, because a
-class can own several: model 704's controls block owns four, and gets
+class can own several blocks: model 704's controls block owns four, and gets
 `write_pfw_inj`, `write_pfw_inj_rvrt`, `write_pfw_abs` and `write_pfw_abs_rvrt`.
 
 The whole curve goes out as one FC16, and each distinct scale register is read
@@ -161,14 +163,14 @@ once for the block rather than once per field — one write and two reads instea
 of eight of each. Points past the values given keep what they held.
 
 Both the method and the helper it calls are generated source like the rest of
-the module, not library API, so adjust them with the classes they serve. The
-helper is emitted once per module however many models or blocks need it, and a
-method appears only on blocks the generator has already checked are writable
-throughout — a block with a read-only point or a nested block of its own gets
+the module, not library API. Adjust them with the classes they serve. The
+helper is emitted once per module, however many models or blocks need it. A
+method appears only on blocks the generator has verified are writable
+throughout; a block with a read-only point or a nested block of its own gets
 neither. Across the IEEE 1547 models that is every curve and trip-point block
 (705, 706, 707–710, 712) and 704's power-factor blocks, but nothing on 711's
 control block or 714's port block.
 
-Write into a *stored* curve — one whose `read_only` point reports read-write
-access — then adopt it with `adpt_crv_req`. That, not the register write itself,
-is what makes a curve take effect.
+To use a curve, write into a *stored* curve — one whose `read_only` point
+reports read-write access — then adopt it with `adpt_crv_req`. The adoption,
+not the register write itself, is what makes a curve take effect.

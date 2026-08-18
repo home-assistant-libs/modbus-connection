@@ -48,11 +48,12 @@ read-only.
 #### `async_update(*, notify=True)`
 
 `async` — read every field with pooled block reads, decode the values, and
-notify the listeners — unless `notify=False`, for a caller that notifies them
-itself. The read plan is built and cached on the first call.
-Raises the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
-for the code if the device rejects a block, the refused block on `.block`; the
-update then applies nothing.
+notify the listeners. Pass `notify=False` for a caller that notifies them
+itself. The read plan is built and cached on the first call. If the device
+rejects a block, this raises the
+[typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
+for the code, with the refused block on `.block`, and the update applies
+nothing.
 
 #### `async_update_repeating_groups()`
 
@@ -63,12 +64,12 @@ its second pass; call it directly only to refresh the groups alone.
 
 #### `async_read_raw(*, notify=True)`
 
-`async` — run the same reads as `async_update()` (refreshing the fields and
-firing listeners) and additionally return the raw words and bits as
-`{space: {address: value}}`, keyed by the four Modbus spaces (`"holding"`,
-`"input"`, `"coil"`, `"discrete"`) with addresses ascending. Raises the typed
-exception if the device rejects a block, like `async_update()`. `notify=False`
-skips the listeners; the fields still refresh.
+`async` — run the same reads as `async_update()`, refreshing the fields and
+firing listeners, and additionally return the raw words and bits as
+`{space: {address: value}}`. The result is keyed by the four Modbus spaces
+(`"holding"`, `"input"`, `"coil"`, `"discrete"`), addresses ascending. Raises
+the typed exception if the device rejects a block, like `async_update()`.
+`notify=False` skips the listeners; the fields still refresh.
 
 #### `write(field, value)`
 
@@ -85,8 +86,8 @@ read-only field (input registers and discrete inputs are always read-only) and
 #### `modbus_unit`
 
 The [`ModbusUnit`](/modbus-connection/connection/reference/#modbusunit) this
-component reads from and writes to, including on a sub-instance a
-`repeating_group` built.
+component reads from and writes to. Also set on the sub-instances a
+`repeating_group` builds.
 
 #### `restrict_fields(names)`
 
@@ -261,9 +262,9 @@ plain dict, with lookup helpers on top.
 
 - **`first(*model_ids)`** — the first discovered [`SunSpecModel`](#sunspecmodel)
   among `model_ids`. The IDs are tried in the order given, so earlier IDs take
-  priority (preferred model variants before their fallbacks); for an ID
+  priority (preferred model variants before their fallbacks). For an ID
   discovered more than once, the first location in chain order is returned.
-  `None` when no ID matches.
+  Returns `None` when no ID matches.
 - **`chain`** — every discovered model in chain order, as a
   `list[SunSpecModel]` ascending by address. For a device that repeats a model
   ID, this is what distinguishes the repeats.
