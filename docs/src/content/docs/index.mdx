@@ -18,23 +18,22 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 **modbus-connection** is two things in one package:
 
-1. A **connection abstraction** — the abstract `ModbusConnection` class and
-   `ModbusUnit` Protocol — that lets you type against Modbus without committing
-   to a backend. Two
-   interchangeable backends, [tmodbus](https://github.com/wlcrs/tmodbus) and
-   [pymodbus](https://github.com/pymodbus-dev/pymodbus), implement it.
-2. An optional **device-modelling framework** (`modbus_connection.model`) that
-   maps a device's registers and coils to typed Python attributes and reads the
-   whole device — or one sub-system — in as few Modbus calls as possible.
+1. A **connection abstraction**: the abstract `ModbusConnection` class and the
+   `ModbusUnit` Protocol. Your code types against these, not against a specific
+   Modbus library. Two interchangeable backends implement them:
+   [tmodbus](https://github.com/wlcrs/tmodbus) and
+   [pymodbus](https://github.com/pymodbus-dev/pymodbus).
+2. An optional **device-modelling framework** (`modbus_connection.model`). It
+   maps a device's registers and coils to typed Python attributes. It reads the
+   whole device, or one sub-system, in as few Modbus calls as possible.
 
-It imports no Modbus library at the top level and nothing from Home Assistant, so
-you can build a device library once and let the consumer choose the backend.
+The package imports no Modbus library at the top level and nothing from Home
+Assistant. You can build a device library once and let the consumer choose the
+backend.
 
 ## Example
 
-Model a device once, then construct, update, read, and write it. The optional
-`modbus_connection.model` framework maps a device's registers and coils to typed
-attributes and reads the whole device in as few Modbus calls as possible.
+Model a device once. Then construct, update, read, and write it:
 
 ```python
 import asyncio
@@ -81,19 +80,19 @@ asyncio.run(main())
     The link to a Modbus network, shared by every unit on it. It is
     **owner-held**: construct it from a backend-neutral parameter object, and
     only the owner tears it down with `close()`. The first request connects on
-    demand, and a dropped link is re-established.
+    demand. A dropped link is re-established.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     One device on that link, from `connection.for_unit(unit_id)`. It carries the
-    read and write operations for that unit id and holds no state, so this — not
-    the connection — is what you hand to a device library.
+    read and write operations for that unit id and holds no state. Hand this, not
+    the connection, to a device library.
   </Card>
 </CardGrid>
 
-Requests on one connection are serialized by the backend, so concurrent unit
-calls can't interleave. Sharing a single connection across many consumers is
-strictly better than each opening a competing socket — and that is exactly what
-this abstraction makes possible while keeping the backend swappable.
+The backend serializes requests on one connection, so concurrent unit calls
+cannot interleave. Many consumers can share one connection instead of each
+opening a competing socket. This abstraction makes that sharing possible while
+keeping the backend swappable.
 
 [Read more about connections and units →](/modbus-connection/connection/connections-and-units/)
 
@@ -133,8 +132,8 @@ this abstraction makes possible while keeping the backend swappable.
 </CardGrid>
 
 :::note[Not Home Assistant specific]
-This library is a general-purpose Modbus toolkit. It ships helpers and patterns
-that make it a good fit for Home Assistant — and there is a whole section on that
-— but the core has no dependency on Home Assistant and works in any async Python
-program.
+This library is a general-purpose Modbus toolkit. It works in any async Python
+program and the core has no dependency on Home Assistant. It does ship helpers
+and patterns that make it a good fit for Home Assistant — see the Home Assistant
+section.
 :::

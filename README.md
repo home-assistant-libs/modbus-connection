@@ -10,10 +10,10 @@ tiny exception hierarchy. Two interchangeable backends implement them
 [pymodbus](https://github.com/pymodbus-dev/pymodbus)); the bare install pulls
 neither.
 
-One physical Modbus link addresses many units (1–247). Sharing a single,
-internally-serialized connection across many consumers is strictly better than
-each opening a competing socket. This package is the connection abstraction that
-makes that sharing possible while keeping the backend swappable.
+One physical Modbus link addresses many units (1–247). Many consumers can
+share a single, internally-serialized connection instead of each opening a
+competing socket. This package is the connection abstraction that makes that
+sharing possible while keeping the backend swappable.
 
 ## Install
 

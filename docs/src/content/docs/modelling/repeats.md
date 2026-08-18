@@ -5,10 +5,10 @@ description: Model one sub-unit as a Component and let the parent size the list,
 
 Devices that expose several identical sub-units — heating circuits, channels,
 phases, MPPT modules — repeat the same registers at a fixed step. A
-`repeating_group` models one instance as a `Component` and hands the parent a
+`repeating_group` models one instance as a `Component` and gives the parent a
 typed `list` of them. The count is a fixed `int`, or a register the device
-reports at poll time: a SunSpec multiple-MPPT model (160) carries an `N` point
-saying how many modules follow.
+reports at poll time. For example, a SunSpec multiple-MPPT model (160) carries
+an `N` point saying how many modules follow.
 
 ```python
 from modbus_connection.model import Component, integer, repeating_group
@@ -37,20 +37,20 @@ by type across the map — place the instances by hand with
 
 ## How the count is read
 
-`count` is a `RegisterField` (read each poll) or a fixed `int`. Instance *i* has
-every address of its declared layout shifted by `i * stride` on top of the
-parent's own placement, so **`stride` is the block length**.
+`count` is a `RegisterField` (read each poll) or a fixed `int`. Instance *i*
+has every address of its declared layout shifted by `i * stride` on top of the
+parent's own placement. **`stride` is therefore the block length.**
 
 - A **fixed `int`** count is static, so its instances fold into the component's
-  normal read — no extra pass.
-- A **`RegisterField`** count needs a second pass: the count is read first, then
-  the sized-out instances (pooled among themselves), since the count must be known
-  before the instances it sizes can be planned. A float-typed count field (a
-  SunSpec `uint16` `N` point) is accepted; the decoded count is truncated.
+  normal read. No extra pass is needed.
+- A **`RegisterField`** count needs a second pass. The count is read first,
+  then the sized-out instances (pooled among themselves): the count must be
+  known before the instances it sizes can be planned. A float-typed count field
+  (a SunSpec `uint16` `N` point) is accepted; the decoded count is truncated.
 
 An unimplemented or unreadable count yields no instances. A component with a
 `repeating_group` can refresh on its own or be pooled in a
-[`ComponentGroup`](/modbus-connection/modelling/component-group/) — the group
+[`ComponentGroup`](/modbus-connection/modelling/component-group/). The group
 reads the counts in its pooled read, then refreshes each member's groups.
 
 ## The sub-unit's readable ranges
@@ -58,8 +58,8 @@ reads the counts in its pooled read, then refreshes each member's groups.
 A sub-unit that declares
 [readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
 constrains the reads of every instance. Each instance's map resolves like its
-fields — shifted by its own place in the repeat — and the maps are merged into
-the plan its instances are read from.
+fields, shifted by its own place in the repeat. The maps are merged into the
+plan its instances are read from.
 
 ```python
 class Channel(Component):
@@ -80,9 +80,9 @@ class Meter(Component):
 A `repeating_group`'s `component_class` is itself a `Component`, so it may
 declare its own `repeating_group` — a sub-unit that repeats within each
 instance (channels within each module, cells within each string). Nesting is
-fully supported, in any combination of fixed and register counts, to any depth:
-each instance's addresses shift by its parent's `stride`, and the shifts compose
-additively down the levels.
+fully supported, in any combination of fixed and register counts, to any depth.
+Each instance's addresses shift by its parent's `stride`, and the shifts
+compose additively down the levels.
 
 ```python
 class Cell(Component):
@@ -98,17 +98,17 @@ class Battery(Component):
 ```
 
 A **register count** at any level adds a read pass for the level below it: the
-count must be read before the instances it sizes can be planned. So a two-deep
-tree with register counts at both levels polls in three passes — the outer count,
-then the inner counts, then the leaves. Fixed `int` counts add no pass at any
-level; they fold into the enclosing read.
+count must be read before the instances it sizes can be planned. A two-deep
+tree with register counts at both levels therefore polls in three passes — the
+outer count, then the inner counts, then the leaves. Fixed `int` counts add no
+pass at any level; they fold into the enclosing read.
 
 ## Scale factors inside the block
 
 By default a scaled field's `scale_register` stays put across instances — it
-names a shared scale factor in the parent's fixed block. A sub-unit that carries
-its **own** scale factor per repeat sets the `scale_in_block` class attribute, so
-each instance's scale registers shift with it:
+names a shared scale factor in the parent's fixed block. A sub-unit that
+carries its **own** scale factor per repeat sets the `scale_in_block` class
+attribute. Each instance's scale registers then shift with it:
 
 ```python
 from modbus_connection.model import Component, integer, repeating_group
@@ -123,6 +123,6 @@ class Meter(Component):
     channels = repeating_group(integer(4, signed=False), Channel, stride=2)
 ```
 
-Without `scale_in_block`, every channel would read its scale factor from the one
-address relative to the block start; with it, channel *i*'s `scale_register`
-shifts by `i * stride` like the rest of its block.
+Without `scale_in_block`, every channel would read its scale factor from the
+one address relative to the block start. With it, channel *i*'s
+`scale_register` shifts by `i * stride` like the rest of its block.

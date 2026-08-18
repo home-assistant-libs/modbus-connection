@@ -9,10 +9,10 @@ top-level `modbus_connection` package unless stated otherwise.
 ## `ModbusConnection`
 
 The abstract connection base class (`modbus_connection.ModbusConnection`). Each
-backend module exports a concrete subclass under the same name —
+backend module exports a concrete subclass under the same name:
 `modbus_connection.tmodbus.ModbusConnection` and
-`modbus_connection.pymodbus.ModbusConnection` — with an identical constructor
-and API, so selecting a backend changes only the import.
+`modbus_connection.pymodbus.ModbusConnection`. The constructor and API are
+identical, so selecting a backend changes only the import.
 
 ```python
 ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
@@ -25,7 +25,7 @@ ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
 | `message_spacing` | `float`, default `0.0` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
 | `connect_delay` | `float`, default `0.0` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
 
-Constructing a connection performs no I/O; the first unit operation connects on
+Constructing a connection performs no I/O. The first unit operation connects on
 demand. See [Connections and units](/modbus-connection/connection/connections-and-units/)
 for the ownership and lifecycle model.
 
@@ -47,29 +47,30 @@ rarely need it: every unit operation connects first.
 #### `for_unit(unit_id)`
 
 Return this backend's stateless [`ModbusUnit`](#modbusunit) handle bound to
-`unit_id`. Handles are cheap; consumers should receive a handle, never the
+`unit_id`. Handles are cheap. Consumers should receive a handle, never the
 connection.
 
 #### `on_connection_lost(callback)`
 
 Register a `Callable[[], None]` fired when the link drops; returns an
 unsubscribe callable. A connection is **lost** when the transport takes it
-away; `close()` and `disconnect()` are the owner tearing it down, so neither
+away. `close()` and `disconnect()` are the owner tearing it down, so neither
 fires the callbacks.
 
 #### `disconnect()`
 
-`async` — drop the link; the next request establishes a new one. For recycling
-a link that is up but unusable — a peer that keeps the socket open but stops
-answering. Unlike `close()`, the connection stays usable: existing unit handles
-and components reconnect on their next request. A no-op when there is no link.
-Raises [`ModbusConnectionError`](#modbusconnectionerror) if tearing the old
-link down fails; the link is dropped regardless.
+`async` — drop the link; the next request establishes a new one. Use it to
+recycle a link that is up but unusable, such as a peer that keeps the socket
+open but stops answering. Unlike `close()`, the connection stays usable:
+existing unit handles and components reconnect on their next request. A no-op
+when there is no link. Raises
+[`ModbusConnectionError`](#modbusconnectionerror) if tearing the old link down
+fails; the link is dropped regardless.
 
 #### `close()`
 
 `async` — close the connection permanently. After `close()`, `connect()` and
-every unit operation raise [`ClientClosedError`](#clientclosederror); construct
+every unit operation raise [`ClientClosedError`](#clientclosederror). Construct
 a new connection to reconnect.
 
 ## Parameter dataclasses
@@ -126,11 +127,11 @@ other parameters. The backends call this for you when connecting.
 
 ### `endpoint`
 
-Every parameter dataclass has an `endpoint` property: a hashable tuple
-identifying the physical target the params point at, excluding link settings.
-Two params objects with equal endpoints address the same device, so the
-property answers "do these configurations target the same device?" and doubles
-as a dictionary key for grouping shared connections:
+Every parameter dataclass has an `endpoint` property: a hashable tuple that
+identifies the physical target the params point at, excluding link settings.
+Two params objects with equal endpoints address the same device. The property
+answers "do these configurations target the same device?" and doubles as a
+dictionary key for grouping shared connections:
 
 | Class | Endpoint | Excluded settings |
 | --- | --- | --- |
@@ -140,16 +141,15 @@ as a dictionary key for grouping shared connections:
 | `ModbusSerialParams` | `("serial", device)` | `baudrate`, `bytesize`, `parity`, `stopbits`, `framer` |
 
 `ModbusTlsParams` deliberately shares the `"tcp"` transport tag: a TLS link and
-a plain-TCP link to the same host and port target the same TCP endpoint, hence
-the same device. A host is folded to lower case on construction, since DNS names
-and IPv6 hex digits are case-insensitive. The serial device path is compared
-verbatim —
-aliases of the same port (a `/dev/serial/by-id` symlink versus `/dev/ttyUSB0`)
-are not resolved.
+a plain-TCP link to the same host and port target the same TCP endpoint, and
+therefore the same device. A host is folded to lower case on construction,
+since DNS names and IPv6 hex digits are case-insensitive. The serial device
+path is compared verbatim. Aliases of the same port (a `/dev/serial/by-id`
+symlink versus `/dev/ttyUSB0`) are not resolved.
 
 Equal endpoints with **unequal params** signal conflicting configurations for
 one device — for example two serial configs for `/dev/ttyUSB0` at different
-baud rates — which a connection manager can detect and reject:
+baud rates. A connection manager can detect and reject that:
 
 ```python
 if new_params.endpoint == existing_params.endpoint and new_params != existing_params:
@@ -159,7 +159,7 @@ if new_params.endpoint == existing_params.endpoint and new_params != existing_pa
 ## `ModbusUnit`
 
 A runtime-checkable `Protocol` representing one unit on a shared connection.
-Obtain one from [`connection.for_unit(unit_id)`](#for_unitunit_id); the
+Obtain one from [`connection.for_unit(unit_id)`](#for_unitunit_id). The
 [mock unit](/modbus-connection/patterns/testing/) and any other object with
 these methods satisfies it too.
 
@@ -212,7 +212,7 @@ not implement raises `NotImplementedError` — see
 
 Set the minimum interval between requests to this unit. The setting belongs to
 the unit ID and combines with connection-wide spacing by waiting for the longer
-interval; pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
+interval. Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
 See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 #### `on_connection_lost(callback)`
@@ -222,9 +222,9 @@ unsubscribe callable. Equivalent to registering on the owning connection.
 
 ## Encoding and decoding functions
 
-Converters between register words and Python values, used by the
-[modelling fields](/modbus-connection/modelling/fields/) and available for
-direct use — see
+Converters between register words and Python values. The
+[modelling fields](/modbus-connection/modelling/fields/) use them internally,
+and they are available for direct use — see
 [Decoding what you read](/modbus-connection/connection/operations/#decoding-what-you-read)
 for examples.
 
@@ -278,9 +278,9 @@ All encoders return `list[int]` register words. The integer encoders raise
 
 ## Exceptions
 
-Both backends map their errors onto the **same neutral hierarchy**, so
-`except ModbusError` catches everything regardless of which backend produced it.
-Import them from the top-level package:
+Both backends map their errors onto the **same neutral hierarchy**.
+`except ModbusError` catches everything, whichever backend produced the error.
+Import the classes from the top-level package:
 
 ```text
 ModbusError
@@ -339,22 +339,23 @@ except TimeoutError:  # catches ModbusTimeoutError
 
 ### `ModbusProtocolError`
 
-A reply arrived but **could not be used** — a corrupt frame (bad CRC/LRC,
-framing), or a well-formed answer to a different request than the one sent
-(the signature of a bridge shared by several simultaneous clients).
+A reply arrived but could not be used. Either the frame was corrupt (bad
+CRC/LRC, framing), or a well-formed reply answered a different request than the
+one sent. The latter is the signature of a bridge shared by several
+simultaneous clients.
 
 ### `ModbusDesyncError`
 
-The reply **answers a different exchange** than the one in flight: a mismatched
-header, or the wrong function code. Retrying would read the same offset, so the
-connection has already [`disconnect()`](#disconnect)ed when this raises and the
+The reply answers a different exchange than the one in flight: a mismatched
+header, or the wrong function code. Retrying would read the same offset. The
+connection therefore [`disconnect()`](#disconnect)s before this raises, and the
 next request opens a fresh link.
 
 ### `ModbusExceptionError`
 
-The device returned a Modbus **exception response** — it understood the request
+The device returned a Modbus **exception response**: it understood the request
 but refused it. A code with a standard meaning raises the matching subclass, so
-callers branch without magic numbers:
+callers can branch without magic numbers:
 
 ```python
 try:
@@ -378,23 +379,22 @@ except GatewayTargetError:
 | `GatewayTargetError` | 11 | The gateway's target device did not respond. |
 
 `.exception_code` carries the code as an `ExceptionCode` `IntEnum` member when
-it is a standard one (a plain `int` otherwise), so existing
+it is a standard one, and a plain `int` otherwise. Existing
 `err.exception_code == 2` comparisons keep working. An unknown code raises the
 base `ModbusExceptionError`. Each subclass constructs with its code implied —
-`IllegalDataAddressError()` — which is handy for
+`IllegalDataAddressError()` — which is useful for
 [arming the mock](/modbus-connection/patterns/testing/#simulating-a-read-failure).
 
-`.block` says *where* the refusal happened: for an exception response that
+`.block` says *where* the refusal happened. For an exception response that
 aborted a [component update](/modbus-connection/modelling/reading/#when-a-block-read-fails),
-it is the refused `ReadBlock(space, address, count)`; for a raw unit request it
-is `None`. The code answers the Modbus-level question, the block the
-planner-level one — one exception, both facts.
+it is the refused `ReadBlock(space, address, count)`. For a raw unit request it
+is `None`.
 
 ### `BlockReadError` (deprecated)
 
-A deprecated alias of `ModbusExceptionError`, kept so existing
+A deprecated alias of `ModbusExceptionError`. It is kept so existing
 `except BlockReadError` handlers keep catching an aborted component update, and
-`.space` / `.address` / `.count` still read (from `.block`; `None` on a raw
+so `.space` / `.address` / `.count` still read (from `.block`; `None` on a raw
 request error). New code should catch the typed class and read `.block`.
 
 ## Backend modules
@@ -412,6 +412,6 @@ request error). New code should catch the typed class and read `.block`.
 - The legacy factories `connect_tcp`, `connect_udp`, `connect_tls`, and
   `connect_serial` — kept for compatibility. Each builds the matching parameter
   dataclass from keyword arguments, also accepts the constructor's `timeout`,
-  `message_spacing`, and `connect_delay`, constructs a `ModbusConnection`, eagerly `connect()`s
-  it, and returns it. New code should construct `ModbusConnection` with a
-  shared parameter object instead.
+  `message_spacing`, and `connect_delay`, constructs a `ModbusConnection`,
+  eagerly `connect()`s it, and returns it. New code should construct
+  `ModbusConnection` with a shared parameter object instead.

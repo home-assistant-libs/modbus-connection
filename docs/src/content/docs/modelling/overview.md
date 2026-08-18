@@ -3,10 +3,11 @@ title: Device modelling overview
 description: Map a device's registers and coils to typed attributes with Component, and read it in as few Modbus calls as possible.
 ---
 
-`modbus_connection.model` is an optional, backend-neutral framework for mapping a
-device's registers and coils to typed Python attributes, then reading the whole
-device — or one sub-system — in as few Modbus calls as possible. It talks only to
-a `ModbusUnit`, so it runs over any backend (or the [mock](/modbus-connection/patterns/testing/)).
+`modbus_connection.model` is an optional, backend-neutral framework. It maps a
+device's registers and coils to typed Python attributes, then reads the whole
+device — or one sub-system — in as few Modbus calls as possible. It talks only
+to a `ModbusUnit`, so it runs over any backend and over the
+[mock](/modbus-connection/patterns/testing/).
 
 ## A first component
 
@@ -37,15 +38,15 @@ meter.voltage  # float | None
 await meter.write("relay", True)
 ```
 
-The string under each field is an attribute docstring — optional, but editors
-show it when hovering `meter.voltage` anywhere in the codebase.
+The string under each field is an attribute docstring. It is optional, but
+editors show it when hovering `meter.voltage` anywhere in the codebase.
 
-`async_update()` reads every field, decodes it, and stores the result. Reading an
-attribute returns the decoded value or `None` (a field that hasn't been read yet,
-or a device sentinel that decodes to "no value"). Because a component reads only
-its own registers, it can refresh independently.
+`async_update()` reads every field, decodes it, and stores the result. Reading
+an attribute returns the decoded value, or `None` for a field that has not been
+read yet or a device sentinel that decodes to "no value". A component reads
+only its own registers, so it can refresh independently.
 
-The update is not one request per field: neighbouring addresses are pooled into
+The update is not one request per field. Neighbouring addresses are pooled into
 block reads, bounded by what the device is willing to serve. See
 [Reading a device](/modbus-connection/modelling/reading/) for the pooling knobs,
 the readable ranges, and what a refused block does to an update.
@@ -54,7 +55,7 @@ the readable ranges, and what a refused block does to an update.
 
 A component's register fields default to the **holding** space (FC03). For a
 read-only sub-system whose data lives in **input** registers (FC04), set
-`register_space = "input"` — the field declarations are unchanged:
+`register_space = "input"`. The field declarations are unchanged:
 
 ```python
 class Sensors(Component):
@@ -79,9 +80,10 @@ class IO(Component):
     fault = discrete_input(0)  # FC02, read-only — distinct from coil 0
 ```
 
-`coil` fields are read/written via FC01; `discrete_input` fields are read from
-FC02 (read-only). A single component may declare both — coil 12 ≠ discrete input
-12, so they are planned and read separately.
+`coil` fields are read and written via FC01. `discrete_input` fields are read
+from FC02 and are read-only. A single component may declare both. Coil 12 and
+discrete input 12 are different addresses, so they are planned and read
+separately.
 
 ## Writing
 
@@ -92,8 +94,8 @@ await meter.write("relay", True)
 ```
 
 The field must be marked
-[`writable`](/modbus-connection/modelling/fields/#writable-fields-and-validators)
-— optionally with a validator that vets the value before it reaches the device.
+[`writable`](/modbus-connection/modelling/fields/#writable-fields-and-validators),
+optionally with a validator that vets the value before it reaches the device.
 Override `write()` in a subclass for any device-specific write sequencing.
 
 ## Listeners
@@ -110,6 +112,12 @@ Pass `async_update(notify=False)` to read without firing the listeners, for a
 caller that notifies them itself.
 
 ## Where to next
+
+Building a device library? Read
+[The device object](/modbus-connection/patterns/library/) once you know the
+basics here — it shows how components combine into a full library.
+
+The rest of this section, in reading order:
 
 - [Built-in fields](/modbus-connection/modelling/fields/) — every generic field type.
 - [Reading a device](/modbus-connection/modelling/reading/) — block pooling,

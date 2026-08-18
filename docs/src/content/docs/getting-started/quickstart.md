@@ -3,9 +3,10 @@ title: Quickstart
 description: Read your first registers — connect, read, decode, and close in twenty lines.
 ---
 
-With [an install](/modbus-connection/getting-started/installation/) done and a
-backend picked, this is the whole loop — connect to a device, read two holding
-registers, decode them, and close:
+This is the whole loop: connect to a device, read two holding registers, decode
+them, and close. It assumes you have
+[installed the package](/modbus-connection/getting-started/installation/) with a
+backend extra.
 
 ```python
 import asyncio
@@ -29,13 +30,13 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Register reads hand back raw 16-bit words, which the `decode` module turns into
-Python values — here two words into one unsigned 32-bit integer. Swapping
-`modbus_connection.tmodbus` for `modbus_connection.pymodbus` is the entire
-backend switch.
+Register reads return raw 16-bit words. The `decode` module turns them into
+Python values — here, two words into one unsigned 32-bit integer. To switch
+backends, replace `modbus_connection.tmodbus` with
+`modbus_connection.pymodbus`. Nothing else changes.
 
-Every operation raises a subclass of `ModbusError` on failure, so a minimal
-robust read is:
+Every operation raises a subclass of `ModbusError` on failure. A minimal robust
+read looks like this:
 
 ```python
 from modbus_connection import ModbusError
@@ -52,6 +53,11 @@ From here:
   — ownership, lifecycle, transports, and request spacing.
 - [Modbus operations](/modbus-connection/connection/operations/) — the full
   operation surface and decoding.
-- [Device modelling](/modbus-connection/modelling/overview/) — for a device
-  with more than a handful of values, map registers to typed attributes
-  instead of decoding by hand.
+- [Device modelling](/modbus-connection/modelling/overview/) — map registers to
+  typed attributes instead of decoding by hand. Use this for any device with
+  more than a handful of values.
+- [Building a library](/modbus-connection/patterns/library/) — writing a device
+  library for others to use? This is the pattern to build it around, with a
+  [query helper](/modbus-connection/patterns/query-helper/) to check a real
+  device and a [mock backend](/modbus-connection/patterns/testing/) to test
+  without one.

@@ -3,10 +3,10 @@ title: Query helper
 description: Build a standalone CLI that reads a real device once and prints every value, using the modbus_connection.cli_helper building blocks.
 ---
 
-A **query helper** is a small standalone script that connects to a real device,
-reads it once, and dumps every value to the terminal. It's the single most useful
-tool when bringing up a new device library — you can check a physical controller
-without any application around it:
+A **query helper** is a small standalone script. It connects to a real device,
+reads it once, and prints every value to the terminal. It is the single most
+useful tool when bringing up a new device library: you can check a physical
+controller without any application around it.
 
 ```text
 $ python query.py 192.168.1.50 --unit 246 --framer rtu
@@ -20,13 +20,14 @@ Sensors
 6 Modbus reads
 ```
 
-The read count is the payoff of [pooled planning](/modbus-connection/modelling/reading/#reads-are-pooled-into-blocks)
-— dozens of fields read in a handful of Modbus round-trips.
+The read count shows
+[pooled planning](/modbus-connection/modelling/reading/#reads-are-pooled-into-blocks)
+at work: dozens of fields read in a handful of Modbus round-trips.
 
-You don't have to hand-roll the plumbing. The library ships the building blocks in
-**`modbus_connection.cli_helper`**, so a query script imports the pieces it needs
-instead of re-implementing argument parsing, connection setup, read counting and
-value printing every time:
+You don't have to hand-roll the plumbing. The library ships the building blocks
+in **`modbus_connection.cli_helper`**. A query script imports the pieces it
+needs instead of re-implementing argument parsing, connection setup, read
+counting and value printing every time:
 
 | Building block | What it does |
 | --- | --- |
@@ -42,7 +43,7 @@ counting, and printing work without one.
 
 ## A complete query script
 
-That's the whole thing — parse, connect, wrap, read, print:
+The whole script is: parse, connect, wrap, read, print.
 
 ```python
 import argparse
@@ -88,8 +89,7 @@ async def main() -> int:
 raise SystemExit(asyncio.run(main()))
 ```
 
-Run it against a device — `add_connection_args` gives you a full connection CLI
-for free:
+Run it against a device. `add_connection_args` provides a full connection CLI:
 
 ```bash
 python query.py 192.168.1.50 --unit 246 --framer rtu
@@ -122,29 +122,30 @@ proxy also accepts `esphome://<host>/<instance>`.
 ### `add_connection_args`
 
 Adds the connection-specifying arguments in their own **"Modbus connection"**
-group (plus serial and TLS groups when those transports are offered), so they read
+group, plus serial and TLS groups when those transports are offered. They read
 as a block in `--help` and stay clear of your CLI's own options — like the
 `--unit` you add yourself.
 
 By default it offers every transport and framing. Pass `connections=` the
-`(transport, framer)` pairs your device actually supports, **most-used first** —
-`--transport` defaults to the first — and the CLI narrows to match: a device that
-only speaks RTU-over-TCP needs no serial, TLS, `--transport` or `--framer`
-clutter:
+`(transport, framer)` pairs your device actually supports, **most-used first**.
+`--transport` defaults to the first pair, and the CLI narrows to match. A
+device that only speaks RTU-over-TCP then needs no serial, TLS, `--transport`
+or `--framer` options:
 
 ```python
 # Only RTU-over-TCP: no --transport flag, --framer fixed to rtu, no serial/TLS args.
 add_connection_args(parser, connections=(("tcp", "rtu"),))
 ```
 
-A `None` framer means the backend default (and is required for TLS). The parser it
-produces is read back by `connect_from_args`, so the two always stay in step.
+A `None` framer means the backend default (and is required for TLS).
+`connect_from_args` reads the parser this produces, so the two always stay in
+step.
 
 ### `connect_from_args`
 
-Opens the connection the parsed arguments describe. Backends are resolved lazily,
-so importing the module needs no backend. Pass `message_spacing=` for a device
-that needs a gap between frames:
+Opens the connection the parsed arguments describe. Backends are resolved
+lazily, so importing the module needs no backend. Pass `message_spacing=` for a
+device that needs a gap between frames:
 
 ```python
 conn = await connect_from_args(args, message_spacing=0.1)
@@ -157,12 +158,12 @@ link can't be opened.
 ### `CountingUnit`
 
 Wrap `connection.for_unit(id)` in a `CountingUnit` before handing it to a
-component. Its `reads` attribute then tallies every block read the update issued —
-a quick sanity check that your
+component. Its `reads` attribute then tallies every block read the update
+issued. That is a quick sanity check that your
 [readable ranges](/modbus-connection/modelling/reading/#readable-address-ranges)
-and `max_gap` are collapsing fields into as few Modbus round-trips as the plan
+and `max_gap` collapse fields into as few Modbus round-trips as the plan
 allows. It implements `ModbusUnit` in full, so it drops in wherever one is
-expected with **no cast**:
+expected, with no cast:
 
 ```python
 counting = CountingUnit(conn.for_unit(args.unit))
@@ -173,26 +174,27 @@ print(counting.reads)  # e.g. 6
 
 ### `print_component`, `field_rows` and `group_rows`
 
-`print_component` walks a component's public attributes by reflection and prints
-each modelled field — register/coil/discrete fields and computed `@property`
-values — under a heading, values aligned, with each field's `unit` appended. A new
-field shows up with no change to the script:
+`print_component` walks a component's public attributes by reflection and
+prints each modelled field — register/coil/discrete fields and computed
+`@property` values — under a heading, values aligned, with each field's `unit`
+appended. A new field shows up with no change to the script:
 
 ```python
 print_component(device.sensors, title="Sensors")
 ```
 
 An `IntEnum` field prints as its member name, lowercased (`running`). A
-[`flags()`](/modbus-connection/modelling/fields/#enum-and-flag-fields) field prints
-the names of the bits it has set, joined by `|` (`over_temperature|sensor_fault`),
-or `none` when nothing is set. Because an `IntFlag` keeps bits its type does not
-name, any leftover is appended as hex (`low_flow|0x80`) rather than dropped — a
-status or fault word should not hide a set bit.
+[`flags()`](/modbus-connection/modelling/fields/#enum-and-flag-fields) field
+prints the names of the bits it has set, joined by `|`
+(`over_temperature|sensor_fault`), or `none` when nothing is set. An `IntFlag`
+keeps bits its type does not name, so any leftover is appended as hex
+(`low_flow|0x80`) rather than dropped — a status or fault word should not hide
+a set bit.
 
 If you model your device as a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/), loop over its
 components and `print_component` each one. To format the output yourself (JSON,
 a table, grouping by section), `field_rows(component)` returns the
 `(name, value)` rows and `group_rows(component)` the `(name, instances)` pairs
-for its repeating groups — recurse into the instances with `field_rows` and you
+for its repeating groups. Recurse into the instances with `field_rows` and
 take it from there.
