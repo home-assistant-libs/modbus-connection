@@ -81,19 +81,6 @@ lists every field and default. `timeout`, `message_spacing` and `connect_delay`
 belong to the connection rather than the parameters. Pass them to
 `ModbusConnection` itself.
 
-### Sharing one connection per device
-
-The dataclasses are frozen and hashable, so a params object can serve as the
-identity key for a pool of shared connections. Consumers may describe the same
-device with *different* link settings. In that case, key on
-[`params.endpoint`](/modbus-connection/connection/reference/#endpoint) instead.
-The endpoint identifies only the physical target: `host` and `port`, or the
-serial `device` path. Two configs for `/dev/ttyUSB0` at different baud rates map
-to the same key. So do two configs for the same host and port with different
-framing. Equal endpoints with unequal params mean conflicting settings for one
-device. A pool should reject that combination rather than open a second
-competing link.
-
 ### TLS
 
 `ModbusTlsParams` verifies the server certificate against the system trust
