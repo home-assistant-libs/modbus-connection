@@ -8,14 +8,26 @@ integration**. The split it enforces — a connection owned at the top, stateles
 units handed down, typed components over them — lines up with how Home
 Assistant wants a device integration structured.
 
-:::caution[Shared connections are coming]
-Home Assistant is building a system that lets integrations **share one Modbus
-connection** rather than each opening its own. It is not finished, so this page
-does not show it: in the example below, your integration owns its connection.
-The structure is chosen so that migrating is straightforward. The device
-library only ever sees a `ModbusUnit`, and the connection is built in one place
-(`async_setup_entry`) from values your config flow collected. When sharing
-lands, that one place changes; the library, coordinator and entities do not.
+:::tip[Ask Home Assistant for the unit]
+Home Assistant's `modbus` integration hands out units over connections it
+**shares between integrations**, so two integrations on one device serialize
+behind a single connection rather than competing for the bus. Ask it for a unit
+instead of building the connection yourself:
+
+```python
+from homeassistant.components.modbus import async_get_unit
+
+unit = async_get_unit(hass, entry, ModbusTcpParams(host=host, port=port), unit_id)
+```
+
+Your config flow still collects the connection details; only the one place that
+turned them into a connection changes. The library, coordinator and entities do
+not. See the
+[official guide](https://developers.home-assistant.io/docs/modbus/introduction)
+for what sharing means for a consumer.
+
+The example below builds its own connection, which is what a standalone script
+does and what an integration does until the shared version is available to it.
 :::
 
 :::note[Read the official guide first]
