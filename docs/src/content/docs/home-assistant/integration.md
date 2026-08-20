@@ -8,28 +8,6 @@ integration**. The split it enforces — a connection owned at the top, stateles
 units handed down, typed components over them — lines up with how Home
 Assistant wants a device integration structured.
 
-:::tip[Ask Home Assistant for the unit]
-Home Assistant's `modbus` integration hands out units over connections it
-**shares between integrations**, so two integrations on one device serialize
-behind a single connection rather than competing for the bus. Ask it for a unit
-instead of building the connection yourself:
-
-```python
-from homeassistant.components.modbus import async_get_unit
-
-unit = async_get_unit(hass, entry, ModbusTcpParams(host=host, port=port), unit_id)
-```
-
-Your config flow still collects the connection details; only the one place that
-turned them into a connection changes. The library, coordinator and entities do
-not. See the
-[official guide](https://developers.home-assistant.io/docs/modbus/introduction)
-for what sharing means for a consumer.
-
-The example below builds its own connection, which is what a standalone script
-does and what an integration does until the shared version is available to it.
-:::
-
 :::note[Read the official guide first]
 Home Assistant maintains a dedicated guide for Modbus-based integrations. Read
 it alongside this page. It covers the coordinator pattern, entity setup, and
@@ -127,17 +105,25 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
 
 ## Setting up the entry
 
-Build the connection from the entry data, hand a unit to the device library, and
-let the coordinator do the first read:
+A Modbus link addresses many units, and a device answers one request at a time,
+so two integrations that each open their own socket to one device compete for
+it. Home Assistant's `modbus` integration hands out units over connections it
+shares between integrations. Ask it for one from the entry data, hand that unit
+to the device library, and let the coordinator do the first read:
 
 ```python
-async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
-    connection = ModbusConnection(
-        ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT])
-    )
-    entry.async_on_unload(connection.close)
+from homeassistant.components.modbus import async_get_unit
 
-    device = MyDevice(connection.for_unit(entry.data[CONF_UNIT_ID]))
+
+async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
+    unit = async_get_unit(
+        hass,
+        entry,
+        ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT]),
+        entry.data[CONF_UNIT_ID],
+    )
+
+    device = MyDevice(unit)
     coordinator = MyCoordinator(hass, entry, device, device.async_update, SCAN_INTERVAL)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
@@ -146,20 +132,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
     return True
 ```
 
-There is nothing to connect explicitly: the coordinator's first read
-establishes the link. If the device is unreachable, that read fails, and
-`async_config_entry_first_refresh()` turns the failure into
-`ConfigEntryNotReady`. Home Assistant then retries setup for you.
+Your config flow still gathers the connection details; you pass them here rather
+than building the connection yourself. Two integrations that ask with equal
+details get units over one connection, so their requests serialize behind it.
 
-`entry.async_on_unload(connection.close)` is the whole teardown. It also runs
-when setup fails, so register it right after constructing the connection.
-`close()` is permanent: a reload builds a fresh connection rather than
-reviving the old one.
+There is no teardown to register. The connection belongs to `modbus`, which
+closes it when the last entry holding a unit on it unloads, so do not call
+`close()` on it: that would take the link away from whoever else is using it.
 
-:::tip[If your device needs a pause between frames]
-You own the connection, so set the gap on it directly with `message_spacing`. Use
-[per-unit spacing](/modbus-connection/connection/connections-and-units/#request-spacing)
-only when your link carries several units and just one of them needs pacing.
+There is nothing to connect explicitly either, and asking for a unit performs no
+I/O. The coordinator's first read establishes the link. If the device is
+unreachable, that read fails, and `async_config_entry_first_refresh()` turns the
+failure into `ConfigEntryNotReady`. Home Assistant then retries setup for you.
+
+### Outside Home Assistant
+
+A standalone script, or an integration on a Home Assistant too old to hand out
+units, builds the connection itself and owns its teardown:
+
+```python
+connection = ModbusConnection(ModbusTcpParams(host=host, port=port))
+entry.async_on_unload(connection.close)  # also runs when setup fails
+device = MyDevice(connection.for_unit(unit_id))
+```
+
+`close()` is permanent: a reload builds a fresh connection rather than reviving
+the old one.
+
+:::note[If your device needs a pause between frames]
+Set it on the unit with
+[`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing).
+The gap then applies to your device rather than to everything on a shared link,
+which is what you want when the link carries several units and only yours needs
+pacing. Where you build the connection yourself, `message_spacing` on the
+connection paces every unit on it.
 :::
 
 ## The coordinator
@@ -376,6 +382,11 @@ Nothing is rebuilt, and the entry still is not reloaded. Hand the coordinator
 the connection alongside the device for this — it is the only place an
 entity-facing layer needs it.
 
+This applies where you build the connection yourself. A unit handed to you by
+Home Assistant's `modbus` integration carries no connection to recycle, and
+should not: dropping a shared link takes it away from every other integration on
+that device, none of which asked for it.
+
 Count in one coordinator only — the one on the fastest interval. This prevents
 a second coordinator dropping the link under a poll already in flight.
 
@@ -464,8 +475,8 @@ wiring.
 - [ ] The config flow gathers the connection details and validates them by
       probing the device. It asks for the unit id only when the device's address
       can differ; a fixed address is a constant in the integration.
-- [ ] `async_setup_entry` constructs the `ModbusConnection` and registers
-      `connection.close` with `entry.async_on_unload`.
+- [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`, and
+      does not close the connection it is handed.
 - [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
       `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
