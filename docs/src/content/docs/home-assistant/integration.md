@@ -137,35 +137,18 @@ than building the connection yourself. Two integrations that ask with equal
 details get units over one connection, so their requests serialize behind it.
 
 There is no teardown to register. The connection belongs to `modbus`, which
-closes it when the last entry holding a unit on it unloads, so do not call
-`close()` on it: that would take the link away from whoever else is using it.
+closes it when the last entry holding a unit on it unloads.
 
-There is nothing to connect explicitly either, and asking for a unit performs no
-I/O. The coordinator's first read establishes the link. If the device is
-unreachable, that read fails, and `async_config_entry_first_refresh()` turns the
-failure into `ConfigEntryNotReady`. Home Assistant then retries setup for you.
-
-### Outside Home Assistant
-
-A standalone script, or an integration on a Home Assistant too old to hand out
-units, builds the connection itself and owns its teardown:
-
-```python
-connection = ModbusConnection(ModbusTcpParams(host=host, port=port))
-entry.async_on_unload(connection.close)  # also runs when setup fails
-device = MyDevice(connection.for_unit(unit_id))
-```
-
-`close()` is permanent: a reload builds a fresh connection rather than reviving
-the old one.
+The coordinator's first read establishes the link. If the device is unreachable,
+that read fails, and `async_config_entry_first_refresh()` turns the failure into
+`ConfigEntryNotReady`. Home Assistant then retries setup for you.
 
 :::note[If your device needs a pause between frames]
 Set it on the unit with
 [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing).
 The gap then applies to your device rather than to everything on a shared link,
 which is what you want when the link carries several units and only yours needs
-pacing. Where you build the connection yourself, `message_spacing` on the
-connection paces every unit on it.
+pacing.
 :::
 
 ## The coordinator
@@ -382,11 +365,6 @@ Nothing is rebuilt, and the entry still is not reloaded. Hand the coordinator
 the connection alongside the device for this — it is the only place an
 entity-facing layer needs it.
 
-This applies where you build the connection yourself. A unit handed to you by
-Home Assistant's `modbus` integration carries no connection to recycle, and
-should not: dropping a shared link takes it away from every other integration on
-that device, none of which asked for it.
-
 Count in one coordinator only — the one on the fastest interval. This prevents
 a second coordinator dropping the link under a poll already in flight.
 
@@ -475,8 +453,7 @@ wiring.
 - [ ] The config flow gathers the connection details and validates them by
       probing the device. It asks for the unit id only when the device's address
       can differ; a fixed address is a constant in the integration.
-- [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`, and
-      does not close the connection it is handed.
+- [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`.
 - [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
       `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
