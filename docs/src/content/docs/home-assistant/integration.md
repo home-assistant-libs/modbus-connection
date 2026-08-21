@@ -70,6 +70,10 @@ Also ask for the **unit id where the user can choose it**. A device with a
 fixed station address — common for a TCP-native device — keeps that address as
 a constant in the integration instead of asking for it.
 
+Ask only for what you cannot detect. Whether a device serves an optional
+sub-system is the library's job to settle, and it does that by
+[probing at setup](/modbus-connection/patterns/library/).
+
 Validate the input by actually talking to the device, and close the connection
 you opened for the check:
 
@@ -417,10 +421,13 @@ its components' maps into one, so diagnostics is a single call:
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
     coordinator = entry.runtime_data
+    registers = await coordinator.device.async_read_raw()
+    for address in range(SERIAL_REGISTER, SERIAL_REGISTER + SERIAL_WORDS):
+        registers["holding"].pop(address, None)
     return {
         "updated": coordinator.data.updated,
         "failed": {name: str(err) for name, err in coordinator.data.failed.items()},
-        "registers": await coordinator.device.async_read_raw(),
+        "registers": registers,
     }
 ```
 
@@ -449,13 +456,18 @@ wiring.
 - [ ] Device communication lives in a **separate PyPI library**, not the
       integration (a Core requirement).
 - [ ] Device library has no Home Assistant import and is tested against the mock.
+- [ ] The domain is named after the device, not after the transport:
+      `sofar`, not `sofar_modbus`.
 - [ ] The config flow gathers the connection details and validates them by
       probing the device. It asks for the unit id only when the device's address
-      can differ; a fixed address is a constant in the integration.
+      can differ; a fixed address is a constant in the integration. It asks
+      nothing the library settles by probing.
 - [ ] `async_setup_entry` constructs the `ModbusConnection` and registers
       `connection.close` with `entry.async_on_unload`.
 - [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
       `UpdateFailed`, and fails the update when no sub-system answered.
+- [ ] Every coordinator has run `async_config_entry_first_refresh()` before the
+      platforms are forwarded.
 - [ ] The entry is **not** reloaded when the connection drops — reconnection is
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
@@ -464,5 +476,6 @@ wiring.
 - [ ] `TOTAL` / `TOTAL_INCREASING` sensors stay available when the device is
       offline, and restore their last value with `RestoreSensor` across a
       restart, so long-term statistics keep their history.
-- [ ] Diagnostics download returns the raw register map via `async_read_raw()`.
+- [ ] Diagnostics download returns the raw register map via `async_read_raw()`,
+      with the registers holding personal information dropped.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).
