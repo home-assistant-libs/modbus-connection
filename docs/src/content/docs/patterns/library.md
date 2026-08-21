@@ -90,6 +90,8 @@ class MyDevice:
         """
         await self.controller.async_update()  # identity: read once, never polled
 
+        # Probing settles which sub-systems exist, so no consumer has to ask
+        # its user which options this unit was built with.
         self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
         self.hot_water = await _optional(HotWater(self._unit))
         self.circuits = ComponentGroup(
