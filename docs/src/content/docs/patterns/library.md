@@ -45,6 +45,11 @@ if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
 
+# A request is sent once and its failure surfaces; nothing underneath resends it.
+# Devices that drop the occasional reply need the resend, so the poll does it.
+_TIMEOUT_RETRIES = 3
+
+
 async def _optional[C: Component](component: C) -> C | None:
     """Read an optional sub-system; None if this device does not have it."""
     try:
@@ -104,13 +109,24 @@ class MyDevice:
             if getattr(self, n) is not None
         )
 
+    async def _async_read(self, name: str) -> None:
+        """Read one sub-system, resending while it times out."""
+        for attempt in range(_TIMEOUT_RETRIES + 1):
+            try:
+                await getattr(self, name).async_update(notify=False)
+            except ModbusTimeoutError:
+                if attempt == _TIMEOUT_RETRIES:
+                    raise
+            else:
+                return
+
     async def _async_poll(
         self, names: tuple[str, ...], report: UpdateReport
     ) -> UpdateReport:
         """Read each named sub-system on its own, adding what happened to *report*."""
         for name in names:
             try:
-                await getattr(self, name).async_update(notify=False)
+                await self._async_read(name)
             except ModbusConnectionError:
                 raise  # the link is down; the rest would only wait for timeouts
             except ModbusTimeoutError as err:
@@ -211,3 +227,9 @@ asyncio.run(main())
   to setup, so the polling path stays a fixed list of components to read.
 - **Split where the blocks divide.** Give the settings their own update method
   when they sit in blocks of their own.
+- **Resend a read that timed out.** A request is sent once, so a device that
+  drops the occasional reply goes unavailable unless the poll resends it. Retry
+  `ModbusTimeoutError` only: every other error is an answer, and repeating a
+  request the device rejected changes nothing. Budget for the cost — an
+  unreachable device holds the poll for the connection's `timeout` once per
+  attempt — and shorten `timeout` rather than give the resend up.
