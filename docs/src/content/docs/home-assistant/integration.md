@@ -477,5 +477,5 @@ wiring.
       offline, and restore their last value with `RestoreSensor` across a
       restart, so long-term statistics keep their history.
 - [ ] Diagnostics download returns the raw register map via `async_read_raw()`,
-      with the registers holding the serial dropped.
+      with the registers holding personal information dropped.
 - [ ] Read the [official Modbus integration guide](https://developers.home-assistant.io/docs/modbus/introduction).
