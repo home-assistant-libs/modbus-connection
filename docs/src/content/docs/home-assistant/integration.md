@@ -62,11 +62,6 @@ An integration built this way has three clear layers:
    hands a `ModbusUnit` to the library, and polls it from a
    `DataUpdateCoordinator`.
 
-Name the domain after the device, not after the transport: `sofar`, not
-`sofar_modbus`. Modbus is how the integration reaches the device. It is not
-what the integration is. If the brand later gains a cloud API, that
-integration takes its own domain.
-
 ## The config flow
 
 Collect the transport details for the params object your integration builds:
@@ -77,8 +72,7 @@ a constant in the integration instead of asking for it.
 
 Ask only for what you cannot detect. Whether a device serves an optional
 sub-system is the library's job to settle, and it does that by
-[probing at setup](/modbus-connection/patterns/library/). A checkbox in the
-form asks the user something the device already answers.
+[probing at setup](/modbus-connection/patterns/library/).
 
 Validate the input by actually talking to the device, and close the connection
 you opened for the check:
@@ -159,25 +153,6 @@ You own the connection, so set the gap on it directly with `message_spacing`. Us
 [per-unit spacing](/modbus-connection/connection/connections-and-units/#request-spacing)
 only when your link carries several units and just one of them needs pacing.
 :::
-
-### One-time setup
-
-Work the integration must do once before its entities exist belongs in the
-coordinator's `_async_setup()`. An identity read and a capability probe are the
-usual cases. `async_config_entry_first_refresh()` runs `_async_setup()` for
-you, and a failure there raises `ConfigEntryNotReady`, so Home Assistant
-retries the whole setup. Keep device I/O out of `async_setup_entry`.
-
-Catch `ModbusError` there and raise `UpdateFailed`, the same as in the poll.
-Home Assistant maps only a few exception types to a quiet retry.
-`ModbusTimeoutError` is one, because it is also a builtin `TimeoutError`. Any
-other `ModbusError` reaches the generic handler, which logs a full traceback on
-every retry.
-
-A device built to the
-[device-object pattern](/modbus-connection/patterns/library/) usually needs no
-`_async_setup()` at all. It reads its identity and settles its optional
-sub-systems on its first update, which the first refresh already performs.
 
 ## The coordinator
 
@@ -350,13 +325,10 @@ readings = MyCoordinator(
 settings = MyCoordinator(
     hass, entry, device, device.async_update_settings, timedelta(minutes=5)
 )
-await readings.async_config_entry_first_refresh()
-await settings.async_config_entry_first_refresh()
 ```
 
-Refresh every coordinator before you forward the platforms. A coordinator that
-has not run holds no data, so its entities start without a value and only get
-one at the end of their own interval.
+Refresh every coordinator inside `async_setup_entry` before you forward the
+platforms.
 
 ## Reconnecting is automatic
 
@@ -447,14 +419,7 @@ integration reads, with its raw value. An issue report then shows exactly what
 the device returned. A `Component` exposes `async_read_raw()` for this. It runs
 the same reads as `async_update()`, but returns the raw words and bits keyed by
 absolute address, `{space: {address: value}}`, undecoded. Have the device merge
-its components' maps into one, so diagnostics is a single call.
-
-Redact the registers that identify the device first. A serial number sits in a
-block of holding registers, and it is usually the config entry's unique id as
-well. Users attach diagnostics to public issue reports, so drop those addresses
-before the payload leaves the instance. Home Assistant's `async_redact_data()`
-works on dictionary keys, so it does not reach a value stored under a register
-address:
+its components' maps into one, so diagnostics is a single call:
 
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
@@ -494,7 +459,8 @@ wiring.
 - [ ] Device communication lives in a **separate PyPI library**, not the
       integration (a Core requirement).
 - [ ] Device library has no Home Assistant import and is tested against the mock.
-- [ ] The domain is named after the device, not after Modbus.
+- [ ] The domain is named after the device, not after the transport:
+      `sofar`, not `sofar_modbus`.
 - [ ] The config flow gathers the connection details and validates them by
       probing the device. It asks for the unit id only when the device's address
       can differ; a fixed address is a constant in the integration. It asks
