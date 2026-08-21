@@ -327,9 +327,6 @@ settings = MyCoordinator(
 )
 ```
 
-Refresh every coordinator inside `async_setup_entry` before you forward the
-platforms.
-
 ## Reconnecting is automatic
 
 The connection re-establishes itself. Every request connects first, so the poll
