@@ -117,6 +117,9 @@ The URL format is
 Add `noise_psk=` or `password=` for an authenticated device. A single unnamed
 proxy also accepts `esphome://<host>/<instance>`.
 
+Percent-encode the `noise_psk` or `password` value. A base64 key can contain
+`+`, and a URL reads `+` as a space. Write `+` as `%2B`.
+
 ## The building blocks
 
 ### `add_connection_args`
