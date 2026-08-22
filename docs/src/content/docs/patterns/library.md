@@ -73,12 +73,15 @@ class MyDevice:
         self.sensors = Sensors(unit)
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
         self.settings = Settings(unit)
+
         # Optional: filled in by the first update if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
+
         # One circuit's read already spans the other's, so they read as one.
         self.circuits: ComponentGroup | None = None
 
+        # class attributes of components that are updated together
         self._readings: tuple[str, ...] | None = None
         self._settings = ("settings",)
 
@@ -146,7 +149,7 @@ class MyDevice:
         return report
 
     async def async_update(self) -> UpdateReport:
-        """Refresh what the controller measures and what it was configured with."""
+        """Refresh all components."""
         if self._readings is None:
             await self._async_setup()
             assert self._readings is not None
