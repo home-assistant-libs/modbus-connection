@@ -67,9 +67,8 @@ sub-system is the library's job to settle, and it does that by
 Validate the input by actually talking to the device. Do not open a connection
 yourself: ask `modbus` for a temporary unit with `async_get_temporary_unit`.
 The flow has no config entry yet to tie a hold to, so the hold lasts for the
-context. A connection an entry already holds is shared and stays up; one
-opened for the probe is closed on exit. If an entry already uses the device
-over different link settings, entering the context raises `HomeAssistantError`.
+context. If an entry already uses the device over different link settings,
+entering the context raises `HomeAssistantError`.
 
 ```python
 from modbus_connection import ModbusError, ModbusTcpParams
