@@ -450,6 +450,16 @@ async def test_disconnect_drops_without_firing_callbacks(
     assert mock_modbus_connection.connected is True
 
 
+async def test_unit_disconnect_drops_the_link(
+    mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
+) -> None:
+    await mock_modbus_unit.read_holding_registers(0, 1)
+    assert mock_modbus_connection.connected is True
+
+    await mock_modbus_unit.disconnect()
+    assert mock_modbus_connection.connected is False
+
+
 async def test_a_dropped_link_stays_dead_once_closed(
     mock_modbus_connection: MockModbusConnection, mock_modbus_unit: MockModbusUnit
 ) -> None:

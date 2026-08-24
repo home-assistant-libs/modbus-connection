@@ -47,7 +47,8 @@ values = await unit.read_holding_registers(9, 2)
 
 The handle is stateless and cheap, so call `for_unit` whenever you need a unit.
 Give consumers a handle, not the owning connection. A consumer with a handle
-can talk to its own unit but cannot close the link out from under the owner.
+can talk to its own unit, and can `disconnect()` a wedged link, but cannot
+close the connection out from under the owner.
 
 ## Connection parameters
 

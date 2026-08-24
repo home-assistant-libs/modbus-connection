@@ -294,6 +294,20 @@ async def test_disconnect_recycles_the_link(
         await conn.close()
 
 
+async def test_unit_disconnect_recycles_the_link(
+    unit: tuple[str, ModbusUnit, ModbusConnection],
+) -> None:
+    # The unit passthrough, for holders of a handle but not the connection.
+    _, u, conn = unit
+    assert await u.read_holding_registers(0, 1) == [HOLDING[0]]
+
+    await u.disconnect()
+    assert conn.connected is False
+
+    assert await u.read_holding_registers(0, 1) == [HOLDING[0]]
+    assert conn.connected is True
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 async def test_disconnect_without_a_link_is_a_noop(
     modbus_server: tuple[str, int], backend: str
