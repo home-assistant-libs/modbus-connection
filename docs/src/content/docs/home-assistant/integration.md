@@ -371,9 +371,6 @@ async def _async_update_data(self) -> UpdateReport:
 ```
 
 The next poll establishes a fresh link over the same units and components.
-Nothing is rebuilt, and the entry still is not reloaded. Hand the coordinator
-the unit alongside the device for this — `disconnect()` on the unit recycles
-the shared connection, so you never need to hold the connection itself.
 
 Count in one coordinator only — the one on the fastest interval. This prevents
 a second coordinator dropping the link under a poll already in flight.
