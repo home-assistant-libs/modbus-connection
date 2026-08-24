@@ -64,23 +64,28 @@ Ask only for what you cannot detect. Whether a device serves an optional
 sub-system is the library's job to settle, and it does that by
 [probing at setup](/modbus-connection/patterns/library/).
 
-Validate the input by actually talking to the device, and close the connection
-you opened for the check:
+Validate the input by actually talking to the device. Do not open a connection
+yourself: ask `modbus` for a temporary unit with `async_get_temporary_unit`.
+The flow has no config entry yet to tie a hold to, so the hold lasts for the
+context. If an entry already uses the device over different link settings,
+entering the context raises `HomeAssistantError`.
 
 ```python
 from modbus_connection import ModbusError, ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
+
+from homeassistant.components.modbus import async_get_temporary_unit
 
 
-async def _async_probe(host: str, port: int, unit_id: int) -> tuple[str, str]:
+async def _async_probe(
+    hass: HomeAssistant, host: str, port: int, unit_id: int
+) -> tuple[str, str]:
     """Return the device's serial and model, or raise ModbusError if unreachable."""
-    connection = ModbusConnection(ModbusTcpParams(host=host, port=port))
-    try:
-        device = MyDevice(connection.for_unit(unit_id))
+    async with async_get_temporary_unit(
+        hass, ModbusTcpParams(host=host, port=port), unit_id
+    ) as unit:
+        device = MyDevice(unit)
         await device.async_update()
         return device.controller.serial_number, device.controller.model
-    finally:
-        await connection.close()
 
 
 class MyConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -91,6 +96,7 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 serial, model = await _async_probe(
+                    self.hass,
                     user_input[CONF_HOST],
                     user_input[CONF_PORT],
                     user_input[CONF_UNIT_ID],
@@ -460,9 +466,10 @@ wiring.
 - [ ] The domain is named after the device, not after the transport:
       `sofar`, not `sofar_modbus`.
 - [ ] The config flow gathers the connection details and validates them by
-      probing the device. It asks for the unit id only when the device's address
-      can differ; a fixed address is a constant in the integration. It asks
-      nothing the library settles by probing.
+      probing the device over a unit from `async_get_temporary_unit`. It asks
+      for the unit id only when the device's address can differ; a fixed
+      address is a constant in the integration. It asks nothing the library
+      settles by probing.
 - [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`.
 - [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
       `UpdateFailed`, and fails the update when no sub-system answered.
