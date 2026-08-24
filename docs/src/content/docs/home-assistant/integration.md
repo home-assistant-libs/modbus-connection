@@ -362,7 +362,7 @@ async def _async_update_data(self) -> UpdateReport:
     except ModbusTimeoutError as err:
         self._timeouts += 1
         if self._timeouts >= 3:  # a stuck link, not a slow reply
-            await self.connection.disconnect()
+            await self.unit.disconnect()
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
         raise UpdateFailed(str(err)) from err
@@ -371,9 +371,6 @@ async def _async_update_data(self) -> UpdateReport:
 ```
 
 The next poll establishes a fresh link over the same units and components.
-Nothing is rebuilt, and the entry still is not reloaded. Hand the coordinator
-the connection alongside the device for this — it is the only place an
-entity-facing layer needs it.
 
 Count in one coordinator only — the one on the fastest interval. This prevents
 a second coordinator dropping the link under a poll already in flight.

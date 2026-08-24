@@ -220,6 +220,12 @@ See [Request spacing](/modbus-connection/connection/connections-and-units/#reque
 Register a callback fired when the connection's link drops; returns an
 unsubscribe callable. Equivalent to registering on the owning connection.
 
+#### `disconnect()`
+
+`async` — drop the owning connection's link; the next request establishes a
+new one. Equivalent to [`disconnect()`](#disconnect) on the owning connection,
+for holders of a unit that do not hold the connection itself.
+
 ## Encoding and decoding functions
 
 Converters between register words and Python values. The

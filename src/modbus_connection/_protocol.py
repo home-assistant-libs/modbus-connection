@@ -52,3 +52,6 @@ class ModbusUnit(Protocol):
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
+
+    async def disconnect(self) -> None:
+        """Drop the underlying link; the next request establishes a new one."""

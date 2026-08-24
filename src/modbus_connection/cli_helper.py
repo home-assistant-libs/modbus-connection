@@ -344,6 +344,9 @@ class CountingUnit:
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._unit.on_connection_lost(callback)
 
+    async def disconnect(self) -> None:
+        await self._unit.disconnect()
+
 
 # -- field reflection --------------------------------------------------------
 

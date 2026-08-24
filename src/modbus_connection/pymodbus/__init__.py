@@ -429,6 +429,9 @@ class PymodbusUnit:
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
 
+    async def disconnect(self) -> None:
+        await self._conn.disconnect()
+
 
 async def connect_tcp(
     host: str,
