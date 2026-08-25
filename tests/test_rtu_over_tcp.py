@@ -80,15 +80,24 @@ def _crc(frame: bytes) -> bytes:
 async def _vendor_device(
     reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ) -> None:
-    """Answer one diagnostics request with 0xBEEF."""
-    await reader.readexactly(8)  # unit + function + sub-function + data + CRC
-    body = (
-        bytes([UNIT_ID, 0x08])
-        + _VENDOR_SUB_FUNCTION.to_bytes(2, "big")
-        + (0xBEEF).to_bytes(2, "big")
-    )
-    writer.write(body + _crc(body))
-    await writer.drain()
+    """Answer one diagnostics request with 0xBEEF, then hang up.
+
+    ``serve_stream`` aborts the connections whose handler is still running, so
+    a handler that returns has to close its own: an open connection nothing is
+    tracking blocks ``wait_closed()`` on Python 3.12 until the job times out.
+    """
+    try:
+        await reader.readexactly(8)  # unit + function + sub-function + data + CRC
+        body = (
+            bytes([UNIT_ID, 0x08])
+            + _VENDOR_SUB_FUNCTION.to_bytes(2, "big")
+            + (0xBEEF).to_bytes(2, "big")
+        )
+        writer.write(body + _crc(body))
+        await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 async def test_tmodbus_rtu_over_tcp_vendor_sub_function(free_port: int) -> None:
