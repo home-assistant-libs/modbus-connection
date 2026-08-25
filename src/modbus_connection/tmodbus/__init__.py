@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import ssl
+import struct
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Concatenate
 
@@ -18,6 +19,7 @@ from tmodbus import (
     create_async_tcp_client,
     create_async_udp_client,
 )
+from tmodbus.const import FunctionCode
 from tmodbus.exceptions import (
     FunctionCodeError,
     HeaderMismatchError,
@@ -28,6 +30,7 @@ from tmodbus.exceptions import (
 from tmodbus.exceptions import (
     ModbusConnectionError as TModbusConnectionError,
 )
+from tmodbus.pdu import BaseSubFunctionClientPDU
 
 from .._client import (
     BaseModbusConnection,
@@ -74,6 +77,57 @@ _RESPONSE_RETRIES = AsyncRetrying(
     wait=wait_exponential(min=0.1, max=10),
     reraise=True,
 )
+
+
+class _DiagnosticsPDU(BaseSubFunctionClientPDU[int]):
+    """Diagnostics (FC 0x08) carrying one sub-function and one data word.
+
+    tmodbus ships a typed PDU per sub-function it knows, but ``diagnostics()``
+    passes any sub-function through, so this one takes the code from the
+    caller. Framing reads ``sub_function_code`` off the class, which is why
+    ``_diagnostics_pdu`` makes a subclass per code rather than setting it on
+    the instance.
+    """
+
+    function_code = FunctionCode.DIAGNOSTICS
+    sub_function_code_length = 2
+    rtu_response_data_length = 4
+
+    def __init__(self, data: int) -> None:
+        self._data = data
+
+    def encode_request(self) -> bytes:
+        return struct.pack(
+            ">BHH", self.function_code, self.sub_function_code, self._data
+        )
+
+    def decode_response(self, response: bytes) -> int:
+        if len(response) != 5:
+            raise InvalidResponseError(
+                f"expected a 5-byte response, got {len(response)} bytes",
+                response_bytes=response,
+            )
+        function_code, sub_function_code, value = struct.unpack(">BHH", response)
+        if (
+            function_code != self.function_code
+            or sub_function_code != self.sub_function_code
+        ):
+            raise FunctionCodeError(
+                f"expected {self.function_code:#04x}/{self.sub_function_code:#06x}, "
+                f"got {function_code:#04x}/{sub_function_code:#06x}",
+                response_bytes=response,
+            )
+        return int(value)
+
+
+def _diagnostics_pdu(sub_function: int, data: int) -> _DiagnosticsPDU:
+    """A diagnostics PDU bound to ``sub_function``."""
+    pdu_class = type(
+        f"_Diagnostics{sub_function:#06x}PDU",
+        (_DiagnosticsPDU,),
+        {"sub_function_code": sub_function},
+    )
+    return pdu_class(data)
 
 
 class ModbusConnection(BaseModbusConnection):
@@ -366,18 +420,19 @@ class TmodbusUnit:
         payload = b"".join(int(value).to_bytes(2, "big") for value in values)
         await self._client.write_file_record(file, record, payload)
 
+    @_map_errors
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:  # 0x08
-        raise NotImplementedError("tmodbus does not implement diagnostics (FC 0x08)")
+        return await self._client.execute(_diagnostics_pdu(sub_function, data))
 
+    @_map_errors
     async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
-        raise NotImplementedError(
-            "tmodbus does not implement get-comm-event-counter (FC 0x0B)"
-        )
+        response = await self._client.get_comm_event_counter()
+        return int(response.status), int(response.event_count)
 
+    @_map_errors
     async def get_comm_event_log(self) -> bytes:  # 0x0C
-        raise NotImplementedError(
-            "tmodbus does not implement get-comm-event-log (FC 0x0C)"
-        )
+        response = await self._client.get_comm_event_log()
+        return bytes(response.events)
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)

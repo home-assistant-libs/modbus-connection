@@ -10,6 +10,7 @@ import pytest
 from modbus_connection import (
     ClientClosedError,
     IllegalDataAddressError,
+    IllegalFunctionError,
     ModbusConnection,
     ModbusTcpParams,
     ModbusUnit,
@@ -19,7 +20,17 @@ from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import TmodbusConnection
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
-from .conftest import COILS, DEVICE_ID, DISCRETE, HOLDING, INPUT, UNIT_ID, drop_link
+from .conftest import (
+    BUS_MESSAGE_COUNT,
+    COILS,
+    COMM_EVENT_LOG,
+    DEVICE_ID,
+    DISCRETE,
+    HOLDING,
+    INPUT,
+    UNIT_ID,
+    drop_link,
+)
 
 BACKENDS = ["pymodbus", "tmodbus"]
 
@@ -101,6 +112,38 @@ async def test_write_coils_roundtrip(unit: tuple[str, ModbusUnit, Any]) -> None:
 async def test_read_device_identification(unit: tuple[str, ModbusUnit, Any]) -> None:
     _, u, _ = unit
     assert await u.read_device_identification() == DEVICE_ID
+
+
+# -- diagnostics and comm-event counters (FC08/FC0B/FC0C) ---------------------
+
+
+async def test_diagnostics_loops_back_query_data(
+    unit: tuple[str, ModbusUnit, Any],
+) -> None:
+    _, u, _ = unit
+    assert await u.diagnostics(0x0000, 0x1234) == 0x1234
+
+
+async def test_diagnostics_reads_a_counter(unit: tuple[str, ModbusUnit, Any]) -> None:
+    _, u, _ = unit
+    assert await u.diagnostics(0x000B) == BUS_MESSAGE_COUNT
+
+
+async def test_get_comm_event_counter(unit: tuple[str, ModbusUnit, Any]) -> None:
+    _, u, _ = unit
+    assert await u.get_comm_event_counter() == (0, len(COMM_EVENT_LOG))
+
+
+async def test_get_comm_event_log(unit: tuple[str, ModbusUnit, Any]) -> None:
+    _, u, _ = unit
+    assert await u.get_comm_event_log() == COMM_EVENT_LOG
+
+
+async def test_diagnostics_refused_raises(unit: tuple[str, ModbusUnit, Any]) -> None:
+    """The server answers sub-function 0x02 with exception code 1."""
+    _, u, _ = unit
+    with pytest.raises(IllegalFunctionError):
+        await u.diagnostics(0x0002)
 
 
 # -- error semantics ----------------------------------------------------------

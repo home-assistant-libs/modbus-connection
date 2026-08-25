@@ -41,6 +41,10 @@ DISCRETE: dict[int, bool] = {0: False, 1: True, 2: True}
 # (0 VendorName, 1 ProductCode, 2 MajorMinorRevision).
 DEVICE_ID: dict[int, bytes] = {0: b"Acme", 1: b"PC-1", 2: b"1.2"}
 
+# Diagnostics (FC08 sub-function 0x0B) and comm-event (FC0B/FC0C) contents.
+BUS_MESSAGE_COUNT = 42
+COMM_EVENT_LOG = b"\x20\x00\x40"
+
 
 def full_store() -> Datastore:
     return Datastore(
@@ -49,6 +53,8 @@ def full_store() -> Datastore:
         coils=dict(COILS),
         discrete_inputs=dict(DISCRETE),
         device_id=dict(DEVICE_ID),
+        bus_message_count=BUS_MESSAGE_COUNT,
+        comm_event_log=COMM_EVENT_LOG,
     )
 
 
