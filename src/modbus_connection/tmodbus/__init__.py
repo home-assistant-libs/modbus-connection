@@ -87,6 +87,12 @@ class _DiagnosticsPDU(BaseSubFunctionClientPDU[int]):
     caller. Framing reads ``sub_function_code`` off the class, which is why
     ``_diagnostics_pdu`` makes a subclass per code rather than setting it on
     the instance.
+
+    tmodbus pairs a custom PDU with ``register_pdu_class``. We leave this one
+    unregistered: that registry is global and keyed by sub-function code, so
+    registering would replace tmodbus's own PDUs for the codes it defines. A
+    code it does not define falls back to the pending request's class, which
+    is this one.
     """
 
     function_code = FunctionCode.DIAGNOSTICS
