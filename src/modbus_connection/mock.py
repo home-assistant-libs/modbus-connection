@@ -353,10 +353,10 @@ class MockModbusUnit:
         await self._ensure_connected()
         return int(self._canned("diagnostics"))
 
-    async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
+    async def get_comm_event_counter(self) -> tuple[bool, int]:  # 0x0B
         await self._ensure_connected()
         status, count = self._canned("get_comm_event_counter")
-        return int(status), int(count)
+        return bool(status), int(count)
 
     async def get_comm_event_log(self) -> bytes:  # 0x0C
         await self._ensure_connected()

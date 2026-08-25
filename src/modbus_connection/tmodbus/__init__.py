@@ -432,9 +432,10 @@ class TmodbusUnit:
         return await self._client.execute(_diagnostics_pdu(sub_function, data))
 
     @_map_errors
-    async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
+    async def get_comm_event_counter(self) -> tuple[bool, int]:  # 0x0B
         response = await self._client.get_comm_event_counter()
-        return int(response.status), int(response.event_count)
+        # tmodbus reports the raw status word: 0x0000 ready, 0xFFFF busy.
+        return response.status == 0x0000, int(response.event_count)
 
     @_map_errors
     async def get_comm_event_log(self) -> bytes:  # 0x0C

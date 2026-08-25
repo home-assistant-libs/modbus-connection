@@ -332,7 +332,7 @@ class CountingUnit:
     async def diagnostics(self, sub_function: int, data: int = 0) -> int:
         return await self._unit.diagnostics(sub_function, data)
 
-    async def get_comm_event_counter(self) -> tuple[int, int]:
+    async def get_comm_event_counter(self) -> tuple[bool, int]:
         return await self._unit.get_comm_event_counter()
 
     async def get_comm_event_log(self) -> bytes:

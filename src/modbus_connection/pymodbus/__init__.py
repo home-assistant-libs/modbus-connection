@@ -410,13 +410,12 @@ class PymodbusUnit:
         return int(message)
 
     @_map_errors
-    async def get_comm_event_counter(self) -> tuple[int, int]:  # 0x0B
+    async def get_comm_event_counter(self) -> tuple[bool, int]:  # 0x0B
         response = _check(
             await self._client.diag_get_comm_event_counter(device_id=self._unit_id)
         )
-        # pymodbus decodes the status word to "ready"; report the word itself,
-        # the way the spec and the tmodbus backend do.
-        return (0x0000 if response.status else 0xFFFF), int(response.count)
+        # pymodbus already decodes the status word to "ready".
+        return bool(response.status), int(response.count)
 
     @_map_errors
     async def get_comm_event_log(self) -> bytes:  # 0x0C
