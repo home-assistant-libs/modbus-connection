@@ -27,10 +27,25 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      # Report every version's result, so one failure does not mask the others.
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --extra pymodbus --extra tmodbus
+      - name: Verify the interpreter is the one this job is for
+        # Without the assert, a version uv declines to select leaves the job
+        # testing whatever it picked instead, and the matrix silently covers
+        # one version three times.
+        run: >
+          uv run python -c "import sys;
+          v='.'.join(map(str, sys.version_info[:2]));
+          assert v == '${{ matrix.python-version }}', v"
       - name: Run tests
         run: uv run pytest
