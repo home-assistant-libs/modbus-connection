@@ -10,7 +10,6 @@ import modbus_connection.pymodbus as pymodbus_backend
 import modbus_connection.tmodbus as tmodbus_backend
 from modbus_connection import ModbusTcpParams
 
-from .conftest import BUS_MESSAGE_COUNT
 from .modbus_server import holding_store, serve_rtu_over_tcp
 
 UNIT_ID = 246
@@ -21,10 +20,8 @@ async def rtu_server(free_port: int) -> AsyncIterator[tuple[str, int]]:
     """A server that frames RTU-over-TCP, like a serial-to-Ethernet gateway."""
     values = [0] * 10
     values[0] = 5579  # protocol holding addr 0 -> register 0
-    store = holding_store(values)
-    store.bus_message_count = BUS_MESSAGE_COUNT
     host, port = "127.0.0.1", free_port
-    async with serve_rtu_over_tcp(store, host, port):
+    async with serve_rtu_over_tcp(holding_store(values), host, port):
         yield host, port
 
 
@@ -57,6 +54,6 @@ async def test_tmodbus_rtu_over_tcp_diagnostics(rtu_server: tuple[str, int]) -> 
         ModbusTcpParams(host=host, port=port, framer="rtu")
     )
     try:
-        assert await conn.for_unit(UNIT_ID).diagnostics(0x000B) == BUS_MESSAGE_COUNT
+        assert await conn.for_unit(UNIT_ID).diagnostics(0x0000, 0x1234) == 0x1234
     finally:
         await conn.close()

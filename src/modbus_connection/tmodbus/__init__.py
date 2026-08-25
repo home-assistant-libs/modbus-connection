@@ -91,6 +91,7 @@ class _DiagnosticsPDU(BaseSubFunctionClientPDU[int]):
 
     function_code = FunctionCode.DIAGNOSTICS
     sub_function_code_length = 2
+    rtu_request_data_length = 4  # sub-function (2) + data (2)
     rtu_response_data_length = 4
 
     def __init__(self, data: int) -> None:
