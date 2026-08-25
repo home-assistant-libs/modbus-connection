@@ -44,7 +44,7 @@ class ModbusUnit(Protocol):
         self, file: int, record: int, values: list[int]
     ) -> None: ...  # 0x15
     async def diagnostics(self, sub_function: int, data: int = 0) -> int: ...  # 0x08
-    async def get_comm_event_counter(self) -> tuple[int, int]: ...  # 0x0B
+    async def get_comm_event_counter(self) -> tuple[bool, int]: ...  # 0x0B
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
     def set_message_spacing(self, seconds: float) -> None:

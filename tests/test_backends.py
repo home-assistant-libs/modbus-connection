@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from tmodbus.pdu import CommEventCounterResponse, GetCommEventCounterPDU
+from tmodbus.server import ModbusRequestRouter
 
 from modbus_connection import (
     ClientClosedError,
@@ -31,6 +33,7 @@ from .conftest import (
     UNIT_ID,
     drop_link,
 )
+from .modbus_server import serve_router
 
 BACKENDS = ["pymodbus", "tmodbus"]
 
@@ -131,7 +134,29 @@ async def test_diagnostics_reads_a_counter(unit: tuple[str, ModbusUnit, Any]) ->
 
 async def test_get_comm_event_counter(unit: tuple[str, ModbusUnit, Any]) -> None:
     _, u, _ = unit
-    assert await u.get_comm_event_counter() == (0, len(COMM_EVENT_LOG))
+    assert await u.get_comm_event_counter() == (True, len(COMM_EVENT_LOG))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+async def test_get_comm_event_counter_reports_a_busy_device(
+    backend: str, free_port: int
+) -> None:
+    """A status word of 0xFFFF means a program command is still running."""
+    router = ModbusRequestRouter()
+
+    @router.register(GetCommEventCounterPDU)
+    async def counter(
+        uid: int, request: GetCommEventCounterPDU
+    ) -> CommEventCounterResponse:
+        return CommEventCounterResponse(status=0xFFFF, event_count=3)
+
+    host = "127.0.0.1"
+    async with serve_router(router, host, free_port):
+        conn = await _connect(backend, host, free_port)
+        try:
+            assert await conn.for_unit(UNIT_ID).get_comm_event_counter() == (False, 3)
+        finally:
+            await conn.close()
 
 
 async def test_get_comm_event_log(unit: tuple[str, ModbusUnit, Any]) -> None:

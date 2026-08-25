@@ -190,7 +190,7 @@ Every operation is `async`, connects on demand, and raises a subclass of
 | --- | --- | --- |
 | `read_exception_status()` | 7 (0x07) | `int` |
 | `diagnostics(sub_function, data=0)` | 8 (0x08) | `int` |
-| `get_comm_event_counter()` | 11 (0x0B) | `tuple[int, int]` — status word, event count |
+| `get_comm_event_counter()` | 11 (0x0B) | `tuple[bool, int]` — ready flag, event count |
 | `get_comm_event_log()` | 12 (0x0C) | `bytes` |
 | `report_server_id()` | 17 (0x11) | `bytes` |
 | `read_file_record(file, record, length)` | 20 (0x14) | `list[int]` |
@@ -201,9 +201,9 @@ Every operation is `async`, connects on demand, and raises a subclass of
 | `read_device_identification()` | 43 / 14 (0x2B / 0x0E) | `dict[int, bytes]` |
 
 `diagnostics()` sends any sub-function code with one data word, and returns the
-data word the device answers with. `get_comm_event_counter()` returns the
-device's status word and its event count. The status word is `0x0000` when the
-device is ready and `0xFFFF` while it is still processing a program function.
+data word the device answers with. `get_comm_event_counter()` returns whether
+the device is ready and its event count. The device is not ready while it is
+still processing a program function.
 
 ### Properties and non-I/O methods
 
