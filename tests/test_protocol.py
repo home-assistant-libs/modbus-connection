@@ -1,4 +1,4 @@
-"""Protocol conformance and backend-specific NotImplementedError behavior."""
+"""Protocol conformance: the backends and the mock satisfy the public types."""
 
 from __future__ import annotations
 
