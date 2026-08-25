@@ -27,9 +27,8 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Raises `ModbusDesyncError` for a reply to a different exchange | ✅ | ❌ |
 | Busy-device response | Retried, then raised | Raised immediately |
 
-Both backends implement every `ModbusUnit` operation. The full operation list,
-with each method's signature and function code, is in the
-[`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
+The full operation list, with each method's signature and function code, is in
+the [`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
 
 tmodbus can identify a corrupt frame and raises
 [`ModbusProtocolError`](/modbus-connection/connection/reference/#modbusprotocolerror)

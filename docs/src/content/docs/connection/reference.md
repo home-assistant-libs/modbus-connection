@@ -164,9 +164,7 @@ Obtain one from [`connection.for_unit(unit_id)`](#for_unitunit_id). The
 these methods satisfies it too.
 
 Every operation is `async`, connects on demand, and raises a subclass of
-[`ModbusError`](#modbuserror) on failure. Both backends implement every
-operation — see [Choosing a backend](/modbus-connection/getting-started/backends/)
-for the differences that remain.
+[`ModbusError`](#modbuserror) on failure.
 
 ### Register I/O
 
