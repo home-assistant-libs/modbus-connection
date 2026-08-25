@@ -26,7 +26,6 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Distinguishes a corrupt reply from no reply | ✅ | ❌ |
 | Raises `ModbusDesyncError` for a reply to a different exchange | ✅ | ❌ |
 | Busy-device response | Retried, then raised | Raised immediately |
-| Diagnostics (FC08) and comm-event codes (FC0B/FC0C) | ❌ | ✅ |
 
 The full operation list, with each method's signature and function code, is in
 the [`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
@@ -42,6 +41,4 @@ configures it. pymodbus has no equivalent layer, so it raises the busy response
 immediately. Neither backend retries timeouts, dropped links, or other
 exception responses.
 
-Constructing a connection with unsupported parameters raises `ValueError`. A
-`ModbusUnit` operation that the selected backend does not implement raises
-`NotImplementedError`.
+Constructing a connection with unsupported parameters raises `ValueError`.

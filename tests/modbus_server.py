@@ -13,10 +13,17 @@ import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
-from tmodbus.exceptions import IllegalDataAddressError
+from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
 from tmodbus.pdu import (
+    BaseDiagnosticsSubFunctionPDU,
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsBusMessageCountPDU,
+    DiagnosticsQueryDataPDU,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
     ReadDeviceIdentificationResponse,
@@ -63,6 +70,8 @@ class Datastore:
     discrete_inputs: dict[int, bool] = field(default_factory=dict)
     device_id: dict[int, bytes] = field(default_factory=dict)
     size: int = _SPACE_SIZE
+    bus_message_count: int = 0
+    comm_event_log: bytes = b""
 
     def check_range(self, function_code: int, address: int, count: int) -> None:
         if address < 0 or address + count > self.size:
@@ -128,10 +137,11 @@ def build_router(store: Datastore) -> ModbusRequestRouter:
 
     @router.register(WriteMultipleCoilsPDU)
     async def write_coils(uid: int, request: WriteMultipleCoilsPDU) -> int:
-        # WriteMultipleCoilsPDU names its start address ``address``.
-        store.check_range(request.function_code, request.address, len(request.values))
+        store.check_range(
+            request.function_code, request.start_address, len(request.values)
+        )
         for offset, value in enumerate(request.values):
-            store.coils[request.address + offset] = value
+            store.coils[request.start_address + offset] = value
         return len(request.values)
 
     @router.register(ReadDeviceIdentificationPDU)
@@ -146,6 +156,34 @@ def build_router(store: Datastore) -> ModbusRequestRouter:
             next_object_id=0,
             number_of_objects=len(store.device_id),
             objects=dict(store.device_id),
+        )
+
+    # The router keys handlers by function code alone, so one handler answers
+    # every diagnostics sub-function the server decodes.
+    @router.register(DiagnosticsQueryDataPDU)
+    async def diagnostics(uid: int, request: BaseDiagnosticsSubFunctionPDU[Any]) -> Any:
+        if isinstance(request, DiagnosticsQueryDataPDU):
+            # Sub-function 0x0000 loops the request data back unchanged.
+            return request.data
+        if isinstance(request, DiagnosticsBusMessageCountPDU):
+            return store.bus_message_count
+        raise IllegalFunctionError(request.function_code)
+
+    @router.register(GetCommEventCounterPDU)
+    async def get_comm_event_counter(
+        uid: int, request: GetCommEventCounterPDU
+    ) -> CommEventCounterResponse:
+        return CommEventCounterResponse(status=0, event_count=len(store.comm_event_log))
+
+    @router.register(GetCommEventLogPDU)
+    async def get_comm_event_log(
+        uid: int, request: GetCommEventLogPDU
+    ) -> CommEventLogResponse:
+        return CommEventLogResponse(
+            status=0,
+            event_count=len(store.comm_event_log),
+            message_count=store.bus_message_count,
+            events=store.comm_event_log,
         )
 
     return router
@@ -193,7 +231,7 @@ def serve_router(
     *,
     ssl_context: ssl.SSLContext | None = None,
 ) -> AbstractAsyncContextManager[None]:
-    server = AsyncTcpServer(host, router, port)
+    server = AsyncTcpServer(host, router, port=port)
     return serve_stream(server.handle_client, host, port, ssl_context=ssl_context)
 
 
@@ -212,7 +250,7 @@ def serve_rtu_over_tcp(
     store: Datastore, host: str, port: int
 ) -> AbstractAsyncContextManager[None]:
     """Serve ``store`` the way a serial-to-Ethernet gateway does."""
-    server = AsyncRtuOverTcpServer(host, build_router(store), port)
+    server = AsyncRtuOverTcpServer(host, build_router(store), port=port)
     return serve_stream(server.handle_client, host, port)
 
 
@@ -220,7 +258,7 @@ def serve_rtu_over_tcp(
 async def serve_udp(store: Datastore, host: str, port: int) -> AsyncIterator[None]:
     # UDP is connectionless, so nothing can linger and the server's own
     # start()/stop() are enough.
-    server = AsyncUdpServer(host, build_router(store), port)
+    server = AsyncUdpServer(host, build_router(store), port=port)
     await server.start()
     try:
         yield

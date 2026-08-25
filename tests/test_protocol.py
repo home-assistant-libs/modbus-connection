@@ -1,10 +1,6 @@
-"""Protocol conformance and backend-specific NotImplementedError behavior."""
+"""Protocol conformance: the backends and the mock satisfy the public types."""
 
 from __future__ import annotations
-
-from typing import Any
-
-import pytest
 
 from modbus_connection import ModbusConnection, ModbusUnit
 from modbus_connection.mock import MockModbusConnection
@@ -49,26 +45,6 @@ async def test_tmodbus_instances_satisfy_protocols(
     try:
         assert isinstance(conn, ModbusConnection)
         assert isinstance(conn.for_unit(UNIT_ID), ModbusUnit)
-    finally:
-        await conn.close()
-
-
-@pytest.mark.parametrize(
-    "method",
-    ["diagnostics", "get_comm_event_counter", "get_comm_event_log"],
-)
-async def test_tmodbus_unsupported_codes_raise(
-    modbus_server: tuple[str, int], method: str
-) -> None:
-    host, port = modbus_server
-    conn = await tmodbus_connect_tcp(host, port=port)
-    try:
-        unit: Any = conn.for_unit(UNIT_ID)
-        with pytest.raises(NotImplementedError):
-            if method == "diagnostics":
-                await unit.diagnostics(0, 0)
-            else:
-                await getattr(unit, method)()
     finally:
         await conn.close()
 
