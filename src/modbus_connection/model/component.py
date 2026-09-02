@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
@@ -16,6 +16,10 @@ from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
+
+#: Resolves a ``repeating_group``'s ``stride`` or ``offset`` from the component
+#: that owns the outermost block, once its fixed block has been read.
+type Placement = Callable[[Any], int]
 
 
 def _partition[F](
@@ -38,9 +42,10 @@ class Component(_ComponentBase):
     declared_fields: Mapping[
         str, RegisterField[Any] | CoilField | DiscreteInputField
     ] = MappingProxyType({})
-    # repeating_group fields, split by count kind: a fixed ``int`` count is static
-    # (its instances fold into the normal read like ordinary fields), a
-    # ``RegisterField`` count is read at poll time (the two-phase repeating path).
+    # repeating_group fields, split by when they can be placed: a static group
+    # (fixed ``int`` count, fixed stride and offset) folds into the normal read
+    # like ordinary fields; any other is placed at poll time (the two-phase
+    # repeating path).
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
     _repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
 
@@ -89,9 +94,7 @@ class Component(_ComponentBase):
                     bits[name] = value
                     declared[name] = value
                 elif isinstance(value, RepeatingGroupField):
-                    target = (
-                        static_groups if isinstance(value.count, int) else repeating
-                    )
+                    target = static_groups if value.is_static else repeating
                     target[name] = value
         cls._register_fields = registers
         cls._bit_fields = bits
@@ -366,13 +369,38 @@ class RepeatingGroupField[C: Component]:
         count: RegisterField[int] | RegisterField[float] | int,
         component_class: type[C],
         *,
-        stride: int,
+        stride: int | Placement,
+        offset: int | Placement = 0,
         count_in_block: bool = True,
     ) -> None:
         self.count = count
         self.component_class = component_class
         self.stride = stride
+        self.offset = offset
         self.count_in_block = count_in_block
+
+    @property
+    def is_static(self) -> bool:
+        """Whether the instances can be placed before the device is read."""
+        return (
+            isinstance(self.count, int)
+            and not callable(self.stride)
+            and not callable(self.offset)
+        )
+
+    def placement(self, root: Any) -> tuple[int, int]:
+        """Resolve ``(stride, offset)`` against the outermost component.
+
+        Raises ``ValueError`` if a resolved stride is not positive.
+        """
+        stride = self.stride(root) if callable(self.stride) else self.stride
+        offset = self.offset(root) if callable(self.offset) else self.offset
+        if stride <= 0:
+            raise ValueError(
+                f"repeating_group {self.name!r} stride resolved to {stride};"
+                " it must be > 0"
+            )
+        return stride, offset
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -397,7 +425,8 @@ def repeating_group[C: Component](
     count: RegisterField[int] | RegisterField[float] | int,
     component_class: type[C],
     *,
-    stride: int,
+    stride: int | Placement,
+    offset: int | Placement = 0,
     count_in_block: bool = True,
 ) -> RepeatingGroupField[C]:
     """Create a repeated subcomponent field.
@@ -412,6 +441,14 @@ def repeating_group[C: Component](
     the layout that owns the outermost block, as a SunSpec ``NPt`` point is:
     every instance then reads it at the same address.
 
+    ``stride`` and ``offset`` place the instances: instance *i* starts
+    ``offset + i * stride`` past the enclosing block. Either may be a callable
+    taking the component that owns the outermost block, for a block whose width
+    is only known once the device has been read (a SunSpec curve is
+    ``header + 2 * NPt`` wide). Such a group is placed in the second pass that
+    sizes register-read counts, even with a fixed ``int`` count. The callable is
+    not called while the count is 0.
+
     On readable ranges: a fixed-count group's instances are read from the
     parent's own plan, so their maps merge into it and must not describe the
     same addresses differently. Either let the parent's ``register_ranges``
@@ -421,12 +458,17 @@ def repeating_group[C: Component](
     whose own map has holes the parent cannot express. Declaring the same
     addresses in both raises ``ValueError``.
 
-    Raises ``ValueError`` for a non-positive stride or negative fixed count.
+    Raises ``ValueError`` for a non-positive stride or negative fixed count. A
+    callable stride is checked when it resolves instead.
     """
-    if stride <= 0:
+    if not callable(stride) and stride <= 0:
         raise ValueError(f"repeating_group stride must be > 0, got {stride}")
     if isinstance(count, int) and count < 0:
         raise ValueError(f"a fixed count must be >= 0, got {count}")
     return RepeatingGroupField(
-        count, component_class, stride=stride, count_in_block=count_in_block
+        count,
+        component_class,
+        stride=stride,
+        offset=offset,
+        count_in_block=count_in_block,
     )

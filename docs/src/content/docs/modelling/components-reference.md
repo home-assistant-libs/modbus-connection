@@ -57,10 +57,11 @@ nothing.
 
 #### `async_update_repeating_groups()`
 
-`async` — resize and update only the register-counted
-[`repeating_group`](/modbus-connection/modelling/fields-reference/#repeating_groupcount-component_class--stride-count_in_blocktrue)
-fields (their counts must already have been read). `async_update()` does this as
-its second pass; call it directly only to refresh the groups alone.
+`async` — resize, place and update only the poll-time
+[`repeating_group`](/modbus-connection/modelling/fields-reference/#repeating_groupcount-component_class--stride-offset0-count_in_blocktrue)
+fields: those counted by a register or placed by a callable (the values they
+depend on must already have been read). `async_update()` does this as its
+second pass; call it directly only to refresh the groups alone.
 
 #### `async_read_raw(*, notify=True)`
 

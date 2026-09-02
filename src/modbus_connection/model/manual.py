@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace
@@ -76,11 +76,14 @@ class ManualComponent(_ComponentBase):
         if isinstance(target, RepeatingGroupField):
             if space is not None:
                 raise ValueError("space does not apply to a repeating_group")
-            if isinstance(target.count, int):
+            if target.is_static:
                 self._static_groups[key] = target
-                self._groups[key] = self._build_instances(target, 0, target.count)
+                self._groups[key] = self._build_instances(
+                    target, 0, cast("int", target.count), target.placement(self)
+                )
             else:
-                target.count.name = key  # the decoded count lands in _counts[key]
+                if isinstance(target.count, RegisterField):
+                    target.count.name = key  # the decoded count lands in _counts[key]
                 self._repeating_fields[key] = target
         elif isinstance(target, (CoilField, DiscreteInputField)):
             if space is not None:
@@ -113,6 +116,7 @@ class ManualComponent(_ComponentBase):
         self._static_groups.pop(key, None)
         self._repeating_fields.pop(key, None)
         self._counts.pop(key, None)
+        self._placements.pop(key, None)
         self._groups.pop(key, None)
         self._invalidate_caches()
 
