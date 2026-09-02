@@ -49,12 +49,15 @@ returns the decoded value or `None`. See
 | `scale_register` | Address of a scale-factor register whose signed int16 value scales the field as `10**sf`. |
 | `scale_register_stride` | Per-index address step for `scale_register`. |
 
-### `repeating_group(count, component_class, *, stride)`
+### `repeating_group(count, component_class, *, stride, count_in_block=True)`
 
 Create a `RepeatingGroupField` describing repeated sub-components. `count` is a
 fixed `int` (must be `>= 0`; instances fold into the normal read) or a
 `RegisterField` read at poll time (a second read pass sizes the list).
-`stride` is the block length (must be `> 0`, or `ValueError`). Reading the
+`stride` is the block length (must be `> 0`, or `ValueError`).
+`count_in_block` says where a register count is read for a group nested inside
+another `repeating_group`: `True` shifts its address with each enclosing
+instance, `False` reads it at the outermost layout's address. Reading the
 attribute returns `list[C]` — the instances built on the last update. See
 [Repeating groups](/modbus-connection/modelling/repeats/).
 
@@ -152,10 +155,10 @@ Instance attributes: `address`, `stride`, `writable` (always `False` on a
 
 ### `RepeatingGroupField[C]`
 
-The descriptor [`repeating_group()`](#repeating_groupcount-component_class--stride)
+The descriptor [`repeating_group()`](#repeating_groupcount-component_class--stride-count_in_blocktrue)
 returns. Instance attributes: `count` (an `int` or `RegisterField`),
-`component_class`, `stride`, and `name`. Reading it on a component instance
-returns `list[C]`.
+`component_class`, `stride`, `count_in_block`, and `name`. Reading it on a
+component instance returns `list[C]`.
 
 ## Supporting types
 
