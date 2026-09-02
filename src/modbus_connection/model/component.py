@@ -367,10 +367,12 @@ class RepeatingGroupField[C: Component]:
         component_class: type[C],
         *,
         stride: int,
+        count_in_block: bool = True,
     ) -> None:
         self.count = count
         self.component_class = component_class
         self.stride = stride
+        self.count_in_block = count_in_block
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -396,12 +398,21 @@ def repeating_group[C: Component](
     component_class: type[C],
     *,
     stride: int,
+    count_in_block: bool = True,
 ) -> RepeatingGroupField[C]:
     """Create a repeated subcomponent field.
 
     A float-typed count field (e.g. a SunSpec ``uint16`` ``N`` point) is
     accepted: the decoded count is truncated to an ``int``, and an
     unimplemented (``None``) count yields no instances.
+
+    ``count_in_block`` says whose coordinates a register count's address is
+    stated in. By default the count is part of the repeated block, so a group
+    nested inside another ``repeating_group`` reads it shifted with each
+    enclosing instance. Pass ``False`` when the count is a point of the layout
+    that owns the outermost block, as a SunSpec ``NPt`` point in the model's
+    fixed block is: every instance then reads it at the same address. It makes
+    no difference to a group that is not nested inside a repeat.
 
     On readable ranges: a fixed-count group's instances are read from the
     parent's own plan, so their maps merge into it and must not describe the
@@ -418,4 +429,6 @@ def repeating_group[C: Component](
         raise ValueError(f"repeating_group stride must be > 0, got {stride}")
     if isinstance(count, int) and count < 0:
         raise ValueError(f"a fixed count must be >= 0, got {count}")
-    return RepeatingGroupField(count, component_class, stride=stride)
+    return RepeatingGroupField(
+        count, component_class, stride=stride, count_in_block=count_in_block
+    )
