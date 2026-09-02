@@ -8,6 +8,7 @@ from ._const import Range, RegisterSpace
 from ._planning import ResolvedField
 from .component import (
     Component,
+    Placement,
     RepeatingGroupField,
     repeating_group,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "NumberField",
     "PackedBitField",
     "PackedBitsField",
+    "Placement",
     "Range",
     "RawField",
     "RegisterField",

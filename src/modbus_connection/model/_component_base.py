@@ -71,24 +71,42 @@ class _ComponentBase(_Readable):
         self._listeners: list[UpdateListener] = []
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
+        # the (stride, offset) each poll-time group's instances were placed at
+        self._placements: dict[str, tuple[int, int]] = {}
         for name, field in self._static_groups.items():
-            # a static group's count is a fixed int (Component splits the two kinds)
+            # a static group's count and placement are fixed (Component splits
+            # the two kinds), so the placement resolves without a root
             count = cast("int", field.count)
-            self._groups[name] = self._build_instances(field, 0, count)
+            self._groups[name] = self._build_instances(
+                field, 0, count, field.placement(self)
+            )
+
+    def _root(self) -> _ComponentBase:
+        """The component that owns the outermost block this one sits in."""
+        node: _ComponentBase = self
+        # a ComponentGroup is a parent too, but a pool rather than a layout
+        while isinstance(node._parent, _ComponentBase):
+            node = node._parent
+        return node
 
     def _build_instances(
-        self, field: RepeatingGroupField[Any], start: int, stop: int
+        self,
+        field: RepeatingGroupField[Any],
+        start: int,
+        stop: int,
+        placement: tuple[int, int],
     ) -> list[Component]:
         # instances inherit the parent's block position (base_offset, which
         # also moves scale registers); their own per-instance shift applies to
         # fields only, so shared scale factors stay in the parent's fixed block —
         # unless the sub-unit sets ``scale_in_block``, which moves each instance's
         # scale registers with its shift too (a block carrying its own factors)
+        stride, offset = placement
         instances = [
             field.component_class(
                 self._unit,
                 base_offset=self._base_offset,
-                _instance_offset=self._instance_offset + i * field.stride,
+                _instance_offset=self._instance_offset + offset + i * stride,
             )
             for i in range(start, stop)
         ]
@@ -130,11 +148,11 @@ class _ComponentBase(_Readable):
         """Read targets for each register-count group's count register."""
         items: list[ReadItem] = []
         for field in self._repeating_fields.values():
+            if isinstance(field.count, int):
+                continue  # placed at poll time, but counted at declaration
             # a register-count group's count is a RegisterField, named for its
             # group at registration so the decoded count lands in ``_counts``
-            resolved = self._resolve(
-                cast("RegisterField[Any]", field.count), self._count_space
-            )
+            resolved = self._resolve(field.count, self._count_space)
             if not field.count_in_block:
                 # the count is a point of the layout that owns the outermost
                 # block, so it stays put while this instance's fields shift
@@ -243,12 +261,14 @@ class _ComponentBase(_Readable):
         await self._refresh_repeating_groups(collect_raw=False)
 
     async def _refresh_repeating_groups(self, *, collect_raw: bool) -> Raw:
-        """Resize register-count groups to the counts just read.
+        """Resize and place the poll-time groups from the values just read.
 
         The instances are part of this component's own plan, so a poll at the
         current size has already read them. A resize invalidates that plan for
         the next poll; instances the resize *added* are read here, so the
-        update that grew a group returns it complete.
+        update that grew a group returns it complete. A placement resolved
+        from the device can change between polls like a count; every instance
+        is then rebuilt where it now sits.
         """
         raw: Raw = {}
         for name in self._static_groups:
@@ -261,14 +281,29 @@ class _ComponentBase(_Readable):
             return raw
         added: list[Component] = []
         resized = False
+        root = self._root()
         for name, field in self._repeating_fields.items():
-            value = self._counts.get(name)
-            count = max(0, int(value)) if value is not None else 0
+            if isinstance(field.count, int):
+                count = field.count
+            else:
+                value = self._counts.get(name)
+                count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
+            if count:
+                placed = field.placement(root)
+                if placed != self._placements.get(name):
+                    self._placements[name] = placed
+                    existing = self._groups[name] = []
             if len(existing) == count:
                 continue
             resized = True
-            new = self._build_instances(field, len(existing), count)
+            new = (
+                self._build_instances(
+                    field, len(existing), count, self._placements[name]
+                )
+                if count > len(existing)
+                else []
+            )
             self._groups[name] = existing[:count] + new
             added.extend(new)
         if resized:
