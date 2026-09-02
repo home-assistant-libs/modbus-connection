@@ -134,6 +134,84 @@ device that answers `0` there would silently give it no points. The count still
 moves with `base_offset`, which places the whole layout. The flag makes no
 difference to a group that is not itself nested inside a repeat.
 
+## Placing a block the device sizes
+
+`stride` and `offset` place the instances. Instance *i* starts
+`offset + i * stride` past the enclosing block. Both are an `int` by default.
+Either may be a callable instead, for a block whose width is only known once
+the device has been read. The callable receives the component that owns the
+outermost block and returns the value.
+
+A SunSpec curve model is the usual case. Each curve is a fixed header followed
+by `NPt` points, so a curve is `header + 2 * NPt` registers wide, and `NPt` is
+a point of the model. A layout in the shape of model 705:
+
+```python
+class VoltVarPt(Component):
+    v = uint16(0)
+    var = uint16(1)
+
+
+class VoltVarCrv(Component):
+    act_pt = uint16(0)
+    # 10 header words, then NPt points; NPt sits in the model's fixed block
+    pt = repeating_group(
+        uint16(5), VoltVarPt, stride=2, offset=10, count_in_block=False
+    )
+
+
+class VoltVar(Component):
+    n_crv = uint16(4)
+    n_pt = uint16(5)
+    crv = repeating_group(
+        uint16(4), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt, offset=6
+    )
+```
+
+A callable `offset` places a sibling after a block the device sizes. The
+SunSpec trip models put three same-shaped regions inside each curve, each
+starting where the previous one ends:
+
+```python
+def _region(m: TripLV) -> int:
+    return 1 + 3 * m.n_pt
+
+
+class TripRegion(Component):
+    act_pt = uint16(0)
+    pt = repeating_group(uint16(5), TripPt, stride=3, offset=1, count_in_block=False)
+
+
+class TripCrv(Component):
+    must_trip = repeating_group(1, TripRegion, stride=1)
+    may_trip = repeating_group(1, TripRegion, stride=1, offset=_region)
+    mom_cess = repeating_group(1, TripRegion, stride=1, offset=lambda m: 2 * _region(m))
+
+
+class TripLV(Component):
+    n_crv = uint16(4)
+    n_pt = uint16(5)
+    crv = repeating_group(
+        uint16(4), TripCrv, stride=lambda m: 1 + 3 * _region(m), offset=6
+    )
+```
+
+A group with a callable `stride` or `offset` is placed in the second read
+pass, after the fixed block the callable reads from. It is not folded into the
+enclosing block's read, even with a fixed `int` count. So `may_trip` above
+adds a pass the way a register count does, while `must_trip` folds into its
+curve's read.
+
+The callable runs on every poll. If its result changes, the instances are
+rebuilt where the new placement puts them, like a group whose count changes.
+It is not called while the group's count is 0, so an unimplemented count point
+does not make it fail. A resolved `stride` must be `> 0`; `async_update()`
+raises `ValueError` otherwise.
+
+On a [`ManualComponent`](/modbus-connection/modelling/manual-component/), the
+callable receives the `ManualComponent` itself. Read the values it needs with
+`get()`.
+
 ## Scale factors inside the block
 
 By default a scaled field's `scale_register` stays put across instances — it

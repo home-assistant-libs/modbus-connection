@@ -367,6 +367,20 @@ async def test_repeating_group_register_count() -> None:
     assert [m.w for m in mc.get("modules")] == [100]
 
 
+async def test_repeating_group_callable_stride_resolves_against_the_manual() -> None:
+    unit = _unit()
+    # width@0=2 -> module 0 w@11, module 1 w@13
+    unit.holding.update({0: 2, 8: 2, 11: 100, 13: 95})
+    mc = ManualComponent(unit)
+    mc.add("width", uint16(0))
+    mc.add(
+        "modules",
+        repeating_group(uint16(8), _Module, stride=lambda m: m.get("width")),
+    )
+    await mc.async_update()
+    assert [m.w for m in mc.get("modules")] == [100, 95]
+
+
 async def test_remove_repeating_group_drops_its_count() -> None:
     unit = _unit()
     unit.holding.update({8: 2, 11: 100, 31: 95})
