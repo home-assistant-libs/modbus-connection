@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
@@ -127,17 +128,21 @@ class _ComponentBase(_Readable):
     @cached_property
     def _count_items(self) -> list[ReadItem]:
         """Read targets for each register-count group's count register."""
-        return [
+        items: list[ReadItem] = []
+        for field in self._repeating_fields.values():
             # a register-count group's count is a RegisterField, named for its
             # group at registration so the decoded count lands in ``_counts``
-            ReadItem(
-                self._resolve(
-                    cast("RegisterField[Any]", field.count), self._count_space
-                ),
-                self._counts,
+            resolved = self._resolve(
+                cast("RegisterField[Any]", field.count), self._count_space
             )
-            for field in self._repeating_fields.values()
-        ]
+            if not field.count_in_block:
+                # the count is a point of the layout that owns the outermost
+                # block, so it stays put while this instance's fields shift
+                resolved = replace(
+                    resolved, address=resolved.address - self._instance_offset
+                )
+            items.append(ReadItem(resolved, self._counts))
+        return items
 
     @cached_property
     def _static_items(self) -> list[ReadItem]:

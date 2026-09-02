@@ -715,6 +715,53 @@ async def test_nested_dynamic_in_dynamic() -> None:
     assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3]]
 
 
+async def test_nested_count_outside_the_block_in_static() -> None:
+    # count_in_block=False: every instance of the nested group reads its count
+    # at the owning layout's address, not shifted by the enclosing instance.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20, count_in_block=False)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=100)
+
+    unit = _unit()
+    # count 5 = 2 for both inners; nothing at 105 (the in-block address)
+    unit.holding.update({5: 2, 11: 1, 31: 2, 111: 3, 131: 4})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3, 4]]
+
+
+async def test_nested_count_outside_the_block_in_dynamic() -> None:
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20, count_in_block=False)
+
+    class Outer(Component):
+        groups = repeating_group(uint16(0), Inner, stride=100)
+
+    unit = _unit()
+    unit.holding.update({0: 2, 5: 2, 11: 1, 31: 2, 111: 3, 131: 4})
+    outer = Outer(unit)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1, 2], [3, 4]]
+
+
+async def test_nested_count_outside_the_block_at_base_offset() -> None:
+    # The count still moves with base_offset: it is a point of the layout,
+    # and base_offset places the whole layout.
+    class Inner(Component):
+        leaves = repeating_group(uint16(5), Module, stride=20, count_in_block=False)
+
+    class Outer(Component):
+        groups = repeating_group(2, Inner, stride=100)
+
+    unit = _unit()
+    unit.holding.update({1005: 1, 1011: 1, 1111: 3})
+    outer = Outer(unit, base_offset=1000)
+    await outer.async_update()
+    assert [[m.w for m in g.leaves] for g in outer.groups] == [[1], [3]]
+
+
 async def test_nested_dynamic_refreshes_on_recount() -> None:
     # The nested register-count group re-sizes on later polls, inside a
     # fixed-count parent instance.
@@ -767,6 +814,10 @@ async def test_restricting_a_dynamic_instance_reaches_the_pooled_plan() -> None:
     assert inv.modules[0].v == 480
     assert inv.modules[0].w is None  # dropped, and not repopulated by the pool
     assert inv.modules[1].w == 95
+
+
+def test_factory_defaults_to_count_in_block() -> None:
+    assert repeating_group(uint16(8), Module, stride=20).count_in_block is True
 
 
 def test_factory_validates() -> None:
