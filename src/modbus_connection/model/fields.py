@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from enum import Enum, IntEnum, IntFlag
@@ -145,6 +146,21 @@ def _nan_values(nan: int | Iterable[int] | None) -> frozenset[int] | None:
         return None
     values = frozenset((nan,)) if isinstance(nan, int) else frozenset(nan)
     return values or None
+
+
+_UNSET = object()
+
+
+def _warn_deprecated_float_nan(nan: object) -> None:
+    """Warn about ``nan=`` on a float helper; a NaN always decodes to None."""
+    if nan is _UNSET:
+        return
+    warnings.warn(
+        "nan= is deprecated for float fields and does nothing: a NaN reading "
+        "always decodes to None. Remove the argument.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class _ScaledField[T](RegisterField[T]):
@@ -321,7 +337,10 @@ class RawField(RegisterField[int]):
 
 
 class FloatField(_ScaledField[float]):
-    """An IEEE-754 float over two (``float32``) or four (``float64``) registers."""
+    """An IEEE-754 float over two (``float32``) or four (``float64``) registers.
+
+    A NaN reading always decodes to ``None``.
+    """
 
     def __init__(
         self,
@@ -336,7 +355,7 @@ class FloatField(_ScaledField[float]):
     def decode(self, words: list[int], scale_exponent: int | None = None) -> Any:
         decoder = decode_float64 if self.count == 4 else decode_float32
         value = decoder(words, word_order=self.word_order)
-        if self.nan is not None and math.isnan(value):
+        if math.isnan(value):
             return None
         return self._scale(value, scale_exponent)
 
@@ -731,21 +750,24 @@ def float32(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
-    nan: int | Iterable[int] | None = None,
+    nan: Any = _UNSET,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
 ) -> FloatField:
-    """An IEEE-754 single-precision float over two consecutive registers."""
+    """An IEEE-754 single-precision float over two consecutive registers.
+
+    ``nan`` is deprecated and ignored: a NaN reading always decodes to ``None``.
+    """
+    _warn_deprecated_float_nan(nan)
     return FloatField(
         address,
         count=2,
         word_order=word_order,
         scale=scale,
         offset=offset,
-        nan=nan,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -870,21 +892,24 @@ def float64(
     *,
     scale: float = 1.0,
     offset: float = 0.0,
-    nan: int | Iterable[int] | None = None,
+    nan: Any = _UNSET,
     word_order: WordOrder = "big",
     stride: int = 0,
     writable: bool | WriteValidator = False,
     unit: str | None = None,
     force_fc16: bool = False,
 ) -> FloatField:
-    """An IEEE-754 double-precision float over four consecutive registers."""
+    """An IEEE-754 double-precision float over four consecutive registers.
+
+    ``nan`` is deprecated and ignored: a NaN reading always decodes to ``None``.
+    """
+    _warn_deprecated_float_nan(nan)
     return FloatField(
         address,
         count=4,
         word_order=word_order,
         scale=scale,
         offset=offset,
-        nan=nan,
         stride=stride,
         writable=writable,
         unit=unit,

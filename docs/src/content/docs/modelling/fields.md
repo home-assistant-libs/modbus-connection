@@ -68,6 +68,10 @@ temperature = gauge(5, 0.1, nan=(0x8000, 0xF448))  # either -> None
 The values are matched against the **raw** register word, before `signed` is
 applied. State them as they appear on the wire: `0xF448`, not `-3000`.
 
+A float field needs no sentinel. `float32` and `float64` decode a NaN reading to
+`None` on their own. Passing `nan=` to them is deprecated: it does nothing and
+raises a `DeprecationWarning`.
+
 ### Word order
 
 `word_order` selects the order of the 16-bit registers in a multi-register value.
