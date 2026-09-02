@@ -14,6 +14,10 @@ automatically. They are the same fields you would otherwise hand-roll with the
 The full signatures live in the
 [field reference](/modbus-connection/modelling/fields-reference/#sunspec-point-helpers).
 
+For the standard SunSpec models, the
+[generator](/modbus-connection/modelling/sunspec-discovery/#generating-component-classes)
+emits these fields for you from the official model definitions.
+
 ```python
 from modbus_connection.model import Component
 from modbus_connection.model.sunspec import acc32, int16, sunssf, uint16
