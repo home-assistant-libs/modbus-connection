@@ -158,9 +158,8 @@ def build_router(store: Datastore) -> ModbusRequestRouter:
             objects=dict(store.device_id),
         )
 
-    # The router keys handlers by function code alone, so one handler answers
-    # every diagnostics sub-function the server decodes.
     @router.register(DiagnosticsQueryDataPDU)
+    @router.register(DiagnosticsBusMessageCountPDU)
     async def diagnostics(uid: int, request: BaseDiagnosticsSubFunctionPDU[Any]) -> Any:
         if isinstance(request, DiagnosticsQueryDataPDU):
             # Sub-function 0x0000 loops the request data back unchanged.
