@@ -23,7 +23,7 @@ returns the decoded value or `None`. See
 | `raw_register(address, *, stride=0, writable=False, force_fc16=False)` | `RawField` | 1 | A raw word — no scaling, sign handling, or sentinel. |
 | `uint32(address, …)` / `int32(address, …)` | `NumberField[int]` | 2 | 32-bit integers; take `scale`, `offset`, `word_order`. |
 | `uint64(address, …)` / `int64(address, …)` | `NumberField[int]` | 4 | 64-bit integers. |
-| `float32(address, …)` / `float64(address, …)` | `FloatField` | 2 / 4 | IEEE-754 floats; take `scale`, `offset`, `word_order`. |
+| `float32(address, …)` / `float64(address, …)` | `FloatField` | 2 / 4 | IEEE-754 floats; take `scale`, `offset`, `word_order`. A NaN decodes to `None`. |
 | `string(address, length, *, stride=0, writable=False, force_fc16=False)` | `StringField` | `length` | Null-padded ASCII, two characters per register. |
 | `enum(address, enum_type, *, count=1, signed=False, nan=None, …)` | `NumberField[E]` | `count` | Maps to an `IntEnum`; unknown codes decode to `None`. |
 | `flags(address, flag_type, *, count=1, signed=False, nan=None, …)` | `NumberField[F]` | `count` | Maps to an `IntFlag`; unknown bits are kept. |
@@ -40,7 +40,7 @@ returns the decoded value or `None`. See
 | `address` | Address of the value's first register word, in declared coordinates. |
 | `scale` / `offset` | Affine transform: the value decodes as `raw * scale + offset`. |
 | `signed` | Interpret the raw integer as two's-complement. |
-| `nan` | Raw sentinel value — an `int` or an iterable of them — that decodes to `None`. |
+| `nan` | Raw sentinel value — an `int` or an iterable of them — that decodes to `None`. Deprecated and ignored on `float32` / `float64`. |
 | `word_order` | `"big"` (default) or `"little"` for multi-register values. |
 | `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
 | `stride` | Per-index address step for a [placed component](/modbus-connection/modelling/placement/). |
@@ -105,8 +105,7 @@ no scaling, sign handling, or sentinel. Takes `word_order="big"`.
 ### `FloatField`
 
 IEEE-754 float over two (`count=2`) or four (`count=4`) registers. Takes
-`word_order`, `scale`, `offset`, and `nan` (any non-`None` value makes NaN
-decode to `None`).
+`word_order`, `scale`, and `offset`. A NaN reading decodes to `None`.
 
 ### `StringField`
 

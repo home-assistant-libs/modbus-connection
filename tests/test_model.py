@@ -166,34 +166,40 @@ async def test_a_signed_sentinel_leaves_a_real_negative_alone() -> None:
     assert dev.power == -1
 
 
-async def test_nan_sentinels_apply_to_float_fields() -> None:
-    """Some devices mark a float unimplemented with all ones rather than a NaN."""
+async def test_float_fields_decode_nan_to_none() -> None:
+    """A NaN reading is "no value" on every float field, with no opt-in."""
 
     class Dev(Component):
-        pressure = float32(0, nan=0xFFFFFFFF, unit="bar")
+        pressure = float32(0, unit="bar")
+        flow = float64(2, unit="m3/h")
 
     unit = MockModbusConnection().for_unit(1)
-    unit.holding.update({0: 0xFFFF, 1: 0xFFFF})
+    unit.holding.update(dict.fromkeys(range(0, 6), 0xFFFF))
     dev = Dev(unit)
     await dev.async_update()
     assert dev.pressure is None
+    assert dev.flow is None
+
+
+async def test_float_nan_argument_is_deprecated() -> None:
+    with pytest.warns(DeprecationWarning, match="nan="):
+        float32(0, nan=0xFFFFFFFF)
+    with pytest.warns(DeprecationWarning, match="nan="):
+        float64(0, nan=None)
 
 
 async def test_nan_sentinels_apply_to_64_bit_fields() -> None:
     class Dev(Component):
         counter = uint64(0, nan=0xFFFFFFFFFFFFFFFF)
         offset = int64(4, nan=0x8000000000000000)
-        reading = float64(8, nan=0xFFFFFFFFFFFFFFFF)
 
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(dict.fromkeys(range(0, 4), 0xFFFF))
     unit.holding.update({4: 0x8000, 5: 0, 6: 0, 7: 0})
-    unit.holding.update(dict.fromkeys(range(8, 12), 0xFFFF))
     dev = Dev(unit)
     await dev.async_update()
     assert dev.counter is None
     assert dev.offset is None
-    assert dev.reading is None
 
 
 async def test_a_sentinel_is_the_assembled_value_not_the_wire_order() -> None:

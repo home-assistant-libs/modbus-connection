@@ -133,7 +133,7 @@ class Inverter(Component):
 
 ## Floats and strings
 
-`float32` / `float64` decode NaN (any NaN, sentinel `0x7FC00000`) to `None`.
+`float32` / `float64` decode a NaN reading to `None`.
 `string(address, length)` is a fixed-length null-padded ASCII string over
 `length` registers.
 

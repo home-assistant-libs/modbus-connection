@@ -63,7 +63,6 @@ _UINT32_NAN = 0xFFFF_FFFF
 _INT64_NAN = 0x8000_0000_0000_0000
 _UINT64_NAN = 0xFFFF_FFFF_FFFF_FFFF
 _ACC_NAN = 0x0  # acc16/32/64: 0 means "not accumulated"
-_FLOAT_NAN = 0x7FC0_0000  # any NaN; used as a flag so float fields decode NaN to None
 # The spec constrains a sunssf exponent to -10..10; devices have been seen
 # reporting garbage outside it (typically around an inverter's sleep/wake
 # transition), which would otherwise scale a sane raw value into an absurd one.
@@ -501,7 +500,6 @@ def float32(
     return FloatField(
         address,
         count=2,
-        nan=_FLOAT_NAN,
         stride=stride,
         writable=writable,
         unit=unit,
@@ -519,7 +517,6 @@ def float64(
     return FloatField(
         address,
         count=4,
-        nan=_FLOAT_NAN,
         stride=stride,
         writable=writable,
         unit=unit,
