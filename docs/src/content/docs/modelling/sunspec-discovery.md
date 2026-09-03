@@ -99,11 +99,11 @@ class InverterThreePhase(SunSpecComponent):
     """Operating State."""
 ```
 
-Some layouts have addresses or strides that depend on values read from the
-device, so they cannot always be emitted statically. They are only unknown
-because a count point is. Pass what the target device reports and the block it
-sizes becomes an ordinary fixed-count `repeating_group`. This is what makes the
-curve models (705, 706, 712) and the trip models (707–710) generate at all:
+A nested block whose count point sits in an outer block has no static
+address or stride. Model 705's `Pt` sits inside `Crv` but is counted by `NPt`
+in the fixed block. Pass the value your device reports with `--count`, and the
+generator emits the block as a fixed-count `repeating_group`. The curve models
+(705, 706, 712) and the trip models (707–710) need this:
 
 ```bash
 python -m modbus_connection.model.sunspec.generate 705 707 \
@@ -111,22 +111,18 @@ python -m modbus_connection.model.sunspec.generate 705 707 \
     --count 707:NCrvSet=2 --count 707:NPt=5
 ```
 
-Without a count the declaration is left commented, naming the option that would
-emit it, and `SunSpecGenerationError` is raised when a static layout would be
-incorrect. Counts are baked into the generated classes, so a device reporting
-different ones fails on its first read rather than decoding garbage: a curve
-model's length is a function of its counts, and `SunSpecComponent` verifies
-that header.
+Without a count, the generator leaves the declaration as a comment that names
+the `--count` option to pass. It raises `SunSpecGenerationError` when a
+device-sized block is not the last block, because the blocks after it have no
+known address. The counts are baked into the generated classes. A device that
+reports different counts has a different model length, and `SunSpecComponent`
+rejects that header on the first read.
 
 ## Writing a curve
 
-A curve is a block of writable points repeated `NPt` times, and a device
-expects it whole. Written a field at a time, it costs a request per point, plus
-a read of the scale register before each scaled write.
-
-When a model has a repeated block whose points are **all** writable, the
-generator gives the block's owner a method that writes the block in one
-request. The method calls a `write_block` helper emitted into the same module:
+A curve is a repeated block of writable points, and a device expects it whole.
+When every point of a repeated block is writable, the generator adds a method
+to the block's owner that writes the block in one request:
 
 ```python
 class DERVoltVarCrv(Component):
@@ -141,7 +137,8 @@ class DERVoltVarCrv(Component):
         await write_block(self, "pt", values)
 ```
 
-Call it with one mapping per point, setting every field of that point:
+Pass one mapping per point. Each mapping must set every field, because the
+block goes to the device as one run of registers:
 
 ```python
 await volt_var.crv[1].write_pt(
@@ -154,23 +151,18 @@ await volt_var.crv[1].write_pt(
 )
 ```
 
-The method is named after its block rather than given one fixed name, because a
-class can own several blocks: model 704's controls block owns four, and gets
-`write_pfw_inj`, `write_pfw_inj_rvrt`, `write_pfw_abs` and `write_pfw_abs_rvrt`.
+The registers go out as one FC16, and each distinct scale register is read
+once. This four-point curve costs one write and two reads. The method is named
+after its block because one class can own several: model 704's controls block
+gets `write_pfw_inj`, `write_pfw_inj_rvrt`, `write_pfw_abs` and
+`write_pfw_abs_rvrt`.
 
-The whole curve goes out as one FC16, and each distinct scale register is read
-once for the block rather than once per field — one write and two reads instead
-of eight of each. Points past the values given keep what they held.
+The `write_block` helper is emitted once into the generated module. It is
+generated source, not library API. Adjust it with the classes that call it.
 
-Both the method and the helper it calls are generated source like the rest of
-the module, not library API. Adjust them with the classes they serve. The
-helper is emitted once per module, however many models or blocks need it. A
-method appears only on blocks the generator has verified are writable
-throughout; a block with a read-only point or a nested block of its own gets
-neither. Across the IEEE 1547 models that is every curve and trip-point block
-(705, 706, 707–710, 712) and 704's power-factor blocks, but nothing on 711's
-control block or 714's port block.
+A block gets no method when it contains a nested block, a read-only point, or a
+point that is never written, such as a scale factor or an accumulator.
 
-To use a curve, write into a *stored* curve — one whose `read_only` point
-reports read-write access — then adopt it with `adpt_crv_req`. The adoption,
-not the register write itself, is what makes a curve take effect.
+Writing the registers does not activate a curve. Write into a curve whose
+`read_only` point reports read-write access, then request it with
+`adpt_crv_req`.
