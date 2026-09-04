@@ -136,15 +136,14 @@ difference to a group that is not itself nested inside a repeat.
 
 ## Placing a block the device sizes
 
-`stride` and `offset` place the instances. Instance *i* starts
-`offset + i * stride` past the enclosing block. Both are an `int` by default.
-Either may be a callable instead, for a block whose width is only known once
-the device has been read. The callable receives the component that owns the
-outermost block and returns the value.
+`stride` and `offset` place the instances: instance *i* starts
+`offset + i * stride` past the enclosing block. Either may be a callable
+instead of an `int`, for a block whose width is only known once the device has
+been read. The callable receives the component that owns the outermost block.
 
 A SunSpec curve model is the usual case. Each curve is a fixed header followed
-by `NPt` points, so a curve is `header + 2 * NPt` registers wide, and `NPt` is
-a point of the model. A layout in the shape of model 705:
+by `NPt` points, and `NPt` is a point of the model. A layout in the shape of
+model 705:
 
 ```python
 class VoltVarPt(Component):
@@ -191,22 +190,17 @@ class TripCrv(Component):
 class TripLV(Component):
     n_crv = uint16(4)
     n_pt = uint16(5)
-    crv = repeating_group(
-        uint16(4), TripCrv, stride=lambda m: 1 + 3 * _region(m), offset=6
-    )
+    crv = repeating_group(uint16(4), TripCrv, stride=lambda m: 3 * _region(m), offset=6)
 ```
 
 A group with a callable `stride` or `offset` is placed in the second read
-pass, after the fixed block the callable reads from. It is not folded into the
-enclosing block's read, even with a fixed `int` count. So `may_trip` above
-adds a pass the way a register count does, while `must_trip` folds into its
-curve's read.
-
-The callable runs on every poll. If its result changes, the instances are
-rebuilt where the new placement puts them, like a group whose count changes.
-It is not called while the group's count is 0, so an unimplemented count point
-does not make it fail. A resolved `stride` must be `> 0`; `async_update()`
-raises `ValueError` otherwise.
+pass, after the fixed block the callable reads from, even with a fixed `int`
+count. So `may_trip` above adds a pass the way a register count does, while
+`must_trip` folds into its curve's read. The callable runs on every poll. If
+its result changes, the instances are rebuilt where the new placement puts
+them. It is not called while the count is 0, so an unimplemented count point
+does not make it fail. A resolved `stride` must be `> 0`, or `async_update()`
+raises `ValueError`.
 
 On a [`ManualComponent`](/modbus-connection/modelling/manual-component/), the
 callable receives the `ManualComponent` itself. Read the values it needs with

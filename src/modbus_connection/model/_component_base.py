@@ -283,26 +283,21 @@ class _ComponentBase(_Readable):
         resized = False
         root = self._root()
         for name, field in self._repeating_fields.items():
-            if isinstance(field.count, int):
-                count = field.count
-            else:
-                value = self._counts.get(name)
-                count = max(0, int(value)) if value is not None else 0
+            value = (
+                field.count if isinstance(field.count, int) else self._counts.get(name)
+            )
+            count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
             if count:
                 placed = field.placement(root)
                 if placed != self._placements.get(name):
                     self._placements[name] = placed
-                    existing = self._groups[name] = []
+                    existing = []  # a moved placement rebuilds every instance
             if len(existing) == count:
                 continue
             resized = True
-            new = (
-                self._build_instances(
-                    field, len(existing), count, self._placements[name]
-                )
-                if count > len(existing)
-                else []
+            new = self._build_instances(
+                field, len(existing), count, self._placements[name]
             )
             self._groups[name] = existing[:count] + new
             added.extend(new)

@@ -436,23 +436,19 @@ def repeating_group[C: Component](
     accepted: the decoded count is truncated to an ``int``, and an
     unimplemented (``None``) count yields no instances.
 
-    ``count_in_block`` says whose coordinates a register count's address is
-    stated in. By default the count is part of the repeated block, so a group
-    nested inside another ``repeating_group`` reads it shifted with each
-    enclosing instance. Pass ``False`` when the count is a point of the layout
-    that owns the outermost block, as a SunSpec ``NPt`` point in the model's
-    fixed block is: every instance then reads it at the same address. It makes
-    no difference to a group that is not nested inside a repeat.
+    ``count_in_block`` says where a register count nested inside another
+    ``repeating_group`` is read. By default it is part of the repeated block, so
+    it shifts with each enclosing instance. Pass ``False`` when it is a point of
+    the layout that owns the outermost block, as a SunSpec ``NPt`` point is:
+    every instance then reads it at the same address.
 
     ``stride`` and ``offset`` place the instances: instance *i* starts
     ``offset + i * stride`` past the enclosing block. Either may be a callable
-    that takes the component owning the outermost block and returns the value,
-    for a block whose width is only known once the device has been read. A
-    SunSpec curve is ``10 + NPt * 2`` registers wide, and ``NPt`` is a point of
-    the model. Such a group is placed in the same second pass that sizes
-    register-read counts, so the values it depends on have been read; it is not
-    folded into the enclosing block's read, even with a fixed ``int`` count.
-    The callable is not called while the count is 0.
+    taking the component that owns the outermost block, for a block whose width
+    is only known once the device has been read (a SunSpec curve is
+    ``header + 2 * NPt`` wide). Such a group is placed in the second pass that
+    sizes register-read counts, even with a fixed ``int`` count. The callable is
+    not called while the count is 0.
 
     On readable ranges: a fixed-count group's instances are read from the
     parent's own plan, so their maps merge into it and must not describe the
