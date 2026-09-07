@@ -71,14 +71,13 @@ class _ComponentBase(_Readable):
         self._listeners: list[UpdateListener] = []
         self._groups: dict[str, list[Component]] = {}
         self._counts: dict[str, int | None] = {}
-        # the (stride, offset) each poll-time group's instances were placed at
-        self._placements: dict[str, tuple[int, int]] = {}
+        # the stride each poll-time group's instances were built at
+        self._strides: dict[str, int] = {}
         for name, field in self._static_groups.items():
-            # a static group's count and placement are fixed (Component splits
-            # the two kinds)
-            count = cast("int", field.count)
+            # a static group's count and stride are fixed (Component splits the
+            # two kinds)
             self._groups[name] = self._build_instances(
-                field, 0, count, field.placement(self)
+                field, 0, cast("int", field.count), cast("int", field.stride)
             )
 
     def _root(self) -> _ComponentBase:
@@ -94,19 +93,18 @@ class _ComponentBase(_Readable):
         field: RepeatingGroupField[Any],
         start: int,
         stop: int,
-        placement: tuple[int, int],
+        stride: int,
     ) -> list[Component]:
         # instances inherit the parent's block position (base_offset, which
         # also moves scale registers); their own per-instance shift applies to
         # fields only, so shared scale factors stay in the parent's fixed block —
         # unless the sub-unit sets ``scale_in_block``, which moves each instance's
         # scale registers with its shift too (a block carrying its own factors)
-        stride, offset = placement
         instances = [
             field.component_class(
                 self._unit,
                 base_offset=self._base_offset,
-                _instance_offset=self._instance_offset + offset + i * stride,
+                _instance_offset=self._instance_offset + i * stride,
             )
             for i in range(start, stop)
         ]
@@ -287,15 +285,15 @@ class _ComponentBase(_Readable):
             count = max(0, int(value)) if value is not None else 0
             existing = self._groups.get(name, [])
             if count:
-                placed = field.placement(root)
-                if placed != self._placements.get(name):
-                    self._placements[name] = placed
-                    existing = []  # a moved placement rebuilds every instance
+                stride = field.resolved_stride(root)
+                if stride != self._strides.get(name):
+                    self._strides[name] = stride
+                    existing = []  # a changed stride rebuilds every instance
             if len(existing) == count:
                 continue
             resized = True
             new = self._build_instances(
-                field, len(existing), count, self._placements[name]
+                field, len(existing), count, self._strides[name]
             )
             self._groups[name] = existing[:count] + new
             added.extend(new)

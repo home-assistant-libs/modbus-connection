@@ -128,34 +128,34 @@ Without the flag, curve 1 would read its count at `35`. A device that answers
 
 ## Placing a block the device sizes
 
-`stride` and `offset` place the instances: instance *i* starts
-`offset + i * stride` past the enclosing block. Either may be a callable
-instead of an `int`, for a block whose width is only known once the device has
-been read. The callable receives the component that owns the outermost block,
-after its fixed block has been read.
+`stride` may be a callable instead of an `int`, for a block whose width is only
+known once the device has been read. The callable receives the component that
+owns the outermost block, after its fixed block has been read.
 
 In SunSpec model 705 each curve is a ten-register header followed by `NPt`
-points, and `NPt` is a point of the model:
+points, and `NPt` is a point of the model. The sub-components declare their
+fields where the first instance has them, as any repeated block does:
 
 ```python
+class VoltVarPt(Component):
+    v = int16(25)  # the first point follows the first curve's header
+    var = int16(26)
+
+
 class VoltVarCrv(Component):
-    act_pt = uint16(0)
-    pt = repeating_group(
-        uint16(5), VoltVarPt, stride=2, offset=10, count_in_block=False
-    )
+    act_pt = uint16(15)  # the first curve follows the fixed block
+    pt = repeating_group(uint16(5), VoltVarPt, stride=2, count_in_block=False)
 
 
 class VoltVar(Component):
     n_pt = uint16(5)
     n_crv = uint16(6)
-    crv = repeating_group(
-        uint16(6), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt, offset=15
-    )
+    crv = repeating_group(uint16(6), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt)
 ```
 
-A callable `offset` places a sibling after a block the device sizes. The trip
-models (707–710) put three same-shaped regions inside each curve, each starting
-where the previous one ends:
+The trip models (707–710) put three same-shaped regions inside each curve, each
+starting where the previous one ends. One fixed-count group with a callable
+stride places them, and a property per region gives them the spec's names:
 
 ```python
 def _region(m: TripLV) -> int:
@@ -163,16 +163,25 @@ def _region(m: TripLV) -> int:
 
 
 class TripCrv(Component):
-    must_trip = repeating_group(1, TripRegion, stride=1)
-    may_trip = repeating_group(1, TripRegion, stride=1, offset=_region)
-    mom_cess = repeating_group(1, TripRegion, stride=1, offset=lambda m: 2 * _region(m))
+    read_only = enum16(9)
+    regions = repeating_group(3, TripRegion, stride=_region)
+
+    @property
+    def may_trip(self) -> TripRegion:
+        return self.regions[1]
+
+
+class TripLV(Component):
+    n_pt = uint16(5)
+    n_crv_set = uint16(6)
+    crv = repeating_group(uint16(6), TripCrv, stride=lambda m: 1 + 3 * _region(m))
 ```
 
-A group placed by a callable is read in the second pass, like a
-register-counted group, even with a fixed `int` count. So `may_trip` adds a
-pass while `must_trip` folds into its curve's read. The callable runs on every
-poll. If its result changes, the instances are rebuilt where it now puts them.
-On a [`ManualComponent`](/modbus-connection/modelling/manual-component/) the
+A group with a callable `stride` is read in the second pass, like a
+register-counted group, even with a fixed `int` count. So `regions` adds a pass
+and is empty until the first update. The callable runs on every poll. If its
+result changes, the instances are rebuilt where it now puts them. On a
+[`ManualComponent`](/modbus-connection/modelling/manual-component/) the
 callable receives the `ManualComponent`; read the values it needs with `get()`.
 
 ## Scale factors inside the block

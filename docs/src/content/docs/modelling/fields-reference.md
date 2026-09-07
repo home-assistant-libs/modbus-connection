@@ -49,13 +49,12 @@ returns the decoded value or `None`. See
 | `scale_register` | Address of a scale-factor register whose signed int16 value scales the field as `10**sf`. |
 | `scale_register_stride` | Per-index address step for `scale_register`. |
 
-### `repeating_group(count, component_class, *, stride, offset=0, count_in_block=True)`
+### `repeating_group(count, component_class, *, stride, count_in_block=True)`
 
 Create a `RepeatingGroupField` describing repeated sub-components. `count` is a
 fixed `int` (must be `>= 0`; instances fold into the normal read) or a
 `RegisterField` read at poll time (a second read pass sizes the list).
-`stride` is the block length (must be `> 0`, or `ValueError`) and `offset` is
-where instance 0 starts, past the enclosing block. Either may be a
+`stride` is the block length (must be `> 0`, or `ValueError`). It may be a
 [`Placement`](#placement) callable instead of an `int`. The group is then
 placed in the second read pass, whatever its count. The callable is not called
 while the count is 0, and a resolved `stride` that is not `> 0` raises
@@ -159,18 +158,18 @@ Instance attributes: `address`, `stride`, `writable` (always `False` on a
 
 ### `RepeatingGroupField[C]`
 
-The descriptor [`repeating_group()`](#repeating_groupcount-component_class--stride-offset0-count_in_blocktrue)
+The descriptor [`repeating_group()`](#repeating_groupcount-component_class--stride-count_in_blocktrue)
 returns. Instance attributes: `count` (an `int` or `RegisterField`),
-`component_class`, `stride` and `offset` (each an `int` or `Placement`),
-`count_in_block`, and `name`. `is_static` is `True` when the count and both
-placements are fixed. Reading it on a component instance returns `list[C]`.
+`component_class`, `stride` (an `int` or `Placement`), `count_in_block`, and
+`name`. `is_static` is `True` when the count and stride are fixed. Reading it
+on a component instance returns `list[C]`.
 
 ## Supporting types
 
 ### `Placement`
 
-`Callable[[Any], int]` — a callable passed as a `repeating_group`'s `stride`
-or `offset`. It receives the component that owns the outermost block (a
+`Callable[[Any], int]` — a callable passed as a `repeating_group`'s `stride`.
+It receives the component that owns the outermost block (a
 `ManualComponent` when the group was added to one) after that component's
 fixed block has been read, and returns the resolved value. See
 [Placing a block the device sizes](/modbus-connection/modelling/repeats/#placing-a-block-the-device-sizes).

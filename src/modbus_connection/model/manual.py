@@ -79,7 +79,7 @@ class ManualComponent(_ComponentBase):
             if target.is_static:
                 self._static_groups[key] = target
                 self._groups[key] = self._build_instances(
-                    target, 0, cast("int", target.count), target.placement(self)
+                    target, 0, cast("int", target.count), cast("int", target.stride)
                 )
             else:
                 if isinstance(target.count, RegisterField):
@@ -116,7 +116,7 @@ class ManualComponent(_ComponentBase):
         self._static_groups.pop(key, None)
         self._repeating_fields.pop(key, None)
         self._counts.pop(key, None)
-        self._placements.pop(key, None)
+        self._strides.pop(key, None)
         self._groups.pop(key, None)
         self._invalidate_caches()
 

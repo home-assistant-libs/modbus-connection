@@ -17,8 +17,8 @@ from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
 
-#: Resolves a ``repeating_group``'s ``stride`` or ``offset`` from the component
-#: that owns the outermost block, once its fixed block has been read.
+#: Resolves a ``repeating_group``'s ``stride`` from the component that owns the
+#: outermost block, once its fixed block has been read.
 type Placement = Callable[[Any], int]
 
 
@@ -43,7 +43,7 @@ class Component(_ComponentBase):
         str, RegisterField[Any] | CoilField | DiscreteInputField
     ] = MappingProxyType({})
     # repeating_group fields, split by when they can be placed: a static group
-    # (fixed ``int`` count, fixed stride and offset) folds into the normal read
+    # (fixed ``int`` count and stride) folds into the normal read
     # like ordinary fields; any other is placed at poll time (the two-phase
     # repeating path).
     _static_groups: dict[str, RepeatingGroupField[Any]] = {}
@@ -370,37 +370,30 @@ class RepeatingGroupField[C: Component]:
         component_class: type[C],
         *,
         stride: int | Placement,
-        offset: int | Placement = 0,
         count_in_block: bool = True,
     ) -> None:
         self.count = count
         self.component_class = component_class
         self.stride = stride
-        self.offset = offset
         self.count_in_block = count_in_block
 
     @property
     def is_static(self) -> bool:
         """Whether the instances can be placed before the device is read."""
-        return (
-            isinstance(self.count, int)
-            and not callable(self.stride)
-            and not callable(self.offset)
-        )
+        return isinstance(self.count, int) and not callable(self.stride)
 
-    def placement(self, root: Any) -> tuple[int, int]:
-        """Resolve ``(stride, offset)`` against the outermost component.
+    def resolved_stride(self, root: Any) -> int:
+        """Resolve ``stride`` against the outermost component.
 
-        Raises ``ValueError`` if a resolved stride is not positive.
+        Raises ``ValueError`` if it is not positive.
         """
         stride = self.stride(root) if callable(self.stride) else self.stride
-        offset = self.offset(root) if callable(self.offset) else self.offset
         if stride <= 0:
             raise ValueError(
                 f"repeating_group {self.name!r} stride resolved to {stride};"
                 " it must be > 0"
             )
-        return stride, offset
+        return stride
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
@@ -426,7 +419,6 @@ def repeating_group[C: Component](
     component_class: type[C],
     *,
     stride: int | Placement,
-    offset: int | Placement = 0,
     count_in_block: bool = True,
 ) -> RepeatingGroupField[C]:
     """Create a repeated subcomponent field.
@@ -441,13 +433,11 @@ def repeating_group[C: Component](
     the layout that owns the outermost block, as a SunSpec ``NPt`` point is:
     every instance then reads it at the same address.
 
-    ``stride`` and ``offset`` place the instances: instance *i* starts
-    ``offset + i * stride`` past the enclosing block. Either may be a callable
-    taking the component that owns the outermost block, for a block whose width
-    is only known once the device has been read (a SunSpec curve is
-    ``header + 2 * NPt`` wide). Such a group is placed in the second pass that
-    sizes register-read counts, even with a fixed ``int`` count. The callable is
-    not called while the count is 0.
+    ``stride`` may be a callable taking the component that owns the outermost
+    block, for a block whose width is only known once the device has been read
+    (a SunSpec curve is ``header + 2 * NPt`` wide). Such a group is placed in
+    the second pass that sizes register-read counts, even with a fixed ``int``
+    count. The callable is not called while the count is 0.
 
     On readable ranges: a fixed-count group's instances are read from the
     parent's own plan, so their maps merge into it and must not describe the
@@ -469,6 +459,5 @@ def repeating_group[C: Component](
         count,
         component_class,
         stride=stride,
-        offset=offset,
         count_in_block=count_in_block,
     )

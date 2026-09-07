@@ -762,25 +762,25 @@ async def test_nested_count_outside_the_block_at_base_offset() -> None:
     assert [[m.w for m in g.leaves] for g in outer.groups] == [[1], [3]]
 
 
-# -- dynamic placement --------------------------------------------------------
+# -- callable stride ----------------------------------------------------------
 
 
 class Pt(Component):
-    v = uint16(0)
+    v = uint16(3)  # the first point follows the first curve's label word
 
 
 class Curve(Component):
-    """A SunSpec-style curve: a header word, then NPt points."""
+    """A SunSpec-style curve: a label word, then NPt points."""
 
-    label = uint16(0)
+    label = uint16(2)  # the first curve follows the two-word fixed block
     # NPt is a point of the model, at model offset 1, whatever curve this is
-    pts = repeating_group(uint16(1), Pt, stride=1, offset=1, count_in_block=False)
+    pts = repeating_group(uint16(1), Pt, stride=1, count_in_block=False)
 
 
 class CurveModel(Component):
     n_crv = uint16(0)
     n_pt = uint16(1)
-    curves = repeating_group(uint16(0), Curve, stride=lambda m: 1 + m.n_pt, offset=2)
+    curves = repeating_group(uint16(0), Curve, stride=lambda m: 1 + m.n_pt)
 
 
 async def test_callable_stride_resolves_after_the_fixed_block_is_read() -> None:
@@ -795,7 +795,7 @@ async def test_callable_stride_resolves_after_the_fixed_block_is_read() -> None:
     ]
 
 
-async def test_dynamic_placement_rebuilds_when_the_stride_changes() -> None:
+async def test_callable_stride_rebuilds_when_it_changes() -> None:
     unit = _unit()
     unit.holding.update({0: 2, 1: 1, 2: 10, 3: 11, 4: 20, 5: 21})
     model = CurveModel(unit)
@@ -814,27 +814,34 @@ async def test_dynamic_placement_rebuilds_when_the_stride_changes() -> None:
     ]
 
 
-async def test_callable_offset_places_a_sibling_after_a_sized_block() -> None:
-    # Two same-shaped regions per curve; the second starts where the first
-    # ends, which depends on the model's point count.
+async def test_fixed_count_group_with_a_callable_stride_names_its_regions() -> None:
+    # Two same-shaped regions per curve, the second starting where the first
+    # ends. One fixed-count group with a callable stride places both, and
+    # properties name them.
     def region(m: TripModel) -> int:
         return 1 + m.n_pt
 
     class Region(Component):
-        act = uint16(0)
-        pts = repeating_group(uint16(1), Pt, stride=1, offset=1, count_in_block=False)
+        act = uint16(2)
+        pts = repeating_group(uint16(1), Pt, stride=1, count_in_block=False)
 
     class Crv(Component):
-        must = repeating_group(1, Region, stride=1)
-        may = repeating_group(1, Region, stride=1, offset=region)
+        regions = repeating_group(2, Region, stride=region)
+
+        @property
+        def must(self) -> Region:
+            return self.regions[0]
+
+        @property
+        def may(self) -> Region:
+            return self.regions[1]
 
     class TripModel(Component):
         n_crv = uint16(0)
         n_pt = uint16(1)
-        crvs = repeating_group(uint16(0), Crv, stride=lambda m: 2 * region(m), offset=2)
+        crvs = repeating_group(uint16(0), Crv, stride=lambda m: 2 * region(m))
 
-    assert Crv._static_groups.keys() == {"must"}
-    assert Crv._repeating_fields.keys() == {"may"}
+    assert Crv._repeating_fields.keys() == {"regions"}
 
     unit = _unit()
     # n_pt=1 -> region 2 wide, crv 4 wide: crv 0 at 2 (must 2-3, may 4-5),
@@ -844,12 +851,11 @@ async def test_callable_offset_places_a_sibling_after_a_sized_block() -> None:
     model = TripModel(unit)
     await model.async_update()
     assert [
-        (c.must[0].act, c.must[0].pts[0].v, c.may[0].act, c.may[0].pts[0].v)
-        for c in model.crvs
+        (c.must.act, c.must.pts[0].v, c.may.act, c.may.pts[0].v) for c in model.crvs
     ] == [(20, 30, 40, 50), (60, 70, 80, 90)]
 
 
-async def test_placement_is_not_resolved_while_the_count_is_zero() -> None:
+async def test_stride_is_not_resolved_while_the_count_is_zero() -> None:
     # An unimplemented n_pt would make the stride callable fail; with no
     # curves to place, it is never called.
     unit = _unit()
@@ -870,7 +876,7 @@ async def test_a_non_positive_resolved_stride_raises() -> None:
         await model.async_update()
 
 
-async def test_dynamic_placement_refreshed_by_component_group() -> None:
+async def test_callable_stride_refreshed_by_component_group() -> None:
     unit = _unit()
     unit.holding.update({0: 1, 1: 1, 2: 10, 3: 11})
     model = CurveModel(unit)
@@ -936,11 +942,9 @@ async def test_restricting_a_dynamic_instance_reaches_the_pooled_plan() -> None:
 def test_factory_defaults() -> None:
     field = repeating_group(uint16(8), Module, stride=20)
     assert field.count_in_block is True
-    assert field.offset == 0
     assert not field.is_static
     assert repeating_group(2, Module, stride=20).is_static
     assert not repeating_group(2, Module, stride=lambda m: 20).is_static
-    assert not repeating_group(2, Module, stride=20, offset=lambda m: 0).is_static
 
 
 def test_factory_validates() -> None:
