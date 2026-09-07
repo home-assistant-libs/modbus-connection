@@ -299,22 +299,147 @@ NESTED_MODEL_JSON: dict[str, Any] = {
 }
 
 
-def test_device_sized_nested_blocks_generate_classes_and_hints() -> None:
+def test_device_sized_nested_blocks_wire_at_poll_time() -> None:
     source = generate_source([NESTED_MODEL_JSON])
     # Classes for every level, at instance-0 addresses.
     assert "class CurvesCrvPt(Component):" in source
     assert "v = uint16(5)" in source
     assert "class CurvesCrv(Component):" in source
     assert "act_pt = uint16(4)" in source
-    # Neither block can be wired without its count, and the hint names the
-    # option that supplies it — the curve's stride depends on NPt too.
-    assert "# Re-run with --count 64222:NPt=<n> to emit it:" in source
-    assert "# pt = repeating_group(<n>, CurvesCrvPt, stride=1)" in source
+    # NPt sits in the model's fixed block, so every curve reads it there, and
+    # the curve's own stride follows from it.
     assert (
-        "# Re-run with --count 64222:NCrv=<n> --count 64222:NPt=<n> to emit it:"
+        "pt = repeating_group(uint16(2), CurvesCrvPt, stride=1, count_in_block=False)"
         in source
     )
-    assert "# crv = repeating_group(<n>, CurvesCrv, stride=<...>)" in source
+    assert (
+        "crv = repeating_group(uint16(3), CurvesCrv, stride=lambda m: 1 + m.n_pt)"
+        in source
+    )
+
+
+async def test_poll_time_nested_blocks_decode() -> None:
+    """The generated classes size and place the curves from the device."""
+    namespace: dict[str, Any] = {}
+    exec(
+        compile(generate_source([NESTED_MODEL_JSON]), "<generated>", "exec"), namespace
+    )  # noqa: S102
+    base = 100
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update(
+        {
+            base: 64222,
+            base + 1: 10,
+            base + 2: 2,  # NPt
+            base + 3: 2,  # NCrv
+            base + 4: 11,
+            base + 5: 12,
+            base + 6: 13,
+            base + 7: 21,
+            base + 8: 22,
+            base + 9: 23,
+        }
+    )
+    component = namespace["Curves"](
+        unit, SunSpecModel(model_id=64222, address=base, length=10)
+    )
+    await component.async_update()
+    assert [c.act_pt for c in component.crv] == [11, 21]
+    assert [[p.v for p in c.pt] for c in component.crv] == [[12, 13], [22, 23]]
+
+
+def test_a_partial_count_bakes_what_it_names() -> None:
+    source = generate_source([NESTED_MODEL_JSON], {64222: {"NCrv": 3}})
+    assert "crv = repeating_group(3, CurvesCrv, stride=lambda m: 1 + m.n_pt)" in source
+
+
+def _region(name: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "points": [{"name": "ActPt", "type": "uint16", "size": 1}],
+        "groups": [
+            {
+                "name": "Pt",
+                "count": "NPt",
+                "points": [{"name": "V", "type": "uint16", "size": 1}],
+            }
+        ],
+    }
+
+
+TRIP_MODEL_JSON: dict[str, Any] = {
+    # The 707-710 shape: three same-shaped device-sized regions in each curve.
+    "id": 64444,
+    "group": {
+        "label": "Trip",
+        "name": "trip",
+        "points": [
+            {"name": "ID", "type": "uint16", "size": 1},
+            {"name": "L", "type": "uint16", "size": 1},
+            {"name": "NPt", "type": "uint16", "size": 1},
+            {"name": "NCrv", "type": "uint16", "size": 1},
+        ],
+        "groups": [
+            {
+                "name": "Crv",
+                "count": "NCrv",
+                "points": [{"name": "ReadOnly", "type": "uint16", "size": 1}],
+                "groups": [_region("MustTrip"), _region("MayTrip"), _region("MomCess")],
+            }
+        ],
+    },
+}
+
+
+def test_same_shaped_blocks_after_a_device_sized_one_become_one_repeat() -> None:
+    source = generate_source([TRIP_MODEL_JSON])
+    assert "class TripCrvRegion(Component):" in source
+    assert "act_pt = uint16(5)" in source  # region 0 follows the curve's ReadOnly
+    assert (
+        "region = repeating_group(3, TripCrvRegion, stride=lambda m: 1 + m.n_pt)"
+        in source
+    )
+    assert (
+        "crv = repeating_group(uint16(3), TripCrv, stride=lambda m: 4 + 3 * m.n_pt)"
+        in source
+    )
+    for index, name in enumerate(("must_trip", "may_trip", "mom_cess")):
+        assert f"def {name}(self) -> TripCrvRegion:" in source
+        assert f"return self.region[{index}]" in source
+
+
+async def test_same_shaped_blocks_decode_through_their_properties() -> None:
+    namespace: dict[str, Any] = {}
+    exec(compile(generate_source([TRIP_MODEL_JSON]), "<generated>", "exec"), namespace)  # noqa: S102
+    base = 100
+    unit = MockModbusConnection().for_unit(1)
+    # NPt=1 -> a region is 2 registers, a curve 1 + 3 * 2 = 7
+    unit.holding.update({base: 64444, base + 1: 16, base + 2: 1, base + 3: 2})
+    unit.holding.update({base + 4: 1, base + 11: 2})  # ReadOnly per curve
+    unit.holding.update(
+        {base + 5 + i: v for i, v in enumerate((11, 12, 21, 22, 31, 32))}
+    )
+    unit.holding.update(
+        {base + 12 + i: v for i, v in enumerate((41, 42, 51, 52, 61, 62))}
+    )
+    component = namespace["Trip"](
+        unit, SunSpecModel(model_id=64444, address=base, length=16)
+    )
+    await component.async_update()
+    assert [
+        (c.read_only, c.must_trip.act_pt, c.may_trip.pt[0].v, c.mom_cess.act_pt)
+        for c in component.crv
+    ] == [(1, 11, 22, 31), (2, 41, 52, 61)]
+
+
+def test_count_point_in_an_enclosing_repeated_block_is_rejected() -> None:
+    model = copy.deepcopy(NESTED_MODEL_JSON)
+    crv = model["group"]["groups"][0]
+    # NPt moves into the curve, then sizes a block one level further down
+    crv["points"].append(model["group"]["points"].pop(2))
+    crv["groups"] = [{"name": "Mid", "points": [], "groups": crv["groups"]}]
+    with pytest.raises(SunSpecGenerationError, match="enclosing repeated block"):
+        generate_source([model])
 
 
 def test_counts_wire_device_sized_nested_blocks() -> None:
@@ -488,14 +613,10 @@ def test_unknown_point_type_is_rejected() -> None:
         generate_source([model])
 
 
-# The models the generator cannot lay out statically today: 707-710 stack
-# several device-sized blocks, so every block after the first has an
-# unknowable address, and 63001 (SunSpec's test model) mixes in-block and
-# fixed-block scale factors on one block. Newly supported or newly failing
-# models both show up as a mismatch here - update the set deliberately.
-# 707-710 do generate once --count supplies the device's counts, which is what
-# test_generated_layout_matches_a_real_device covers.
-KNOWN_UNSUPPORTED_MODELS = {707, 708, 709, 710, 63001}
+# The models the generator cannot lay out: 63001 (SunSpec's test model) mixes
+# in-block and fixed-block scale factors on one block. Newly supported or newly
+# failing models both show up as a mismatch here - update the set deliberately.
+KNOWN_UNSUPPORTED_MODELS = {63001}
 
 
 def test_official_model_catalogue_generates_and_imports(official_models: Path) -> None:
@@ -668,12 +789,14 @@ def test_poll_time_counted_block_still_gets_a_helper() -> None:
     assert "async def write_block(" in source
 
 
-def test_commented_out_block_gets_no_helper() -> None:
-    # 705's shape: Pt sits inside Crv but is counted by the model's fixed block,
-    # so without --count it is left commented - there is no group to write to.
+def test_block_counted_from_the_fixed_block_gets_a_helper() -> None:
+    # 705's shape: Pt sits inside Crv but is counted by the model's fixed block.
     source = generate_source([_nested(CURVE_MODEL_JSON, count=2)])
-    assert "# pt = repeating_group(<n>, CurveCrvPt, stride=2)" in source
-    assert "write_block" not in source
+    assert (
+        "pt = repeating_group(uint16(2), CurveCrvPt, stride=2, count_in_block=False)"
+        in source
+    )
+    assert "async def write_block(" in source
 
 
 async def test_generated_helper_writes_every_point_in_one_request() -> None:

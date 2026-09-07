@@ -99,11 +99,16 @@ class InverterThreePhase(SunSpecComponent):
     """Operating State."""
 ```
 
-A nested block whose count point sits in an outer block has no static
-address or stride. Model 705's `Pt` sits inside `Crv` but is counted by `NPt`
-in the fixed block. Pass the value your device reports with `--count`, and the
-generator emits the block as a fixed-count `repeating_group`. The curve models
-(705, 706, 712) and the trip models (707–710) need this:
+A block sized by a count point in the model's fixed block is sized at poll
+time. Model 705's `Pt` sits inside `Crv` but is counted by `NPt` in the fixed
+block, so `Pt` is emitted with `count_in_block=False` and `Crv` gets a
+callable stride that reads `NPt` off the model. The trip models (707–710) put
+three same-shaped regions inside each curve. They become one `region` group
+with a property per region: `must_trip`, `may_trip` and `mom_cess`. See
+[Placing a block the device sizes](/modbus-connection/modelling/repeats/#placing-a-block-the-device-sizes).
+
+Pass `--count` when you know the values your device reports, as a device
+library does:
 
 ```bash
 python -m modbus_connection.model.sunspec.generate 705 707 \
@@ -111,12 +116,11 @@ python -m modbus_connection.model.sunspec.generate 705 707 \
     --count 707:NCrvSet=2 --count 707:NPt=5
 ```
 
-Without a count, the generator leaves the declaration as a comment that names
-the `--count` option to pass. It raises `SunSpecGenerationError` when a
-device-sized block is not the last block, because the blocks after it have no
-known address. The counts are baked into the generated classes. A device that
-reports different counts has a different model length, and `SunSpecComponent`
-rejects that header on the first read.
+The counts are then baked into fixed-count groups, which fold into the model's
+read instead of adding a pass. A device that reports different counts has a
+different model length, and `SunSpecComponent` rejects that header on the first
+read. The generator raises `SunSpecGenerationError` when a block of another
+shape follows a device-sized block, because its address is unknown.
 
 ## Writing a curve
 

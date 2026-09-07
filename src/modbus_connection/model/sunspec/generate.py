@@ -10,7 +10,7 @@ import sys
 import textwrap
 import urllib.request
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..component import Component
@@ -40,7 +40,7 @@ _RESERVED_ATTRS = frozenset(dir(Component)) | frozenset(dir(SunSpecComponent))
 
 
 class SunSpecGenerationError(Exception):
-    """A model definition cannot be expressed as a static component layout."""
+    """A model definition cannot be expressed as a component layout."""
 
 
 @dataclass
@@ -140,16 +140,23 @@ class _ClassWriter:
         self.base = base
         self.docstring = docstring
         self.field_lines: list[str] = []
-        self._attrs: set[str] = set()
+        self._attrs: dict[str, str] = {}
         self.attr_order: list[str] = []
         """Attributes claimed, in order; a leaf block's are exactly its fields."""
 
     def attr_name(self, point_name: str) -> str:
-        """A unique, non-shadowing snake_case attribute for a point."""
+        """A unique, non-shadowing snake_case attribute for a point.
+
+        The same point name always gets the same attribute, so a count point a
+        stride refers to can be named before its field is emitted.
+        """
+        if (attr := self._attrs.get(point_name)) is not None:
+            return attr
         attr = _snake(point_name)
-        while attr in _RESERVED_ATTRS or attr in self._attrs:
+        taken = set(self._attrs.values())
+        while attr in _RESERVED_ATTRS or attr in taken:
             attr += "_"
-        self._attrs.add(attr)
+        self._attrs[point_name] = attr
         self.attr_order.append(attr)
         return attr
 
@@ -332,7 +339,13 @@ class _Group:
     raw_count: Any  # int, or the name of the point holding the repeat count
     points: list[_Point]
     children: list[_Group]
-    size: int | None  # registers per instance; None when only the device knows
+    size: int | None  # fixed registers per instance; None when unknowable
+    # registers per instance on top of ``size``, per count point of the
+    # model's fixed block: a curve of NPt two-register points has {"NPt": 2}
+    terms: dict[str, int] = field(default_factory=dict)
+    # the names of same-shaped sibling blocks this one stands for (see
+    # ``_parse_group``); a property per name indexes the repeated block
+    aliases: list[str] = field(default_factory=list)
 
 
 def _fixed_count(raw_count: Any) -> int | None:
@@ -358,6 +371,18 @@ def _count_names(raw: Mapping[str, Any]) -> set[str]:
     return names
 
 
+def _shape(raw: Mapping[str, Any]) -> Any:
+    """A block's layout, to tell a same-shaped sibling from a different block."""
+    return (
+        raw.get("count", 1),
+        tuple(
+            (p["name"], p["type"], int(p["size"]), p.get("sf"))
+            for p in raw.get("points", [])
+        ),
+        tuple(_shape(sub) for sub in raw.get("groups", [])),
+    )
+
+
 def _parse_group(
     raw: Mapping[str, Any], start: int, model_id: int, counts: Mapping[str, int]
 ) -> _Group:
@@ -365,30 +390,53 @@ def _parse_group(
 
     ``counts`` supplies a value for a count point the device would otherwise
     report at poll time, which makes the block it sizes a fixed-count repeat.
+
+    A device-sized block has no fixed size, so nothing can follow it - except
+    same-shaped blocks, which collapse into one repeat of it. The trip models
+    put three such regions in each curve.
     """
     points = _parse_points(raw.get("points", []), start)
     offset = start + sum(p.size for p in points)
     children: list[_Group] = []
     size: int | None = offset - start
-    for sub in raw.get("groups", []):
-        if size is None:
+    terms: dict[str, int] = {}
+    subs = list(raw.get("groups", []))
+    while subs:
+        if size is None or terms:
             raise SunSpecGenerationError(
                 f"model {model_id}: group {children[-1].name!r} has a"
                 " device-dependent size but is not the last block, so later"
                 " addresses are unknown"
             )
+        sub = subs.pop(0)
         child = _parse_group(sub, offset, model_id, counts)
-        children.append(child)
         count = _fixed_count(child.raw_count)
-        if count is not None and child.size is not None:
+        if count is not None and child.terms:
+            aliases = [child.name]
+            while subs and _shape(subs[0]) == _shape(sub):
+                aliases.append(subs.pop(0)["name"])
+            if len(aliases) > 1:
+                count *= len(aliases)
+                child = replace(child, name="region", raw_count=count, aliases=aliases)
+        children.append(child)
+        if child.size is None:
+            size = None
+        elif count is None:
+            if isinstance(child.raw_count, str) and not child.terms:
+                terms[child.raw_count] = terms.get(child.raw_count, 0) + child.size
+            else:
+                # a count of 0 fills the model length; a device count of
+                # device-sized blocks is a product no stride expresses
+                size = None
+        else:
             offset += count * child.size
             size = offset - start
-        else:
-            size = None
+            for name, registers in child.terms.items():
+                terms[name] = terms.get(name, 0) + count * registers
     raw_count = raw.get("count", 1)
     if isinstance(raw_count, str):
         raw_count = counts.get(raw_count, raw_count)
-    return _Group(raw.get("name", ""), raw_count, points, children, size)
+    return _Group(raw.get("name", ""), raw_count, points, children, size, terms)
 
 
 def _count_expression(
@@ -397,38 +445,52 @@ def _count_expression(
     module: _ModuleWriter,
     model_id: int,
     group_name: str,
-) -> str | None:
-    """Return the expression that supplies a repeated block's count.
+) -> tuple[str, bool] | None:
+    """Return a repeated block's count expression and whether it is in-block.
 
-    Raises ``SunSpecGenerationError`` for an unknown count point.
+    A count point of the enclosing block moves with that block's instances. One
+    in the model's fixed block stays put whatever block it sizes.
+
+    Raises ``SunSpecGenerationError`` for an unknown count point, or one in a
+    repeated block between the two.
     """
     if isinstance(raw_count, str):
-        for point in scopes[-1].points:
-            if point.name == raw_count:
-                module.sunspec_imports.add("uint16")
-                return f"uint16({point.address})"
+        for scope, in_block in ((scopes[-1], True), (scopes[0], False)):
+            for point in scope.points:
+                if point.name == raw_count:
+                    module.sunspec_imports.add("uint16")
+                    return f"uint16({point.address})", in_block
         if any(point.name == raw_count for scope in scopes for point in scope.points):
-            return None
+            raise SunSpecGenerationError(
+                f"model {model_id}: group {group_name} count references point"
+                f" {raw_count!r} in an enclosing repeated block, which has a"
+                " different address per instance"
+            )
         raise SunSpecGenerationError(
             f"model {model_id}: group {group_name} count references point"
             f" {raw_count!r}, which is not defined in the model"
         )
     count = int(raw_count)
     if count > 0:
-        return str(count)
+        return str(count), True
     count_points = [p for p in scopes[-1].points if p.type == "count"]
     if len(count_points) == 1:
         module.sunspec_imports.add("uint16")
-        return f"uint16({count_points[0].address})"
+        return f"uint16({count_points[0].address})", True
     return None
 
 
-def _unresolved_counts(group: _Group) -> list[str]:
-    """Count points in this block's subtree that no ``--count`` resolved."""
-    names = [group.raw_count] if isinstance(group.raw_count, str) else []
-    for child in group.children:
-        names += _unresolved_counts(child)
-    return names
+def _stride_expression(child: _Group, count_attrs: Mapping[str, str]) -> str | None:
+    """A repeated block's stride: an int, or a lambda over the model's counts."""
+    if child.size is None:
+        return None
+    if not child.terms:
+        return str(child.size)
+    parts = [str(child.size)] if child.size else []
+    for name, registers in child.terms.items():
+        attr = f"m.{count_attrs[name]}"
+        parts.append(attr if registers == 1 else f"{registers} * {attr}")
+    return f"lambda m: {' + '.join(parts)}"
 
 
 # Emitted once into a module that has at least one all-writable repeated block.
@@ -540,47 +602,49 @@ def _wire_child(
     module: _ModuleWriter,
     model_id: int,
     referenced_sf: frozenset[str],
+    count_attrs: Mapping[str, str],
 ) -> list[str]:
-    """Emit the parent field for a nested block."""
+    """Emit the parent field for a nested block.
+
+    Raises ``SunSpecGenerationError`` for a block whose stride no expression
+    over the model's count points gives.
+    """
     attr = writer.attr_name(child.name)
-    count_expr = _count_expression(
-        child.raw_count, scopes, module, model_id, child.name
-    )
-    if count_expr is not None and child.size:
-        module.model_imports.add("repeating_group")
-        lines = [
-            f"    {attr} = repeating_group({count_expr}, {child_class},"
-            f" stride={child.size})"
-        ]
-        if _block_writable(child, referenced_sf):
-            _claim_write_block(module)
-            lines.append("")
-            lines += _block_write_method(child, child_class, attr, writer, module)
-        return lines
-    lines = []
-    needed = list(dict.fromkeys(_unresolved_counts(child)))
-    if not needed:
+    counted = _count_expression(child.raw_count, scopes, module, model_id, child.name)
+    if counted is None:
         # A block that repeats to fill the model length names no count point,
-        # so there is nothing --count could be keyed on.
-        lines.append(
+        # so only the scanned model.length can size it.
+        return [
             f"    # {child.name!r} repeats to fill the model length and"
-            " defines no count"
+            " defines no count",
+            "    # point; size it from the scanned model.length:",
+            f"    # {attr} = repeating_group(N, {child_class}, stride={child.size})",
+        ]
+    stride = _stride_expression(child, count_attrs)
+    if stride is None:
+        raise SunSpecGenerationError(
+            f"model {model_id}: group {child.name} repeats a block whose size is"
+            " not a fixed number of registers plus multiples of the model's"
+            " count points"
         )
-        lines.append("    # point; size it from the scanned model.length:")
-        lines.append(
-            f"    # {attr} = repeating_group(N, {child_class}, stride={child.size})"
-        )
-        return lines
-    flags = " ".join(f"--count {model_id}:{name}=<n>" for name in needed)
-    lines.append(
-        f"    # {child.name!r} is sized at poll time by"
-        f" {', '.join(needed)}, which is not supported yet."
-    )
-    lines.append(f"    # Re-run with {flags} to emit it:")
-    lines.append(
-        f"    # {attr} = repeating_group(<n>, {child_class},"
-        f" stride={child.size or '<...>'})"
-    )
+    count_expr, in_block = counted
+    module.model_imports.add("repeating_group")
+    args = [count_expr, child_class, f"stride={stride}"]
+    if not in_block:
+        args.append("count_in_block=False")
+    lines = [f"    {attr} = repeating_group({', '.join(args)})"]
+    for index, name in enumerate(child.aliases):
+        lines += [
+            "",
+            "    @property",
+            f"    def {writer.attr_name(name)}(self) -> {child_class}:",
+            f'        """The {name!r} block."""',
+            f"        return self.{attr}[{index}]",
+        ]
+    if _block_writable(child, referenced_sf):
+        _claim_write_block(module)
+        lines.append("")
+        lines += _block_write_method(child, child_class, attr, writer, module)
     return lines
 
 
@@ -629,6 +693,7 @@ def _emit_group_class(
     model_id: int,
     scopes: list[_Group],
     referenced_sf: frozenset[str],
+    count_attrs: Mapping[str, str],
 ) -> str:
     """Emit one block's ``Component`` class (children first); return its name."""
     class_name = module.claim_class(f"{prefix}{_camel(group.name)}")
@@ -648,6 +713,7 @@ def _emit_group_class(
             model_id,
             [*scopes, group],
             referenced_sf,
+            count_attrs,
         )
         wiring.append(
             _wire_child(
@@ -658,6 +724,7 @@ def _emit_group_class(
                 module,
                 model_id,
                 referenced_sf,
+                count_attrs,
             )
         )
     scale_addresses, scale_in_block = _block_scales(group, top_scales, model_id, scopes)
@@ -706,14 +773,34 @@ def _generate_model(
     module.sunspec_imports.add("SunSpecComponent")
 
     referenced_sf = frozenset(_referenced_scale_factors(top))
+    # A callable stride reads a count point off the model instance, so the
+    # count points' attributes are named before the blocks that use them.
+    count_names = _count_names(model["group"])
+    count_attrs = {
+        p.name: writer.attr_name(p.name) for p in data_points if p.name in count_names
+    }
     wiring: list[list[str]] = []
     for child in top.children:
         child_class = _emit_group_class(
-            child, class_name, module, scale_addresses, model_id, [top], referenced_sf
+            child,
+            class_name,
+            module,
+            scale_addresses,
+            model_id,
+            [top],
+            referenced_sf,
+            count_attrs,
         )
         wiring.append(
             _wire_child(
-                child, child_class, [top], writer, module, model_id, referenced_sf
+                child,
+                child_class,
+                [top],
+                writer,
+                module,
+                model_id,
+                referenced_sf,
+                count_attrs,
             )
         )
     for point in data_points:
@@ -732,8 +819,8 @@ def generate_source(
 
     ``counts`` maps a model ID to the values of its count points, read from
     the device the generated classes target. A block sized by one of them is
-    emitted as a fixed-count ``repeating_group`` instead of being left for the
-    author to complete.
+    emitted as a fixed-count ``repeating_group`` instead of one sized at poll
+    time.
     """
     module = _ModuleWriter()
     counts = counts or {}
@@ -793,7 +880,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="MODEL:POINT=N",
         help="the value a count point holds on the target device, e.g."
         " --count 705:NCrv=3; the block it sizes is then emitted as a"
-        " fixed-count repeating_group. Repeatable.",
+        " fixed-count repeating_group instead of one sized at poll time."
+        " Repeatable.",
     )
     options = parser.parse_args(argv)
     counts: dict[int, dict[str, int]] = {}

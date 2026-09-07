@@ -89,20 +89,28 @@ def _attribute_for(point_name: str, resolved: Mapping[str, Any]) -> str | None:
     return attr or None
 
 
-@pytest.fixture(scope="session")
-def agate_module(official_models: Path) -> dict[str, Any]:
+@pytest.fixture(scope="session", params=["baked", "poll-time"])
+def agate_module(
+    request: pytest.FixtureRequest, official_models: Path
+) -> dict[str, Any]:
     """One generated module for the whole device, as the CLI would emit it.
 
     The generator has no per-device container - it emits a class per model - so
     a device library generates every model it found into one module. Doing the
     same here also covers the models sharing that module: their enums fold
     together and their class names must not collide.
+
+    Generated twice: with the device's counts baked in, and sized at poll time.
     """
     definitions = [
         json.loads((official_models / f"model_{entry['id']}.json").read_text())
         for entry in AGATE["models"]
     ]
-    counts = {entry["id"]: entry["counts"] for entry in AGATE["models"]}
+    counts = (
+        {entry["id"]: entry["counts"] for entry in AGATE["models"]}
+        if request.param == "baked"
+        else {}
+    )
     namespace: dict[str, Any] = {}
     source = generate_source(definitions, counts)
     exec(compile(source, "agate_models", "exec"), namespace)  # noqa: S102
