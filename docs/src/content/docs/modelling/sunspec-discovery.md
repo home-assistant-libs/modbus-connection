@@ -99,16 +99,9 @@ class InverterThreePhase(SunSpecComponent):
     """Operating State."""
 ```
 
-A block sized by a count point in the model's fixed block is sized at poll
-time. Model 705's `Pt` sits inside `Crv` but is counted by `NPt` in the fixed
-block, so `Pt` is emitted with `count_in_block=False` and `Crv` gets a
-callable stride that reads `NPt` off the model. The trip models (707–710) put
-three same-shaped regions inside each curve. They become one `region` group
-with a property per region: `must_trip`, `may_trip` and `mom_cess`. See
-[Placing a block the device sizes](/modbus-connection/modelling/repeats/#placing-a-block-the-device-sizes).
-
-Pass `--count` when you know the values your device reports, as a device
-library does:
+A block the device sizes, like model 705's curves, is sized at poll time by
+default. Pass `--count` when you know the values your device reports, as a
+device library does:
 
 ```bash
 python -m modbus_connection.model.sunspec.generate 705 707 \
@@ -119,8 +112,7 @@ python -m modbus_connection.model.sunspec.generate 705 707 \
 The counts are then baked into fixed-count groups, which fold into the model's
 read instead of adding a pass. A device that reports different counts has a
 different model length, and `SunSpecComponent` rejects that header on the first
-read. The generator raises `SunSpecGenerationError` when a block of another
-shape follows a device-sized block, because its address is unknown.
+read.
 
 ## Writing a curve
 
