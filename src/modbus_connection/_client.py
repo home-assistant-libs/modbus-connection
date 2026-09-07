@@ -25,6 +25,11 @@ __all__ = [
     "ModbusUdpParams",
 ]
 
+# How long disconnect() and close() wait for the request in flight. A healthy
+# request answers in milliseconds, so this is long enough for one to finish and
+# short enough that a wedged request never holds up recycling the link.
+_TEARDOWN_GRACE = 0.5
+
 
 @dataclass(frozen=True, kw_only=True)
 class ModbusTcpParams:
@@ -283,9 +288,10 @@ class BaseModbusConnection(ABC):
         this is tearing it down, so ``on_connection_lost`` callbacks do not
         fire. A no-op when there is no link.
 
-        Waits for the request in flight, so the link is never torn down under
-        one. Raises ``ModbusConnectionError`` if tearing the old link down
-        fails; the link is dropped regardless.
+        Waits out a request that is about to answer, up to
+        ``_TEARDOWN_GRACE``; a wedged one is cut. Raises
+        ``ModbusConnectionError`` if tearing the old link down fails; the link
+        is dropped regardless.
         """
         if (task := self._connect_task) is not None:
             # Wait a shared connect attempt out (shielded, as in close()) so
@@ -294,7 +300,7 @@ class BaseModbusConnection(ABC):
                 await asyncio.shield(task)
             except Exception:
                 pass
-        async with self._pacer.exclusive():
+        async with self._pacer.exclusive(_TEARDOWN_GRACE):
             client = self._client
             if client is None:
                 return
@@ -304,9 +310,9 @@ class BaseModbusConnection(ABC):
     async def close(self) -> None:
         """Close the connection permanently.
 
-        Waits for the request in flight, so the link is never torn down under
-        one. The connection is marked closed first, so no further request can
-        start.
+        The connection is marked closed first, so no further request can
+        start. Waits out a request that is about to answer, up to
+        ``_TEARDOWN_GRACE``; a wedged one is cut.
         """
         self._closed = True
         if (task := self._connect_task) is not None:
@@ -316,7 +322,7 @@ class BaseModbusConnection(ABC):
                 await asyncio.shield(task)
             except Exception:
                 pass
-        async with self._pacer.exclusive():
+        async with self._pacer.exclusive(_TEARDOWN_GRACE):
             client = self._client
             if client is None:
                 return

@@ -31,10 +31,21 @@ class Pacer:
             self._unit_last_finished_at.pop(unit_id, None)
 
     @asynccontextmanager
-    async def exclusive(self) -> AsyncIterator[None]:
-        """Hold the connection with no request in flight, for teardown."""
-        async with self._lock:
+    async def exclusive(self, timeout: float) -> AsyncIterator[None]:
+        """Hold the connection for teardown, or proceed after ``timeout``.
+
+        A request that is about to answer gets to deliver its result. A wedged
+        one must not hold the teardown up, so the wait is bounded.
+        """
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout)
+        except TimeoutError:
             yield
+            return
+        try:
+            yield
+        finally:
+            self._lock.release()
 
     @asynccontextmanager
     async def paced(self, unit_id: int) -> AsyncIterator[None]:

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from modbus_connection import ModbusTcpParams, ModbusUnit, _pacing
+from modbus_connection import ModbusTcpParams, ModbusUnit, _client, _pacing
 from modbus_connection._client import BaseModbusConnection
 from modbus_connection._pacing import Pacer
 from modbus_connection.pymodbus import PymodbusConnection
@@ -176,6 +176,21 @@ async def test_teardown_waits_for_the_request_in_flight(teardown: str) -> None:
     await task
     assert conn.closed_clients == 1
     assert conn.connected is False
+
+
+@pytest.mark.parametrize("teardown", ["disconnect", "close"])
+async def test_teardown_gives_up_on_a_wedged_request(
+    monkeypatch: pytest.MonkeyPatch, teardown: str
+) -> None:
+    """A request that does not answer must not hold the link up."""
+    monkeypatch.setattr(_client, "_TEARDOWN_GRACE", 0.01)
+    conn = _TrackingConnection()
+    await conn.connect()
+
+    async with conn._pacer.paced(UNIT_ID):  # never answers
+        await getattr(conn, teardown)()
+        assert conn.closed_clients == 1
+        assert conn.connected is False
 
 
 # -- per-unit gap on top of the connection-wide gap ---------------------------
