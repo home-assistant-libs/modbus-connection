@@ -336,6 +336,7 @@ class _Group:
     """One (possibly nested) block of a model, placed at its instance-0 offset."""
 
     name: str
+    start: int
     raw_count: Any  # int, or the name of the point holding the repeat count
     points: list[_Point]
     children: list[_Group]
@@ -436,7 +437,7 @@ def _parse_group(
     raw_count = raw.get("count", 1)
     if isinstance(raw_count, str):
         raw_count = counts.get(raw_count, raw_count)
-    return _Group(raw.get("name", ""), raw_count, points, children, size, terms)
+    return _Group(raw.get("name", ""), start, raw_count, points, children, size, terms)
 
 
 def _count_expression(
@@ -612,27 +613,36 @@ def _wire_child(
     attr = writer.attr_name(child.name)
     counted = _count_expression(child.raw_count, scopes, module, model_id, child.name)
     if counted is None:
-        # A block that repeats to fill the model length names no count point,
-        # so only the scanned model.length can size it.
-        return [
-            f"    # {child.name!r} repeats to fill the model length and"
-            " defines no count",
-            "    # point; size it from the scanned model.length:",
-            f"    # {attr} = repeating_group(N, {child_class}, stride={child.size})",
-        ]
-    stride = _stride_expression(child, count_attrs)
-    if stride is None:
-        raise SunSpecGenerationError(
-            f"model {model_id}: group {child.name} repeats a block whose size is"
-            " not a fixed number of registers plus multiples of the model's"
-            " count points"
+        if len(scopes) != 1 or not child.size or child.terms:
+            # A nested block does not own the remainder of the model. Its
+            # enclosing block's length must be known before it can be sized.
+            return [
+                f"    # {child.name!r} repeats to fill the model length and"
+                " defines no count",
+                "    # point; size it from the scanned model.length:",
+                f"    # {attr} = repeating_group(N, {child_class},"
+                f" stride={child.size})",
+            ]
+        module.sunspec_imports.add("model_length_group")
+        call = (
+            f"model_length_group({child_class}, start={child.start},"
+            f" stride={child.size})"
         )
-    count_expr, in_block = counted
-    module.model_imports.add("repeating_group")
-    args = [count_expr, child_class, f"stride={stride}"]
-    if not in_block:
-        args.append("count_in_block=False")
-    lines = [f"    {attr} = repeating_group({', '.join(args)})"]
+    else:
+        stride = _stride_expression(child, count_attrs)
+        if stride is None:
+            raise SunSpecGenerationError(
+                f"model {model_id}: group {child.name} repeats a block whose size is"
+                " not a fixed number of registers plus multiples of the model's"
+                " count points"
+            )
+        count_expr, in_block = counted
+        module.model_imports.add("repeating_group")
+        args = [count_expr, child_class, f"stride={stride}"]
+        if not in_block:
+            args.append("count_in_block=False")
+        call = f"repeating_group({', '.join(args)})"
+    lines = [f"    {attr} = {call}"]
     for index, name in enumerate(child.aliases):
         lines += [
             "",

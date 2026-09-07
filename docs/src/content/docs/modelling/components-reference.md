@@ -302,6 +302,27 @@ the discovered model and raises
 `restrict_fields(names)` keeps `model_id` and `model_length` whether or not
 `names` lists them, since the header is what that verification reads.
 
+### `model_length_group(component_class, *, start, stride)`
+
+Declare a fixed-width trailing group on a `SunSpecComponent`. Returns a
+`RepeatingGroupField`. The instances are available when the component is
+constructed and use its normal read plan.
+
+| Argument | Meaning |
+| --- | --- |
+| `component_class` | A `Component` subclass with fields at instance-0 addresses. |
+| `start` | Offset of the first block from the model header, including the two header registers. Must be at least 2. |
+| `stride` | Registers per block. Must be positive. |
+
+The count is `(model.length + 2 - start) / stride`. A model ending at `start`
+has zero instances. The constructor raises `SunSpecError` for a negative count
+or an incomplete final block. Each component binds its own count, so one
+generated class can represent devices with different model lengths.
+
+Invalid `start` or `stride` arguments raise `ValueError` when the group is
+declared. This helper is for groups directly on a `SunSpecComponent`, not
+groups nested inside another repeated block.
+
 ### Exceptions
 
 #### `SunSpecError`

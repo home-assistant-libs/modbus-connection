@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import IntEnum, IntFlag
 from typing import TYPE_CHECKING, Any, overload
 
-from ..component import Component
+from ..component import Component, RepeatingGroupField
 from ..fields import (
     Eui48Field,
     FloatField,
@@ -48,6 +48,7 @@ __all__ = [
     "int64",
     "ipaddr",
     "ipv6addr",
+    "model_length_group",
     "string",
     "sunssf",
     "uint16",
@@ -552,6 +553,50 @@ def eui48(address: int, *, stride: int = 0) -> Eui48Field:
 # -- components at discovered models --------------------------------------------
 
 
+class _ModelLengthGroup[C: Component](RepeatingGroupField[C]):
+    """A group template bound to one discovered model before reads are planned."""
+
+    def __init__(self, component_class: type[C], start: int, stride: int) -> None:
+        super().__init__(0, component_class, stride=stride)
+        self._start = start
+        self._block_size = stride
+
+    def bind(self, model: SunSpecModel) -> RepeatingGroupField[C]:
+        count, remainder = divmod(model.span - self._start, self._block_size)
+        if count < 0 or remainder:
+            raise SunSpecError(
+                f"model {model.model_id}: length {model.length} does not fit"
+                f" group {self.name!r} at offset {self._start}"
+                f" with stride {self._block_size}"
+            )
+        bound = RepeatingGroupField(
+            count, self.component_class, stride=self._block_size
+        )
+        bound.name = self.name
+        return bound
+
+
+def model_length_group[C: Component](
+    component_class: type[C], *, start: int, stride: int
+) -> RepeatingGroupField[C]:
+    """Repeat a fixed-width block to the end of a discovered SunSpec model.
+
+    Declare this on a ``SunSpecComponent``. ``start`` is the first block's
+    offset from the model header, including its two registers. ``stride`` is
+    the number of registers per block. The component class declares fields at
+    instance-0 addresses, just as for ``repeating_group``.
+
+    The count is bound from the scanned length when the parent is constructed.
+    A model ending at ``start`` has no instances. A shorter model or a partial
+    final block raises ``SunSpecError`` before any register reads.
+
+    Raises ``ValueError`` if ``start < 2`` or ``stride <= 0``.
+    """
+    if start < 2 or stride <= 0:
+        raise ValueError("model_length_group requires start >= 2 and stride > 0")
+    return _ModelLengthGroup(component_class, start, stride)
+
+
 class SunSpecComponent(Component):
     """Represent a discovered SunSpec model."""
 
@@ -560,6 +605,12 @@ class SunSpecComponent(Component):
 
     def __init__(self, unit: ModbusUnit, model: SunSpecModel) -> None:
         """Initialize the component at the discovered model's address."""
+        # A generated class can serve devices with different model lengths.
+        # Bind counts on this instance, leaving the class's templates intact.
+        self._static_groups = {
+            name: field.bind(model) if isinstance(field, _ModelLengthGroup) else field
+            for name, field in self._static_groups.items()
+        }
         super().__init__(unit, base_offset=model.address)
         self._model = model
 

@@ -37,6 +37,53 @@ class Inverter(Component):
     serial = ss.string(9, 4)
 
 
+class LengthModule(Component):
+    voltage = ss.uint16(2, writable=True)
+
+
+class LengthModel(ss.SunSpecComponent):
+    modules = ss.model_length_group(LengthModule, start=2, stride=2)
+
+
+async def test_model_length_groups_bind_per_device_and_share_the_normal_read() -> None:
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({100 + offset: 0 for offset in range(8)})
+    unit.holding.update({100: 64111, 101: 6, 102: 11, 104: 22, 106: 33})
+    unit.holding.update({200: 64111, 201: 2, 202: 44, 203: 0})
+    first = LengthModel(unit, ss.SunSpecModel(64111, 100, 6))
+    second = LengthModel(unit, ss.SunSpecModel(64111, 200, 2))
+    empty = LengthModel(unit, ss.SunSpecModel(64111, 300, 0))
+    assert len(first.modules) == 3
+    assert len(second.modules) == 1
+    assert empty.modules == []
+    assert unit.read_events == []
+    await first.async_update()
+    assert [module.voltage for module in first.modules] == [11, 22, 33]
+    assert len(unit.read_events) == 1
+    await second.async_update()
+    assert second.modules[0].voltage == 44
+    await first.modules[2].write("voltage", 55)
+    assert unit.holding[106] == 55
+    assert unit.holding[202] == 44
+
+
+@pytest.mark.parametrize("length", [0, 9, 11, 63, 65])
+def test_model_length_group_rejects_short_or_partial_blocks(length: int) -> None:
+    class CurveModel(ss.SunSpecComponent):
+        curves = ss.model_length_group(LengthModule, start=12, stride=54)
+
+    unit = MockModbusConnection().for_unit(1)
+    with pytest.raises(ss.SunSpecError, match="does not fit group 'curves'"):
+        CurveModel(unit, ss.SunSpecModel(126, 40002, length))
+    assert unit.read_events == []
+
+
+@pytest.mark.parametrize(("start", "stride"), [(1, 2), (2, 0), (2, -1)])
+def test_model_length_group_rejects_invalid_placement(start: int, stride: int) -> None:
+    with pytest.raises(ValueError, match="start >= 2 and stride > 0"):
+        ss.model_length_group(LengthModule, start=start, stride=stride)
+
+
 def _inverter(values: dict[int, int]) -> Inverter:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(values)
@@ -168,6 +215,7 @@ def test_all_factories_build_fields() -> None:
         "SunSpecMapShiftError",
         "SunSpecModel",
         "SunSpecModels",
+        "model_length_group",
         "scan",
     }
     for name in set(ss.__all__) - discovery:

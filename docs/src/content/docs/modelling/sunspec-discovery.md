@@ -83,6 +83,18 @@ Class names come from the model's group name, with the model ID added when
 names collide. Each point's label and description become its attribute
 docstring.
 
+For a fixed-width trailing group with `count: 0` and no count point, the
+generator emits `model_length_group`. This includes model 126's curves.
+The group count comes from the scanned model length when you construct the
+component. Its instances share the component's normal read plan.
+Different devices can use the same generated class with different counts.
+An incomplete final group raises `SunSpecError` during construction.
+
+Nested groups and groups with variable-width instances still need explicit
+layout information when they have no count point. See the
+[group reference](/modbus-connection/modelling/components-reference/#model_length_groupcomponent_class-start-stride)
+for the helper's arguments.
+
 ```python
 class OperatingState(IntEnum):
     OFF = 1

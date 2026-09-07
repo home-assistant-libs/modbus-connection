@@ -177,11 +177,53 @@ async def test_generated_module_decodes() -> None:
     assert modules[1].lbl == "M2"
 
 
-def test_count_zero_without_count_point_generates_hint() -> None:
+def test_count_zero_without_count_point_uses_model_length() -> None:
     model = copy.deepcopy(MODEL_JSON)
     model["group"]["points"] = [p for p in model["group"]["points"] if p["name"] != "N"]
     source = generate_source([model])
-    assert "# module = repeating_group(N, TestModule, stride=3)" in source
+    assert "module = model_length_group(TestModule, start=13, stride=3)" in source
+
+
+def test_nested_length_group_keeps_the_unresolved_hint() -> None:
+    model = copy.deepcopy(MODEL_JSON)
+    child = model["group"]["groups"][0]
+    model["group"]["points"] = [p for p in model["group"]["points"] if p["name"] != "N"]
+    child["groups"] = [
+        {
+            "name": "cell",
+            "count": 0,
+            "points": [{"name": "V", "type": "uint16", "size": 1}],
+        }
+    ]
+    source = generate_source([model])
+    assert "# cell = repeating_group(N, TestModuleCell, stride=1)" in source
+    assert "model_length_group" not in source
+
+
+@pytest.mark.parametrize("count", [0, 1, 3])
+async def test_model_126_curves_follow_scanned_length(
+    official_models: Path, count: int
+) -> None:
+    model = json.loads((official_models / "model_126.json").read_text())
+    namespace: dict[str, Any] = {}
+    exec(compile(generate_source([model]), "<generated>", "exec"), namespace)  # noqa: S102
+    unit = MockModbusConnection().for_unit(1)
+    base = 40002
+    # Model 126 has 10 fixed data registers and 54 registers per curve.
+    length = 10 + 54 * count
+    unit.holding.update({base + offset: 0 for offset in range(length + 2)})
+    unit.holding.update({base: 126, base + 1: length, base + 9: 0xFFFE})
+    for index in range(count):
+        unit.holding[base + 14 + 54 * index] = 9200 + 100 * index
+    component = namespace["VoltVar"](unit, SunSpecModel(126, base, length))
+    assert len(component.curve) == count
+    await component.async_update()
+    assert [curve.v1 for curve in component.curve] == [
+        92.0 + index for index in range(count)
+    ]
+    assert all(
+        event.address + event.count <= base + length + 2 for event in unit.read_events
+    )
 
 
 def test_string_count_reference() -> None:
