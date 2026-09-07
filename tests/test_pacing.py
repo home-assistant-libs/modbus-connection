@@ -11,10 +11,12 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 
-from modbus_connection import ModbusTcpParams, _pacing
+from modbus_connection import ModbusTcpParams, ModbusUnit, _pacing
+from modbus_connection._client import BaseModbusConnection
 from modbus_connection._pacing import Pacer
 from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
@@ -139,6 +141,41 @@ async def test_serializes_concurrent_callers_without_spacing() -> None:
 
     await asyncio.gather(*(one(unit_id) for unit_id in range(5)))
     assert peak == 1
+
+
+class _TrackingConnection(BaseModbusConnection):
+    """A connection whose client is a stand-in, counting its teardowns."""
+
+    def __init__(self) -> None:
+        super().__init__(ModbusTcpParams(host="127.0.0.1"))
+        self.closed_clients = 0
+
+    async def _connect_client(self) -> Any:
+        return object()
+
+    async def _close_client(self, client: Any) -> None:
+        self.closed_clients += 1
+
+    def for_unit(self, unit_id: int) -> ModbusUnit:
+        raise NotImplementedError
+
+
+@pytest.mark.parametrize("teardown", ["disconnect", "close"])
+async def test_teardown_waits_for_the_request_in_flight(teardown: str) -> None:
+    """A link is never torn down under a request."""
+    conn = _TrackingConnection()
+    await conn.connect()
+
+    async with conn._pacer.paced(UNIT_ID):
+        task = asyncio.create_task(getattr(conn, teardown)())
+        for _ in range(3):  # let the teardown run up to the lock
+            await asyncio.sleep(0)
+        assert conn.closed_clients == 0
+        assert conn.connected is True
+
+    await task
+    assert conn.closed_clients == 1
+    assert conn.connected is False
 
 
 # -- per-unit gap on top of the connection-wide gap ---------------------------

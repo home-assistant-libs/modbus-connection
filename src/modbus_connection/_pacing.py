@@ -31,6 +31,12 @@ class Pacer:
             self._unit_last_finished_at.pop(unit_id, None)
 
     @asynccontextmanager
+    async def exclusive(self) -> AsyncIterator[None]:
+        """Hold the connection with no request in flight, for teardown."""
+        async with self._lock:
+            yield
+
+    @asynccontextmanager
     async def paced(self, unit_id: int) -> AsyncIterator[None]:
         """Hold the connection for one request, after the configured gaps."""
         async with self._lock:

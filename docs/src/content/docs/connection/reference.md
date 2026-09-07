@@ -63,7 +63,8 @@ fires the callbacks.
 recycle a link that is up but unusable, such as a peer that keeps the socket
 open but stops answering. Unlike `close()`, the connection stays usable:
 existing unit handles and components reconnect on their next request. A no-op
-when there is no link. Raises
+when there is no link. Waits for the request in flight, so the call takes as
+long as that request needs to finish or time out. Raises
 [`ModbusConnectionError`](#modbusconnectionerror) if tearing the old link down
 fails; the link is dropped regardless.
 
@@ -71,7 +72,8 @@ fails; the link is dropped regardless.
 
 `async` — close the connection permanently. After `close()`, `connect()` and
 every unit operation raise [`ClientClosedError`](#clientclosederror). Construct
-a new connection to reconnect.
+a new connection to reconnect. The connection is marked closed first, then the
+call waits for the request in flight.
 
 ## Parameter dataclasses
 

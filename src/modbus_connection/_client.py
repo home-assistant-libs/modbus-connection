@@ -283,8 +283,9 @@ class BaseModbusConnection(ABC):
         this is tearing it down, so ``on_connection_lost`` callbacks do not
         fire. A no-op when there is no link.
 
-        Raises ``ModbusConnectionError`` if tearing the old link down fails;
-        the link is dropped regardless.
+        Waits for the request in flight, so the link is never torn down under
+        one. Raises ``ModbusConnectionError`` if tearing the old link down
+        fails; the link is dropped regardless.
         """
         if (task := self._connect_task) is not None:
             # Wait a shared connect attempt out (shielded, as in close()) so
@@ -293,14 +294,20 @@ class BaseModbusConnection(ABC):
                 await asyncio.shield(task)
             except Exception:
                 pass
-        client = self._client
-        if client is None:
-            return
-        self._client = None
-        await self._close_client(client)
+        async with self._pacer.exclusive():
+            client = self._client
+            if client is None:
+                return
+            self._client = None
+            await self._close_client(client)
 
     async def close(self) -> None:
-        """Close the connection permanently."""
+        """Close the connection permanently.
+
+        Waits for the request in flight, so the link is never torn down under
+        one. The connection is marked closed first, so no further request can
+        start.
+        """
         self._closed = True
         if (task := self._connect_task) is not None:
             # Wait the shared connect attempt out; shielded so cancelling this
@@ -309,11 +316,12 @@ class BaseModbusConnection(ABC):
                 await asyncio.shield(task)
             except Exception:
                 pass
-        client = self._client
-        if client is None:
-            return
-        self._client = None
-        await self._close_client(client)
+        async with self._pacer.exclusive():
+            client = self._client
+            if client is None:
+                return
+            self._client = None
+            await self._close_client(client)
 
     # -- backend hooks ----------------------------------------------------------
 
