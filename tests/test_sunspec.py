@@ -9,7 +9,7 @@ from enum import IntEnum, IntFlag
 import pytest
 
 from modbus_connection.mock import MockModbusConnection
-from modbus_connection.model import Component
+from modbus_connection.model import Component, repeating_group
 from modbus_connection.model import sunspec as ss
 
 
@@ -520,3 +520,49 @@ async def test_sunspec_group_header_check_precedes_all_listeners() -> None:
     with pytest.raises(ss.SunSpecMapShiftError, match="header mismatch"):
         await ComponentGroup(unit, [healthy, shifted]).async_update()
     assert fired == []  # the healthy member's listeners never fired
+
+
+class _VoltVarPt(Component):
+    # Crv offsets 10 and 11: the Pt block follows the ten-register curve header
+    v = ss.uint16(25)
+    var = ss.int16(26)
+
+
+class _VoltVarCrv(Component):
+    act_pt = ss.uint16(15)
+    # NPt is a point of the model, at model offset 5, whatever curve this is
+    pt = repeating_group(ss.uint16(5), _VoltVarPt, stride=2, count_in_block=False)
+
+
+class _VoltVar(ss.SunSpecComponent):
+    """Model 705 (DERVoltVar) as the official definition lays it out.
+
+    Thirteen fixed registers follow the header, then NCrv curves of a
+    ten-register header and NPt (V, Var) pairs: 18 registers each at NPt = 4.
+    """
+
+    n_pt = ss.uint16(5)
+    n_crv = ss.uint16(6)
+    crv = repeating_group(ss.uint16(6), _VoltVarCrv, stride=18)
+
+
+async def test_model_705_curves_count_their_points_from_the_fixed_block() -> None:
+    # Synthetic values in the aGate's model 705 slot: the device's own curve
+    # registers all read 0, so its dump cannot tell a right placement from a
+    # wrong one.
+    base, n_crv, n_pt = 40363, 3, 4
+    unit = MockModbusConnection().for_unit(1)
+    unit.holding.update({base: 705, base + 1: 67, base + 5: n_pt, base + 6: n_crv})
+    for i in range(n_crv):
+        curve = base + 15 + 18 * i
+        unit.holding[curve] = i + 1  # ActPt
+        for j in range(n_pt):
+            unit.holding[curve + 10 + 2 * j] = 1000 * (i + 1) + j  # V
+            unit.holding[curve + 11 + 2 * j] = -(10 * (i + 1) + j) & 0xFFFF  # Var
+    model = _VoltVar(unit, ss.SunSpecModel(model_id=705, address=base, length=67))
+    await model.async_update()
+    assert [c.act_pt for c in model.crv] == [1, 2, 3]
+    assert [[(p.v, p.var) for p in c.pt] for c in model.crv] == [
+        [(1000 * (i + 1) + j, -(10 * (i + 1) + j)) for j in range(n_pt)]
+        for i in range(n_crv)
+    ]
