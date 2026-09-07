@@ -9,12 +9,7 @@ from contextlib import asynccontextmanager
 
 
 class Pacer:
-    """Serializes requests on one connection and enforces the gaps between them.
-
-    One connection is one link, so only one request may be on the wire at a
-    time. The lock provides that; the connection-wide and per-unit gaps widen
-    the window between requests when a device needs the pause.
-    """
+    """Serializes requests on one connection and enforces the gaps between them."""
 
     def __init__(self, message_spacing: float = 0.0) -> None:
         if message_spacing < 0:

@@ -134,7 +134,7 @@ async def test_serializes_concurrent_callers_without_spacing() -> None:
         async with pacer.paced(unit_id):
             in_flight += 1
             peak = max(peak, in_flight)
-            await asyncio.sleep(0)  # hand the loop to the other callers
+            await asyncio.sleep(0)
             in_flight -= 1
 
     await asyncio.gather(*(one(unit_id) for unit_id in range(5)))
