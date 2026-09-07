@@ -32,8 +32,7 @@ keep working across the recycle.
 
 `disconnect()` and `close()` wait briefly for the request in flight, so a
 request that is about to answer still delivers its result. The wait is bounded
-at half a second. A wedged request never holds up the recycle: it is cut, and
-it fails.
+at half a second.
 
 Only the connection owner should retain this object and call `close()`. Closing
 is permanent: later calls to `connect()` or unit operations raise
