@@ -140,13 +140,17 @@ points, and `NPt` is a point of the model:
 ```python
 class VoltVarCrv(Component):
     act_pt = uint16(0)
-    pt = repeating_group(uint16(5), VoltVarPt, stride=2, offset=10, count_in_block=False)
+    pt = repeating_group(
+        uint16(5), VoltVarPt, stride=2, offset=10, count_in_block=False
+    )
 
 
 class VoltVar(Component):
     n_pt = uint16(5)
     n_crv = uint16(6)
-    crv = repeating_group(uint16(6), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt, offset=15)
+    crv = repeating_group(
+        uint16(6), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt, offset=15
+    )
 ```
 
 A callable `offset` places a sibling after a block the device sizes. The trip
