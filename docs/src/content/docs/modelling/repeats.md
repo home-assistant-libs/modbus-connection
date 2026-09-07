@@ -105,21 +105,15 @@ pass at any level; they fold into the enclosing read.
 
 ### Where a nested count lives
 
-A nested group's register count shifts with the enclosing instance by default.
-In the example above, string *i* reads its cell count at `1 + i * 100`: the
-count is part of the repeated block. Pass `count_in_block=False` when the count
-is a point of the outermost layout instead. Every instance then reads it at the
-same address. SunSpec maps always work this way: an `NPt` point sits in the
-model's fixed block and sizes a group one or two levels down.
+A nested group's register count shifts with the enclosing instance by default:
+string *i* above reads its cell count at `1 + i * 100`. Pass
+`count_in_block=False` when the count is a point of the outermost layout
+instead, as a SunSpec `NPt` point in the model's fixed block is. Every instance
+then reads it at the same address.
 
 ```python
-class Point(Component):
-    v = uint16(0)
-    w = uint16(1)
-
-
 class Curve(Component):
-    # NPt is a point of the model, at model offset 5, whatever curve this is
+    # NPt is at model offset 5, whatever curve this is
     points = repeating_group(uint16(5), Point, stride=2, count_in_block=False)
 
 
@@ -129,10 +123,8 @@ class VoltVar(Component):
     curves = repeating_group(uint16(4), Curve, stride=30)
 ```
 
-Without `count_in_block=False`, curve 1 would read its count at `35`, and a
-device that answers `0` there would silently give it no points. The count still
-moves with `base_offset`, which places the whole layout. The flag makes no
-difference to a group that is not itself nested inside a repeat.
+Without the flag, curve 1 would read its count at `35`. A device that answers
+`0` there silently gives it no points.
 
 ## Scale factors inside the block
 

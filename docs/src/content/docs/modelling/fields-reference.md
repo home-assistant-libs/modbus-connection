@@ -55,9 +55,8 @@ Create a `RepeatingGroupField` describing repeated sub-components. `count` is a
 fixed `int` (must be `>= 0`; instances fold into the normal read) or a
 `RegisterField` read at poll time (a second read pass sizes the list).
 `stride` is the block length (must be `> 0`, or `ValueError`).
-`count_in_block` says where a register count is read for a group nested inside
-another `repeating_group`: `True` shifts its address with each enclosing
-instance, `False` reads it at the outermost layout's address. Reading the
+`count_in_block=False` reads a nested group's register count at the outermost
+layout's address instead of shifting it with each enclosing instance. Reading the
 attribute returns `list[C]` — the instances built on the last update. See
 [Repeating groups](/modbus-connection/modelling/repeats/).
 
