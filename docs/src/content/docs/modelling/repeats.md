@@ -153,34 +153,13 @@ class VoltVar(Component):
     crv = repeating_group(uint16(6), VoltVarCrv, stride=lambda m: 10 + 2 * m.n_pt)
 ```
 
-The trip models (707–710) put three same-shaped regions inside each curve, each
-starting where the previous one ends. One fixed-count group with a callable
-stride places them, and a property per region gives them the spec's names:
-
-```python
-def _region(m: TripLV) -> int:
-    return 1 + 3 * m.n_pt
-
-
-class TripCrv(Component):
-    read_only = enum16(9)
-    regions = repeating_group(3, TripRegion, stride=_region)
-
-    @property
-    def may_trip(self) -> TripRegion:
-        return self.regions[1]
-
-
-class TripLV(Component):
-    n_pt = uint16(5)
-    n_crv_set = uint16(6)
-    crv = repeating_group(uint16(6), TripCrv, stride=lambda m: 1 + 3 * _region(m))
-```
-
 A group with a callable `stride` is read in the second pass, like a
-register-counted group, even with a fixed `int` count. So `regions` adds a pass
-and is empty until the first update. The callable runs on every poll. If its
-result changes, the instances are rebuilt where it now puts them. On a
+register-counted group, even with a fixed `int` count. The trip models
+(707–710) use that: each curve holds three same-shaped regions of `1 + 3 * NPt`
+registers, so they are one `repeating_group(3, TripRegion, stride=_region)`,
+with a property per region for the spec's names. Such a group is empty until
+the first update. The callable runs on every poll. If its result changes, the
+instances are rebuilt where it now puts them. On a
 [`ManualComponent`](/modbus-connection/modelling/manual-component/) the
 callable receives the `ManualComponent`; read the values it needs with `get()`.
 
