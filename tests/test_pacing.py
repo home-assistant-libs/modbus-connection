@@ -1,6 +1,6 @@
-"""Tests for inter-request spacing (``message_spacing`` + per-unit gaps).
+"""Tests for request serialization and spacing (``message_spacing`` + per-unit gaps).
 
-Spacing is enforced by the shared ``Pacer`` — both backends use it, neither
+Both are enforced by the shared ``Pacer`` — both backends use it, neither
 relies on a native knob — so the deterministic tests drive a fake clock against
 the pacer directly, and the end-to-end tests prove both backends pace real
 requests over one server.
@@ -118,6 +118,27 @@ async def test_serializes_concurrent_callers() -> None:
     await asyncio.gather(*(one() for _ in range(5)))
     # Five requests means four gaps of at least `spacing` each.
     assert time.monotonic() - start >= 0.02 * 4
+
+
+# -- serialization ------------------------------------------------------------
+
+
+async def test_serializes_concurrent_callers_without_spacing() -> None:
+    """One link carries one request at a time, spacing configured or not."""
+    pacer = Pacer(0.0)
+    in_flight = 0
+    peak = 0
+
+    async def one(unit_id: int) -> None:
+        nonlocal in_flight, peak
+        async with pacer.paced(unit_id):
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0)  # hand the loop to the other callers
+            in_flight -= 1
+
+    await asyncio.gather(*(one(unit_id) for unit_id in range(5)))
+    assert peak == 1
 
 
 # -- per-unit gap on top of the connection-wide gap ---------------------------
