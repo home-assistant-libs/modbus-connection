@@ -175,6 +175,47 @@ def test_host_case_does_not_make_params_differ(left: Params, right: Params) -> N
 
 
 @pytest.mark.parametrize(
+    "params_cls", [ModbusTcpParams, ModbusUdpParams, ModbusTlsParams]
+)
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param("Dev.LOCAL", "dev.local", id="hostname"),
+        pytest.param("192.0.2.1", "192.0.2.1", id="ipv4"),
+        pytest.param("FE80::ABCD", "fe80::abcd", id="ipv6"),
+        pytest.param("FE80::ABCD%3", "fe80::abcd%3", id="numeric-scope"),
+        pytest.param("FE80::ABCD%enP3s0", "fe80::abcd%enP3s0", id="named-scope"),
+    ],
+)
+def test_host_normalization_preserves_scope(
+    params_cls: type[ModbusTcpParams | ModbusUdpParams | ModbusTlsParams],
+    host: str,
+    expected: str,
+) -> None:
+    params = params_cls(host=host)
+    normalized = params_cls(host=expected)
+    assert params.host == expected
+    assert params == normalized
+    assert hash(params) == hash(normalized)
+    assert params.endpoint == normalized.endpoint
+    assert params.endpoint[1] == expected
+
+
+@pytest.mark.parametrize(
+    "params_cls", [ModbusTcpParams, ModbusUdpParams, ModbusTlsParams]
+)
+def test_scope_case_keeps_endpoints_distinct(
+    params_cls: type[ModbusTcpParams | ModbusUdpParams | ModbusTlsParams],
+) -> None:
+    left = params_cls(host="fe80::1%enP3s0")
+    right = params_cls(host="fe80::1%enp3s0")
+    assert left != right
+    assert left.endpoint != right.endpoint
+    assert len({left, right}) == 2
+    assert len({left.endpoint, right.endpoint}) == 2
+
+
+@pytest.mark.parametrize(
     ("left", "right"),
     [
         pytest.param(

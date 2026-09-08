@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
+from unittest.mock import Mock
 
 import pytest
 from tmodbus.exceptions import (
@@ -73,6 +75,32 @@ def connection_to(
         return ModbusConnection(ModbusTcpParams(host="test"))
 
     return build
+
+
+@pytest.mark.parametrize(
+    ("framer", "factory_name"),
+    [
+        pytest.param("socket", "create_async_tcp_client", id="tcp"),
+        pytest.param("rtu", "create_async_rtu_over_tcp_client", id="rtu-over-tcp"),
+    ],
+)
+async def test_scoped_host_reaches_client(
+    monkeypatch: pytest.MonkeyPatch,
+    framer: Literal["socket", "rtu"],
+    factory_name: str,
+) -> None:
+    client = _FakeClient()
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(tmodbus_backend, factory_name, factory)
+    connection = ModbusConnection(
+        ModbusTcpParams(host="FE80::1%enP3s0", port=1502, framer=framer)
+    )
+    try:
+        await connection.connect()
+        factory.assert_called_once()
+        assert factory.call_args.args == ("fe80::1%enP3s0", 1502)
+    finally:
+        await connection.close()
 
 
 async def test_read_file_record_decodes_to_words(
