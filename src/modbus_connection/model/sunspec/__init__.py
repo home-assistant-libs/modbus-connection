@@ -556,22 +556,29 @@ def eui48(address: int, *, stride: int = 0) -> Eui48Field:
 class _ModelLengthGroup[C: Component](RepeatingGroupField[C]):
     """A group template bound to one discovered model before reads are planned."""
 
+    stride: int
+
     def __init__(self, component_class: type[C], start: int, stride: int) -> None:
         super().__init__(0, component_class, stride=stride)
         self._start = start
-        self._block_size = stride
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        super().__set_name__(owner, name)
+        if not issubclass(owner, SunSpecComponent):
+            raise TypeError(
+                f"model_length_group {name!r} needs a SunSpecComponent owner,"
+                f" got {owner.__name__}"
+            )
 
     def bind(self, model: SunSpecModel) -> RepeatingGroupField[C]:
-        count, remainder = divmod(model.span - self._start, self._block_size)
+        count, remainder = divmod(model.span - self._start, self.stride)
         if count < 0 or remainder:
             raise SunSpecError(
                 f"model {model.model_id}: length {model.length} does not fit"
                 f" group {self.name!r} at offset {self._start}"
-                f" with stride {self._block_size}"
+                f" with stride {self.stride}"
             )
-        bound = RepeatingGroupField(
-            count, self.component_class, stride=self._block_size
-        )
+        bound = RepeatingGroupField(count, self.component_class, stride=self.stride)
         bound.name = self.name
         return bound
 

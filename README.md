@@ -68,9 +68,6 @@ asyncio.run(main())
 
 ## Documentation
 
-The SunSpec generator supports fixed-width trailing groups sized from a
-discovered model's length, such as model 126's curves.
-
 Everything else — the other transports (UDP, serial, TLS), the full field-type
 and read-planning reference, repeated sub-units, the SunSpec field types and
 model generator, the in-memory mock backend for tests, and the exception

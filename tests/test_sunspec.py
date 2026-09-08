@@ -84,6 +84,28 @@ def test_model_length_group_rejects_invalid_placement(start: int, stride: int) -
         ss.model_length_group(LengthModule, start=start, stride=stride)
 
 
+def test_model_length_group_rejects_a_plain_component_owner() -> None:
+    # Older Python releases wrap __set_name__ errors in RuntimeError.
+    with pytest.raises((TypeError, RuntimeError)) as exc_info:
+
+        class Plain(Component):
+            modules = ss.model_length_group(LengthModule, start=2, stride=2)
+
+    error = exc_info.value.__cause__ or exc_info.value
+    assert isinstance(error, TypeError)
+    assert str(error) == (
+        "model_length_group 'modules' needs a SunSpecComponent owner, got Plain"
+    )
+
+
+def test_model_length_group_accepts_an_inherited_sunspec_owner() -> None:
+    class Derived(LengthModel):
+        modules = ss.model_length_group(LengthModule, start=2, stride=2)
+
+    unit = MockModbusConnection().for_unit(1)
+    assert len(Derived(unit, ss.SunSpecModel(64111, 100, 6)).modules) == 3
+
+
 def _inverter(values: dict[int, int]) -> Inverter:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(values)
