@@ -42,7 +42,7 @@ class ModbusTcpParams:
     """Connection parameters for a Modbus TCP link."""
 
     host: str
-    """Host name or IP address, lowercased except for the IPv6 scope identifier."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 502
     """TCP port."""
@@ -73,7 +73,7 @@ class ModbusUdpParams:
     """Connection parameters for a Modbus UDP link."""
 
     host: str
-    """Host name or IP address, lowercased except for the IPv6 scope identifier."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 502
     """UDP port."""
@@ -104,7 +104,7 @@ class ModbusTlsParams:
     """Connection parameters for a Modbus/TLS (Modbus Security) link."""
 
     host: str
-    """Host name or IP address, lowercased except for the IPv6 scope identifier."""
+    """Host name or IP address of the device, folded to lower case."""
 
     port: int = 802
     """TLS port."""
@@ -128,7 +128,7 @@ class ModbusTlsParams:
     """TLS context overriding the other TLS options."""
 
     def __post_init__(self) -> None:
-        """Normalize the host while preserving its IPv6 scope identifier."""
+        """Fold the host to lower case."""
         object.__setattr__(self, "host", _normalize_host(self.host))
 
     @property
