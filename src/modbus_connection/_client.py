@@ -198,6 +198,25 @@ class ModbusSerialParams:
         return ("serial", self.device)
 
 
+def _record(required: dict[int, float], unit_id: int, seconds: float) -> None:
+    """Store a unit's requirement, dropping it when the unit asks for nothing."""
+    if seconds:
+        required[unit_id] = seconds
+    else:
+        required.pop(unit_id, None)
+
+
+def _resolved(base: float, required: dict[int, float]) -> float:
+    """The largest of the connection's own value and every unit requirement."""
+    return max(base, *required.values()) if required else base
+
+
+def _consume_failure(task: asyncio.Task[None]) -> None:
+    """Observe a fire-and-forget task's failure so asyncio does not warn."""
+    if not task.cancelled():
+        task.exception()
+
+
 def _target(
     params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
 ) -> str:
@@ -220,9 +239,17 @@ class BaseModbusConnection(ABC):
         connect_delay: float = 0.0,
     ) -> None:
         self._params = params
-        self._timeout = timeout
         self._pacer = Pacer(message_spacing)
+        # What the connection itself was asked for, before any unit requirement.
+        self._base_timeout = timeout
+        self._base_connect_delay = connect_delay
+        self._unit_timeouts: dict[int, float] = {}
+        self._unit_connect_delays: dict[int, float] = {}
+        self._timeout = timeout
         self._connect_delay = connect_delay
+        # The timeout the live (or in-flight) backend client carries. It is
+        # built with the value, so raising it needs a new client.
+        self._client_timeout = timeout
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
@@ -260,6 +287,7 @@ class BaseModbusConnection(ABC):
             task.exception()
 
     async def _do_connect(self) -> None:
+        self._client_timeout = self._timeout
         client = await self._connect_client()
         if self._connect_delay:
             # Some devices need a pause after the link opens before they answer
@@ -283,6 +311,29 @@ class BaseModbusConnection(ABC):
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
+
+    def _require_timeout(self, unit_id: int, seconds: float) -> None:
+        """Raise the link's timeout to at least ``seconds`` for ``unit_id``."""
+        if seconds < 0:
+            raise ValueError("timeout must be non-negative")
+        _record(self._unit_timeouts, unit_id, seconds)
+        self._timeout = _resolved(self._base_timeout, self._unit_timeouts)
+        if self._timeout > self._client_timeout and (
+            self._client is not None or self._connect_task is not None
+        ):
+            # A relaxed timeout can wait for the next connect. A raised one
+            # cannot: the unit that needs it would go on giving up early.
+            task = asyncio.create_task(self.disconnect())
+            task.add_done_callback(_consume_failure)
+
+    def _require_connect_delay(self, unit_id: int, seconds: float) -> None:
+        """Raise the link's connect delay to at least ``seconds`` for ``unit_id``."""
+        if seconds < 0:
+            raise ValueError("connect_delay must be non-negative")
+        _record(self._unit_connect_delays, unit_id, seconds)
+        self._connect_delay = _resolved(
+            self._base_connect_delay, self._unit_connect_delays
+        )
 
     async def disconnect(self) -> None:
         """Drop the link; the next request establishes a new one.

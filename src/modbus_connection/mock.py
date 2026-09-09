@@ -117,6 +117,8 @@ class MockModbusUnit:
         self._request_failure: Exception | None = None
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
+        self.required_timeout = 0.0
+        self.required_connect_delay = 0.0
         self.read_events: list[ReadEvent] = []
 
     @property
@@ -131,6 +133,24 @@ class MockModbusUnit:
         if seconds < 0:
             raise ValueError("message_spacing must be non-negative")
         self.message_spacing = seconds
+
+    def require_timeout(self, seconds: float) -> None:
+        """Record the required per-request timeout.
+
+        Raises ``ValueError`` if ``seconds`` is negative.
+        """
+        if seconds < 0:
+            raise ValueError("timeout must be non-negative")
+        self.required_timeout = seconds
+
+    def require_connect_delay(self, seconds: float) -> None:
+        """Record the required pause after the link opens.
+
+        Raises ``ValueError`` if ``seconds`` is negative.
+        """
+        if seconds < 0:
+            raise ValueError("connect_delay must be non-negative")
+        self.required_connect_delay = seconds
 
     async def _ensure_connected(self) -> None:
         await self._conn.connect()

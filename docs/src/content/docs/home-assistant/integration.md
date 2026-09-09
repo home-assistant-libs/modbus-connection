@@ -153,12 +153,14 @@ The coordinator's first read establishes the link. If the device is unreachable,
 that read fails, and `async_config_entry_first_refresh()` turns the failure into
 `ConfigEntryNotReady`. Home Assistant then retries setup for you.
 
-:::note[If your device needs a pause between frames]
-Set it on the unit with
-[`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing).
-The gap then applies to your device rather than to everything on a shared link,
-which is what you want when the link carries several units and only yours needs
-pacing.
+:::note[If your device needs a pause, or more time]
+Your device library declares that on the unit it receives.
+[`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
+sets a gap between its own requests.
+[`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements)
+ask the shared link for more time, for a device that is slow to answer or slow
+to come up. The timing then lives with the register map rather than in the code
+that builds the params.
 :::
 
 ## The coordinator

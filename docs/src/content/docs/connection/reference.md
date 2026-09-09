@@ -220,6 +220,22 @@ the unit ID and combines with connection-wide spacing by waiting for the longer
 interval. Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
 See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
+#### `require_timeout(seconds)`
+
+Ask the link for a per-request timeout of at least `seconds`. The connection
+runs with the largest value asked of it, by the connection itself or by any unit
+on it, so this never shortens another unit's timeout. Raising it above what a
+live link carries drops that link, and the next request opens one with the new
+value. Pass `0` to withdraw the requirement. Raises `ValueError` if `seconds` is
+negative. See [Device requirements](/modbus-connection/connection/connections-and-units/#device-requirements).
+
+#### `require_connect_delay(seconds)`
+
+Ask the link for a pause of at least `seconds` after it opens, resolved the same
+way. It applies to the next connect, so it never disturbs a link that is up.
+Pass `0` to withdraw the requirement. Raises `ValueError` if `seconds` is
+negative.
+
 #### `on_connection_lost(callback)`
 
 Register a callback fired when the connection's link drops; returns an

@@ -340,6 +340,12 @@ class TmodbusUnit:
     def set_message_spacing(self, seconds: float) -> None:
         self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
 
+    def require_timeout(self, seconds: float) -> None:
+        self._conn._require_timeout(self._unit_id, seconds)
+
+    def require_connect_delay(self, seconds: float) -> None:
+        self._conn._require_connect_delay(self._unit_id, seconds)
+
     # -- raw register I/O -----------------------------------------------------
 
     @_map_errors
