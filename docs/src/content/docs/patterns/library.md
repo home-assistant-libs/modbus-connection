@@ -220,3 +220,16 @@ asyncio.run(main())
   to setup, so the polling path stays a fixed list of components to read.
 - **Split where the blocks divide.** Give the settings their own update method
   when they sit in blocks of their own.
+
+## A library built this way
+
+[sofar-modbus](https://github.com/darkrain-nl/sofar-modbus) follows this page end
+to end. Its
+[`SofarInverter`](https://github.com/darkrain-nl/sofar-modbus/blob/main/src/sofar_modbus/modern/device.py)
+takes a `ModbusUnit`. It holds one `Component` per sub-system, such as the
+[PV strings](https://github.com/darkrain-nl/sofar-modbus/blob/main/src/sofar_modbus/modern/pv.py).
+Setup settles which sub-systems this inverter serves. The poll then splits into
+`async_update_readings()` and `async_update_settings()`, and each returns an
+`UpdateReport`. The
+[`sofar`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/sofar)
+integration in Home Assistant consumes it.

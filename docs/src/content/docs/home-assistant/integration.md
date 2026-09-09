@@ -52,6 +52,11 @@ An integration built this way has three clear layers:
    hands a `ModbusUnit` to the library, and polls it from a
    `DataUpdateCoordinator`.
 
+[sofar-modbus](https://github.com/darkrain-nl/sofar-modbus) and the
+[`sofar`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/sofar)
+integration are these layers in Home Assistant today. Read them side by side
+when the split is unclear.
+
 ## The config flow
 
 Collect the transport details for the params object your integration builds:
