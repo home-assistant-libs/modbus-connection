@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import ssl
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, fields, replace
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from ._callbacks import CallbackRegistry
 from ._pacing import Pacer
@@ -19,10 +19,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BaseModbusConnection",
+    "ModbusEndpoint",
+    "ModbusParams",
     "ModbusSerialParams",
     "ModbusTcpParams",
     "ModbusTlsParams",
     "ModbusUdpParams",
+    "resolve_params",
 ]
 
 # How long disconnect() and close() wait for the request in flight. A healthy
@@ -37,8 +40,80 @@ def _normalize_host(host: str) -> str:
     return address.lower() + separator + scope
 
 
+type ModbusEndpoint = tuple[str, str, int] | tuple[str, str]
+"""Hashable identity of an addressed device: transport, then its address."""
+
+# Tuning two holders of one link may disagree on. It states how a caller wants
+# the link run rather than how to open it, so a shared connection reconciles it
+# (see ``resolve_params``) instead of refusing to serve both callers.
+_TUNING_FIELDS = frozenset({"timeout", "message_spacing", "connect_delay"})
+
+# A half-duplex RS485 adapter needs time to switch direction between frames.
+# Home Assistant has applied this gap to every serial Modbus link since 2021,
+# so it is the value the field has proven. The inter-frame silence RTU asks for
+# is far shorter, and is not what makes a USB adapter reliable.
+_SERIAL_MESSAGE_SPACING = 0.03
+
+
 @dataclass(frozen=True, kw_only=True)
-class ModbusTcpParams:
+class _ParamsBase(ABC):
+    """The tuning every params class carries: how the caller wants the link run.
+
+    The other fields of a params class describe the link itself, and two
+    callers must agree on them to share one connection. These three they need
+    not agree on.
+    """
+
+    timeout: float = 10
+    """Per-request timeout in seconds."""
+
+    message_spacing: float | None = None
+    """Minimum gap between requests; ``None`` takes the transport default."""
+
+    connect_delay: float = 0.0
+    """Pause after the link opens, before the first request uses it."""
+
+    _default_message_spacing: ClassVar[float] = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate the tuning."""
+        if self.timeout <= 0:
+            raise ValueError("timeout must be positive")
+        if self.message_spacing is not None and self.message_spacing < 0:
+            raise ValueError("message_spacing must be non-negative")
+        if self.connect_delay < 0:
+            raise ValueError("connect_delay must be non-negative")
+
+    @property
+    def effective_message_spacing(self) -> float:
+        """The gap actually applied: the explicit value, or the transport default."""
+        if self.message_spacing is None:
+            return self._default_message_spacing
+        return self.message_spacing
+
+    @property
+    @abstractmethod
+    def endpoint(self) -> ModbusEndpoint:
+        """Hashable identity of the addressed device."""
+
+    def is_compatible_with(self, other: ModbusParams) -> bool:
+        """Whether ``other`` describes the same link, tuning aside.
+
+        One link cannot run at two baud rates, so incompatible params cannot
+        share a connection. Compatible ones can, once ``resolve_params``
+        settles the tuning between them.
+        """
+        if type(self) is not type(other):
+            return False
+        return all(
+            getattr(self, field.name) == getattr(other, field.name)
+            for field in fields(self)
+            if field.name not in _TUNING_FIELDS
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ModbusTcpParams(_ParamsBase):
     """Connection parameters for a Modbus TCP link."""
 
     host: str
@@ -51,7 +126,8 @@ class ModbusTcpParams:
     """Wire framing."""
 
     def __post_init__(self) -> None:
-        """Validate the wire framing."""
+        """Validate the tuning and the wire framing."""
+        super().__post_init__()
         if self.framer not in ("socket", "rtu", "ascii"):
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
@@ -69,7 +145,7 @@ class ModbusTcpParams:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ModbusUdpParams:
+class ModbusUdpParams(_ParamsBase):
     """Connection parameters for a Modbus UDP link."""
 
     host: str
@@ -82,7 +158,8 @@ class ModbusUdpParams:
     """Wire framing."""
 
     def __post_init__(self) -> None:
-        """Validate the wire framing."""
+        """Validate the tuning and the wire framing."""
+        super().__post_init__()
         if self.framer not in ("socket", "rtu", "ascii"):
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
@@ -100,7 +177,7 @@ class ModbusUdpParams:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ModbusTlsParams:
+class ModbusTlsParams(_ParamsBase):
     """Connection parameters for a Modbus/TLS (Modbus Security) link."""
 
     host: str
@@ -128,7 +205,8 @@ class ModbusTlsParams:
     """TLS context overriding the other TLS options."""
 
     def __post_init__(self) -> None:
-        """Fold the host to lower case."""
+        """Validate the tuning and fold the host to lower case."""
+        super().__post_init__()
         object.__setattr__(self, "host", _normalize_host(self.host))
 
     @property
@@ -157,7 +235,7 @@ class ModbusTlsParams:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ModbusSerialParams:
+class ModbusSerialParams(_ParamsBase):
     """Connection parameters for a Modbus serial link."""
 
     device: str
@@ -178,8 +256,11 @@ class ModbusSerialParams:
     framer: Literal["rtu", "ascii"] = "rtu"
     """Serial framing."""
 
+    _default_message_spacing: ClassVar[float] = _SERIAL_MESSAGE_SPACING
+
     def __post_init__(self) -> None:
-        """Validate the serial framing."""
+        """Validate the tuning and the serial framing."""
+        super().__post_init__()
         if self.framer not in ("rtu", "ascii"):
             raise ValueError(
                 f"unknown serial framer {self.framer!r}; expected 'rtu' or 'ascii'"
@@ -196,6 +277,37 @@ class ModbusSerialParams:
         resolved.
         """
         return ("serial", self.device)
+
+
+type ModbusParams = (
+    ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
+)
+"""Any of the four params dataclasses."""
+
+
+def resolve_params(params: Iterable[ModbusParams]) -> ModbusParams:
+    """Return one params object honoring the most demanding tuning of each.
+
+    Callers sharing a link get the longest timeout, the widest message spacing
+    and the longest connect delay any of them asked for, so none is served less
+    carefully than it asked to be.
+
+    Raises ``ValueError`` if ``params`` is empty, or if two of them describe
+    different links.
+    """
+    holders = list(params)
+    if not holders:
+        raise ValueError("resolve_params needs at least one params object")
+    first = holders[0]
+    for other in holders[1:]:
+        if not first.is_compatible_with(other):
+            raise ValueError(f"{first} and {other} describe different links")
+    return replace(
+        first,
+        timeout=max(held.timeout for held in holders),
+        message_spacing=max(held.effective_message_spacing for held in holders),
+        connect_delay=max(held.connect_delay for held in holders),
+    )
 
 
 def _target(
@@ -215,14 +327,32 @@ class BaseModbusConnection(ABC):
             ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
         ),
         *,
-        timeout: float = 10,
-        message_spacing: float = 0.0,
-        connect_delay: float = 0.0,
+        timeout: float | None = None,
+        message_spacing: float | None = None,
+        connect_delay: float | None = None,
     ) -> None:
+        """Open nothing yet; the first unit operation connects.
+
+        ``params`` carries the tuning. The keyword arguments override what it
+        says, for a caller that keeps the link settings and the tuning apart.
+        """
+        if (timeout, message_spacing, connect_delay) != (None, None, None):
+            params = replace(
+                params,
+                timeout=params.timeout if timeout is None else timeout,
+                message_spacing=(
+                    params.message_spacing
+                    if message_spacing is None
+                    else message_spacing
+                ),
+                connect_delay=(
+                    params.connect_delay if connect_delay is None else connect_delay
+                ),
+            )
         self._params = params
-        self._timeout = timeout
-        self._pacer = Pacer(message_spacing)
-        self._connect_delay = connect_delay
+        self._timeout = params.timeout
+        self._pacer = Pacer(params.effective_message_spacing)
+        self._connect_delay = params.connect_delay
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
@@ -283,6 +413,27 @@ class BaseModbusConnection(ABC):
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
+
+    def set_params(self, params: ModbusParams) -> bool:
+        """Adopt new tuning, returning whether the link must be recycled for it.
+
+        Message spacing takes effect at once, and the connect delay applies to
+        the next connect. The timeout is fixed when the backend client is
+        built, so a live link keeps the old one until it is replaced: ``True``
+        asks the owner to ``disconnect()``.
+
+        Raises ``ValueError`` if ``params`` describes a different link.
+        """
+        if not self._params.is_compatible_with(params):
+            raise ValueError(
+                f"parameters for a different link cannot be applied to {self._target}"
+            )
+        recycle = self.connected and params.timeout != self._timeout
+        self._params = params
+        self._timeout = params.timeout
+        self._connect_delay = params.connect_delay
+        self._pacer.set_message_spacing(params.effective_message_spacing)
+        return recycle
 
     async def disconnect(self) -> None:
         """Drop the link; the next request establishes a new one.

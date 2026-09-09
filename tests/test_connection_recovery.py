@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack
+from dataclasses import replace
 
 import pytest
 
@@ -28,8 +29,8 @@ from .conftest import UNIT_ID
 from .modbus_server import holding_store, serve_tcp
 
 BACKENDS: dict[str, Callable[[ModbusTcpParams], ModbusConnection]] = {
-    "pymodbus": lambda params: PymodbusConnection(params, timeout=1),
-    "tmodbus": lambda params: TmodbusConnection(params, timeout=1),
+    "pymodbus": lambda params: PymodbusConnection(replace(params, timeout=1)),
+    "tmodbus": lambda params: TmodbusConnection(replace(params, timeout=1)),
 }
 
 VALUE = 4321

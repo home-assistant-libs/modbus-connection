@@ -169,7 +169,7 @@ async def test_tls_verifies_by_default(
     """The default (verify=True) rejects a server whose cert isn't trusted —
     surfaced on the first request, not at construction."""
     host, port, _ = tls_server
-    client = client_cls(ModbusTlsParams(host=host, port=port), timeout=1)
+    client = client_cls(ModbusTlsParams(host=host, port=port, timeout=1))
     try:
         with pytest.raises(ModbusError):
             await client.for_unit(UNIT_ID).read_holding_registers(0, 1)

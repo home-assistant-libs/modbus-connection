@@ -105,7 +105,7 @@ async def test_tmodbus_rtu_over_tcp_vendor_sub_function(free_port: int) -> None:
     host, port = "127.0.0.1", free_port
     async with serve_stream(_vendor_device, host, port):
         conn = tmodbus_backend.ModbusConnection(
-            ModbusTcpParams(host=host, port=port, framer="rtu"), timeout=3
+            ModbusTcpParams(host=host, port=port, framer="rtu", timeout=3)
         )
         try:
             unit = conn.for_unit(UNIT_ID)

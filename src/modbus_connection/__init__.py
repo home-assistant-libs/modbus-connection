@@ -4,10 +4,13 @@ from ._client import (
     BaseModbusConnection as ModbusConnection,
 )
 from ._client import (
+    ModbusEndpoint,
+    ModbusParams,
     ModbusSerialParams,
     ModbusTcpParams,
     ModbusTlsParams,
     ModbusUdpParams,
+    resolve_params,
 )
 from ._protocol import ModbusUnit
 from ._types import WordOrder
@@ -52,6 +55,8 @@ __all__ = [
     "ModbusError",
     "ModbusExceptionError",
     "ModbusDesyncError",
+    "ModbusEndpoint",
+    "ModbusParams",
     "ModbusProtocolError",
     "ModbusSerialParams",
     "ModbusTcpParams",
@@ -60,4 +65,5 @@ __all__ = [
     "ModbusUdpParams",
     "ModbusUnit",
     "WordOrder",
+    "resolve_params",
 ]

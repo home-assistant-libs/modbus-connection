@@ -154,11 +154,12 @@ that read fails, and `async_config_entry_first_refresh()` turns the failure into
 `ConfigEntryNotReady`. Home Assistant then retries setup for you.
 
 :::note[If your device needs a pause between frames]
-Set it on the unit with
+Set `message_spacing` on the params you pass to `async_get_unit`. A serial link
+already carries a 30 ms gap for RS485 turnaround, so this is for a device that
+needs more. Where the link carries several units and only yours is slow to
+answer twice in a row, set the gap on the unit instead with
 [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing).
-The gap then applies to your device rather than to everything on a shared link,
-which is what you want when the link carries several units and only yours needs
-pacing.
+Only the gap on the params applies between requests to *different* units.
 :::
 
 ## The coordinator

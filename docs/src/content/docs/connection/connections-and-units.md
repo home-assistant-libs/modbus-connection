@@ -82,9 +82,8 @@ every backend carries every framing — see
 [Choosing a backend](/modbus-connection/getting-started/backends/).
 
 The [reference](/modbus-connection/connection/reference/#parameter-dataclasses)
-lists every field and default. `timeout`, `message_spacing` and `connect_delay`
-belong to the connection rather than the parameters. Pass them to
-`ModbusConnection` itself.
+lists every field and default. Every params class also carries `timeout`,
+`message_spacing` and `connect_delay`, covered below.
 
 ### TLS
 
@@ -101,17 +100,21 @@ store by default. The options:
 ## Request spacing
 
 Some devices require a pause between frames. Set `message_spacing` in seconds on
-the connection:
+the params:
 
 ```python
 connection = ModbusConnection(
-    ModbusSerialParams(device="/dev/ttyUSB0"),
-    message_spacing=0.1,
+    ModbusSerialParams(device="/dev/ttyUSB0", message_spacing=0.1),
 )
 ```
 
 The interval is measured from the completion of one request to the start of the
-next. The default `0` disables spacing.
+next.
+
+A serial link paces itself without being asked. A half-duplex RS485 adapter
+needs time to switch direction between frames, so `ModbusSerialParams` applies a
+30 ms gap unless you ask for another. Pass a larger value to widen the gap, or
+`0` to disable it. The socket transports apply no gap by default.
 
 To pace only one device on a shared link, set the interval on its unit:
 
@@ -121,19 +124,19 @@ connection.for_unit(7).set_message_spacing(0.05)
 
 This setting belongs to the unit ID and applies to every handle for that ID. It
 combines with connection-wide spacing by waiting for the longer interval. Pass
-`0` to clear it.
+`0` to clear it. It spaces requests to that unit alone: a gap the *line* needs,
+such as RS485 turnaround, belongs in `message_spacing` on the params.
 
 ## Connect delay
 
 Some devices need a pause **after the link opens** before they answer reliably.
-Set `connect_delay` in seconds on the connection. The delay is awaited each time
-the link is established — the first connect and every reconnect — before any
-request uses it:
+Set `connect_delay` in seconds on the params. The delay is awaited each time the
+link is established — the first connect and every reconnect — before any request
+uses it:
 
 ```python
 connection = ModbusConnection(
-    ModbusTcpParams(host="192.168.1.50"),
-    connect_delay=1.0,
+    ModbusTcpParams(host="192.168.1.50", connect_delay=1.0),
 )
 ```
 
@@ -146,6 +149,29 @@ The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
 should construct the backend's `ModbusConnection` with a shared parameter
 object.
 :::
+
+## Sharing a link
+
+Two callers may address one device over one connection. They must agree on the
+link settings, but not on the tuning. `is_compatible_with` compares the link
+settings alone:
+
+```python
+if not existing_params.is_compatible_with(new_params):
+    raise ValueError("conflicting settings for the same device")
+```
+
+`resolve_params` then settles the tuning between the holders. It takes the
+longest timeout, the widest message spacing and the longest connect delay any of
+them asked for, so no caller is served less carefully than it asked to be:
+
+```python
+recycle = connection.set_params(resolve_params(held_params))
+```
+
+`set_params` returns `True` when the change needs the link recycled. Only the
+timeout does, because the backend client is built with it. Call `disconnect()`
+and the next request opens a link that uses the new value.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

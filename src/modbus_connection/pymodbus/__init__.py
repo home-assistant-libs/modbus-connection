@@ -440,7 +440,7 @@ async def connect_tcp(
     port: int = 502,
     timeout: float = 10,
     framer: SocketFraming = "socket",
-    message_spacing: float = 0.0,
+    message_spacing: float | None = None,
     connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus TCP connection.
@@ -448,10 +448,14 @@ async def connect_tcp(
     Raises ``ModbusConnectionError`` if the connection cannot be established.
     """
     connection = ModbusConnection(
-        ModbusTcpParams(host=host, port=port, framer=framer),
-        timeout=timeout,
-        message_spacing=message_spacing,
-        connect_delay=connect_delay,
+        ModbusTcpParams(
+            host=host,
+            port=port,
+            framer=framer,
+            timeout=timeout,
+            message_spacing=message_spacing,
+            connect_delay=connect_delay,
+        )
     )
     await connection.connect()
     return connection
@@ -463,7 +467,7 @@ async def connect_udp(
     port: int = 502,
     timeout: float = 10,
     framer: SocketFraming = "socket",
-    message_spacing: float = 0.0,
+    message_spacing: float | None = None,
     connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus UDP connection.
@@ -471,10 +475,14 @@ async def connect_udp(
     Raises ``ModbusConnectionError`` if the endpoint cannot be set up.
     """
     connection = ModbusConnection(
-        ModbusUdpParams(host=host, port=port, framer=framer),
-        timeout=timeout,
-        message_spacing=message_spacing,
-        connect_delay=connect_delay,
+        ModbusUdpParams(
+            host=host,
+            port=port,
+            framer=framer,
+            timeout=timeout,
+            message_spacing=message_spacing,
+            connect_delay=connect_delay,
+        )
     )
     await connection.connect()
     return connection
@@ -491,7 +499,7 @@ async def connect_tls(
     client_key_password: str | None = None,
     sslctx: ssl.SSLContext | None = None,
     timeout: float = 10,
-    message_spacing: float = 0.0,
+    message_spacing: float | None = None,
     connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus/TLS connection.
@@ -508,10 +516,10 @@ async def connect_tls(
             client_key=client_key,
             client_key_password=client_key_password,
             sslctx=sslctx,
-        ),
-        timeout=timeout,
-        message_spacing=message_spacing,
-        connect_delay=connect_delay,
+            timeout=timeout,
+            message_spacing=message_spacing,
+            connect_delay=connect_delay,
+        )
     )
     await connection.connect()
     return connection
@@ -526,7 +534,7 @@ async def connect_serial(
     stopbits: int = 1,
     timeout: float = 10,
     framer: SerialFraming = "rtu",
-    message_spacing: float = 0.0,
+    message_spacing: float | None = None,
     connect_delay: float = 0.0,
 ) -> ModbusConnection:
     """Open a Modbus serial connection.
@@ -541,10 +549,10 @@ async def connect_serial(
             parity=parity,  # type: ignore[arg-type]
             stopbits=stopbits,  # type: ignore[arg-type]
             framer=framer,
-        ),
-        timeout=timeout,
-        message_spacing=message_spacing,
-        connect_delay=connect_delay,
+            timeout=timeout,
+            message_spacing=message_spacing,
+            connect_delay=connect_delay,
+        )
     )
     await connection.connect()
     return connection

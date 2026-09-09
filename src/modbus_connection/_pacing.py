@@ -20,6 +20,12 @@ class Pacer:
         self._unit_spacing: dict[int, float] = {}
         self._unit_last_finished_at: dict[int, float] = {}
 
+    def set_message_spacing(self, seconds: float) -> None:
+        """Set the connection-wide gap, replacing the one given at construction."""
+        if seconds < 0:
+            raise ValueError("message_spacing must be non-negative")
+        self._message_spacing = seconds
+
     def set_unit_spacing(self, unit_id: int, seconds: float) -> None:
         """Set (or, with ``0``, clear) the per-unit gap for ``unit_id``."""
         if seconds < 0:

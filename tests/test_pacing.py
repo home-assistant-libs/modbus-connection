@@ -18,7 +18,6 @@ import pytest
 from modbus_connection import ModbusTcpParams, ModbusUnit, _client, _pacing
 from modbus_connection._client import BaseModbusConnection
 from modbus_connection._pacing import Pacer
-from modbus_connection.pymodbus import PymodbusConnection
 from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
@@ -63,9 +62,9 @@ def test_pacer_rejects_negative_unit_spacing() -> None:
         Pacer().set_unit_spacing(UNIT_ID, -0.1)
 
 
-def test_connection_rejects_negative_message_spacing() -> None:
+def test_params_reject_negative_message_spacing() -> None:
     with pytest.raises(ValueError):
-        PymodbusConnection(ModbusTcpParams(host="test"), message_spacing=-0.1)
+        ModbusTcpParams(host="test", message_spacing=-0.1)
 
 
 async def test_tmodbus_connect_rejects_negative_message_spacing() -> None:

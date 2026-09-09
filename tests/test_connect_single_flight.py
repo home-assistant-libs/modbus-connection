@@ -115,7 +115,7 @@ class _DelayedConnection(BaseModbusConnection):
     """Connects instantly; only connect_delay separates connect from ready."""
 
     def __init__(self, connect_delay: float) -> None:
-        super().__init__(ModbusTcpParams(host="127.0.0.1"), connect_delay=connect_delay)
+        super().__init__(ModbusTcpParams(host="127.0.0.1", connect_delay=connect_delay))
 
     async def _connect_client(self) -> Any:
         return object()

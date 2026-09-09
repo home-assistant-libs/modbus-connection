@@ -193,7 +193,7 @@ def add_connection_args(
 
 
 async def connect_from_args(
-    args: argparse.Namespace, *, message_spacing: float = 0.0
+    args: argparse.Namespace, *, message_spacing: float | None = None
 ) -> BaseModbusConnection:
     """Open the connection described by ``args``.
 

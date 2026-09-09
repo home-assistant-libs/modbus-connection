@@ -30,7 +30,7 @@ from .modbus_server import serve_router
 async def test_pymodbus_transport_sends_timed_out_request_once() -> None:
     """pymodbus's transaction manager has no retries beneath the wrapper."""
     connection = pymodbus_backend.ModbusConnection(
-        ModbusTcpParams(host="127.0.0.1"), timeout=0.001
+        ModbusTcpParams(host="127.0.0.1", timeout=0.001)
     )
     client = await connection._create_client()
     transaction = client.ctx

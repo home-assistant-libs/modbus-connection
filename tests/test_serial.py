@@ -90,11 +90,13 @@ async def test_serial_reads(
     framing: Literal["rtu", "ascii"],
 ) -> None:
     client_port = await serial_port(framing)
-    params = ModbusSerialParams(device=client_port, baudrate=9600, framer=framing)
+    params = ModbusSerialParams(
+        device=client_port, baudrate=9600, framer=framing, timeout=2
+    )
     if backend == "pymodbus":
-        conn = pymodbus_backend.ModbusConnection(params, timeout=2)
+        conn = pymodbus_backend.ModbusConnection(params)
     else:
-        conn = tmodbus_backend.ModbusConnection(params, timeout=2)
+        conn = tmodbus_backend.ModbusConnection(params)
     try:
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
         if backend == "tmodbus":

@@ -15,15 +15,21 @@ backend module exports a concrete subclass under the same name:
 identical, so selecting a backend changes only the import.
 
 ```python
-ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
+ModbusConnection(params, *, timeout=None, message_spacing=None, connect_delay=None)
 ```
 
 | Parameter | Type | Meaning |
 | --- | --- | --- |
-| `params` | `ModbusTcpParams \| ModbusUdpParams \| ModbusTlsParams \| ModbusSerialParams` | The transport to connect over — see [the parameter dataclasses](#parameter-dataclasses). |
-| `timeout` | `float`, default `10` | Per-request timeout in seconds. |
-| `message_spacing` | `float`, default `0.0` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
-| `connect_delay` | `float`, default `0.0` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
+| `params` | `ModbusParams` | The link to connect over, and how to run it — see [the parameter dataclasses](#parameter-dataclasses). |
+| `timeout` | `float \| None`, default `None` | Overrides the timeout `params` asks for. |
+| `message_spacing` | `float \| None`, default `None` | Overrides the message spacing `params` asks for. |
+| `connect_delay` | `float \| None`, default `None` | Overrides the connect delay `params` asks for. |
+
+The params carry the [tuning](#tuning-on-every-params-class). Set it there. The
+three keyword arguments override what `params` says, for a caller that keeps
+the link settings and the tuning apart. An override is validated the same way,
+and the connection reports it as part of its params. Change the tuning on a
+live connection with [`set_params()`](#set_paramsparams).
 
 Constructing a connection performs no I/O. The first unit operation connects on
 demand. See [Connections and units](/modbus-connection/connection/connections-and-units/)
@@ -57,6 +63,14 @@ unsubscribe callable. A connection is **lost** when the transport takes it
 away. `close()` and `disconnect()` are the owner tearing it down, so neither
 fires the callbacks.
 
+#### `set_params(params)`
+
+Adopt new tuning, returning `True` if the link must be recycled for it to take
+effect. Message spacing applies at once, and the connect delay applies to the
+next connect. The timeout is fixed when the backend client is built, so a live
+link keeps the old one until [`disconnect()`](#disconnect) replaces it. Raises
+`ValueError` if `params` describes a different link.
+
 #### `disconnect()`
 
 `async` — drop the link; the next request establishes a new one. Use it to
@@ -78,9 +92,28 @@ call waits up to half a second for the request in flight.
 ## Parameter dataclasses
 
 All four are frozen, keyword-only dataclasses importable from
-`modbus_connection`. See
+`modbus_connection`. `ModbusParams` names any of the four. See
 [Connection parameters](/modbus-connection/connection/connections-and-units/#connection-parameters)
 for usage guidance.
+
+### Tuning on every params class
+
+Besides the link settings below, all four carry the same three fields. They say
+how the caller wants the link run, not how to open it. Two callers of one device
+may therefore ask for different values and still share a connection.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `timeout` | `float` | `10` | Per-request timeout in seconds. Must be positive. |
+| `message_spacing` | `float \| None` | `None` | Minimum interval, in seconds, from the completion of one request to the start of the next. `None` takes the transport default; `0` disables spacing. Must not be negative. |
+| `connect_delay` | `float` | `0.0` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. Must not be negative. |
+
+#### `effective_message_spacing`
+
+`float` — the gap actually applied: the explicit `message_spacing`, or the
+transport default when it is `None`. `ModbusSerialParams` defaults to 30 ms,
+because a half-duplex RS485 adapter needs time to switch direction between
+frames. The socket transports default to no spacing.
 
 ### `ModbusTcpParams`
 
@@ -149,14 +182,31 @@ since DNS names and IPv6 hex digits are case-insensitive. The serial device
 path is compared verbatim. Aliases of the same port (a `/dev/serial/by-id`
 symlink versus `/dev/ttyUSB0`) are not resolved.
 
-Equal endpoints with **unequal params** signal conflicting configurations for
-one device — for example two serial configs for `/dev/ttyUSB0` at different
+Equal endpoints with **incompatible params** signal conflicting configurations
+for one device — for example two serial configs for `/dev/ttyUSB0` at different
 baud rates. A connection manager can detect and reject that:
 
 ```python
-if new_params.endpoint == existing_params.endpoint and new_params != existing_params:
+if not existing_params.is_compatible_with(new_params):
     raise ValueError("conflicting settings for the same device")
 ```
+
+### `is_compatible_with(other)`
+
+`bool` — whether `other` describes the same link, ignoring the tuning fields.
+Params that disagree on a link setting, such as two baud rates for one serial
+port, cannot share a connection. Compatible ones can, once `resolve_params`
+settles the tuning between them.
+
+### `resolve_params(params)`
+
+Return one params object honoring the most demanding tuning of an iterable of
+compatible params: the longest `timeout`, the widest message spacing and the
+longest `connect_delay` any of them asked for. Use it where several callers
+share one connection, so none is served less carefully than it asked to be. The
+result always carries a resolved `message_spacing`, never `None`. Raises
+`ValueError` if the iterable is empty, or if two of the params describe
+different links.
 
 ## `ModbusUnit`
 
@@ -217,7 +267,9 @@ still processing a program function.
 
 Set the minimum interval between requests to this unit. The setting belongs to
 the unit ID and combines with connection-wide spacing by waiting for the longer
-interval. Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
+interval. It spaces requests to this unit only, so it does not enforce a gap
+before a request to another unit on the same link. Pass `0` to clear it. Raises
+`ValueError` if `seconds` is negative.
 See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 #### `on_connection_lost(callback)`
