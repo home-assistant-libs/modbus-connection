@@ -162,6 +162,11 @@ unit.require_connect_delay(1.0)
 Both are floors. The connection runs with the largest value asked of it, by the
 connection itself or by any unit on it. Pass `0` to withdraw a requirement.
 
+A value the connection was built with counts as one of them. Where it was built
+without one, the requirement decides alone. The library default applies only
+while nothing asks for anything, so a device is never held to a timeout nobody
+chose.
+
 The timing then lives with the device knowledge, in the library that holds it,
 rather than in the code that opens the connection. A library that only learns
 which model it is talking to when it probes can state its requirement there.

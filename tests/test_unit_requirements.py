@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from modbus_connection import ModbusTcpParams, ModbusUnit
-from modbus_connection._client import BaseModbusConnection
+from modbus_connection._client import _DEFAULT_TIMEOUT, BaseModbusConnection
 from modbus_connection.mock import MockModbusConnection
 from modbus_connection.pymodbus import ModbusConnection as PymodbusConnection
 from modbus_connection.tmodbus import ModbusConnection as TmodbusConnection
@@ -177,3 +177,37 @@ def test_the_mock_records_what_a_library_requires() -> None:
 
     assert unit.required_timeout == 30
     assert unit.required_connect_delay == 1
+
+
+# -- the default steps aside for a requirement --------------------------------
+
+
+def test_the_default_timeout_applies_when_nobody_asks() -> None:
+    assert _FakeConnection()._timeout == _DEFAULT_TIMEOUT
+
+
+def test_a_requirement_replaces_a_default_nobody_chose() -> None:
+    """The default is a fallback, not a floor, so a shorter requirement wins."""
+    conn = _FakeConnection()
+
+    conn._require_timeout(UNIT_A, 5)
+
+    assert conn._timeout == 5
+
+
+def test_an_asked_for_timeout_stays_a_floor() -> None:
+    """The caller chose this one, so a unit asking for less does not shorten it."""
+    conn = _FakeConnection(timeout=10)
+
+    conn._require_timeout(UNIT_A, 5)
+
+    assert conn._timeout == 10
+
+
+def test_nothing_pauses_after_connecting_until_something_asks() -> None:
+    conn = _FakeConnection()
+    assert conn._connect_delay == 0
+
+    conn._require_connect_delay(UNIT_A, 1)
+
+    assert conn._connect_delay == 1

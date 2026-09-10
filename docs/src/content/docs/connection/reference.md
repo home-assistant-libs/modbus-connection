@@ -15,15 +15,22 @@ backend module exports a concrete subclass under the same name:
 identical, so selecting a backend changes only the import.
 
 ```python
-ModbusConnection(params, *, timeout=10, message_spacing=0.0, connect_delay=0.0)
+ModbusConnection(params, *, timeout=None, message_spacing=None, connect_delay=None)
 ```
 
 | Parameter | Type | Meaning |
 | --- | --- | --- |
 | `params` | `ModbusTcpParams \| ModbusUdpParams \| ModbusTlsParams \| ModbusSerialParams` | The transport to connect over — see [the parameter dataclasses](#parameter-dataclasses). |
-| `timeout` | `float`, default `10` | Per-request timeout in seconds. |
-| `message_spacing` | `float`, default `0.0` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
-| `connect_delay` | `float`, default `0.0` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
+| `timeout` | `float \| None`, default `None` | Per-request timeout in seconds. |
+| `message_spacing` | `float \| None`, default `None` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
+| `connect_delay` | `float \| None`, default `None` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
+
+Every tuning value is optional. A value given here is one of the values the
+connection resolves between, alongside every
+[unit requirement](#require_timeoutseconds), and the largest wins. `None` asks
+for nothing, so a unit requirement then decides on its own. With nothing asked
+at all the connection uses a 10 second timeout, no message spacing and no
+connect delay.
 
 Constructing a connection performs no I/O. The first unit operation connects on
 demand. See [Connections and units](/modbus-connection/connection/connections-and-units/)
@@ -224,7 +231,9 @@ See [Request spacing](/modbus-connection/connection/connections-and-units/#reque
 
 Ask the link for a per-request timeout of at least `seconds`. The connection
 runs with the largest value asked of it, by the connection itself or by any unit
-on it, so this never shortens another unit's timeout. Raising it above what a
+on it, so this never shortens another unit's timeout. Where the connection was
+built without a timeout, this decides it: the 10 second default applies only
+while nothing asks. Raising it above what a
 live link carries drops that link, and the next request opens one with the new
 value. Pass `0` to withdraw the requirement. Raises `ValueError` if `seconds` is
 negative. See [Device requirements](/modbus-connection/connection/connections-and-units/#device-requirements).

@@ -444,10 +444,10 @@ async def connect_tcp(
     host: str,
     *,
     port: int = 502,
-    timeout: float = 10,
+    timeout: float | None = None,
     framer: SocketFraming = "socket",
-    message_spacing: float = 0.0,
-    connect_delay: float = 0.0,
+    message_spacing: float | None = None,
+    connect_delay: float | None = None,
 ) -> ModbusConnection:
     """Open a Modbus TCP connection.
 
@@ -467,10 +467,10 @@ async def connect_udp(
     host: str,
     *,
     port: int = 502,
-    timeout: float = 10,
+    timeout: float | None = None,
     framer: SocketFraming = "socket",
-    message_spacing: float = 0.0,
-    connect_delay: float = 0.0,
+    message_spacing: float | None = None,
+    connect_delay: float | None = None,
 ) -> ModbusConnection:
     """Open a Modbus UDP connection.
 
@@ -496,9 +496,9 @@ async def connect_tls(
     client_key: str | None = None,
     client_key_password: str | None = None,
     sslctx: ssl.SSLContext | None = None,
-    timeout: float = 10,
-    message_spacing: float = 0.0,
-    connect_delay: float = 0.0,
+    timeout: float | None = None,
+    message_spacing: float | None = None,
+    connect_delay: float | None = None,
 ) -> ModbusConnection:
     """Open a Modbus/TLS connection.
 
@@ -530,10 +530,10 @@ async def connect_serial(
     bytesize: int = 8,
     parity: str = "N",
     stopbits: int = 1,
-    timeout: float = 10,
+    timeout: float | None = None,
     framer: SerialFraming = "rtu",
-    message_spacing: float = 0.0,
-    connect_delay: float = 0.0,
+    message_spacing: float | None = None,
+    connect_delay: float | None = None,
 ) -> ModbusConnection:
     """Open a Modbus serial connection.
 

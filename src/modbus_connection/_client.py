@@ -25,6 +25,10 @@ __all__ = [
     "ModbusUdpParams",
 ]
 
+# The per-request timeout applied when neither the caller nor any unit asks
+# for one. Message spacing and the connect delay default to none.
+_DEFAULT_TIMEOUT = 10.0
+
 # How long disconnect() and close() wait for the request in flight. A healthy
 # request answers in milliseconds, so this is long enough for one to finish and
 # short enough that a wedged request never holds up recycling the link.
@@ -206,9 +210,17 @@ def _record(required: dict[int, float], unit_id: int, seconds: float) -> None:
         required.pop(unit_id, None)
 
 
-def _resolved(base: float, required: dict[int, float]) -> float:
-    """The largest of the connection's own value and every unit requirement."""
-    return max(base, *required.values()) if required else base
+def _resolved(base: float | None, required: dict[int, float], default: float) -> float:
+    """The largest value asked for, or ``default`` when nothing was asked.
+
+    ``base`` is ``None`` where the caller asked the connection for nothing. The
+    default then applies only while no unit requires anything, so a requirement
+    is not held up to a value nobody chose.
+    """
+    asked = list(required.values())
+    if base is not None:
+        asked.append(base)
+    return max(asked) if asked else default
 
 
 def _consume_failure(task: asyncio.Task[None]) -> None:
@@ -234,22 +246,28 @@ class BaseModbusConnection(ABC):
             ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams
         ),
         *,
-        timeout: float = 10,
-        message_spacing: float = 0.0,
-        connect_delay: float = 0.0,
+        timeout: float | None = None,
+        message_spacing: float | None = None,
+        connect_delay: float | None = None,
     ) -> None:
+        """Open nothing yet; the first unit operation connects.
+
+        Each tuning value is optional. ``None`` asks for nothing, leaving the
+        value to the units on the connection and, failing that, to the default.
+        """
         self._params = params
-        self._pacer = Pacer(message_spacing)
-        # What the connection itself was asked for, before any unit requirement.
+        self._pacer = Pacer(0.0 if message_spacing is None else message_spacing)
+        # What the caller asked the connection for; None where it asked for
+        # nothing.
         self._base_timeout = timeout
         self._base_connect_delay = connect_delay
         self._unit_timeouts: dict[int, float] = {}
         self._unit_connect_delays: dict[int, float] = {}
-        self._timeout = timeout
-        self._connect_delay = connect_delay
+        self._timeout = _resolved(timeout, self._unit_timeouts, _DEFAULT_TIMEOUT)
+        self._connect_delay = _resolved(connect_delay, self._unit_connect_delays, 0.0)
         # The timeout the live (or in-flight) backend client carries. It is
         # built with the value, so raising it needs a new client.
-        self._client_timeout = timeout
+        self._client_timeout = self._timeout
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
         self._closed = False
@@ -317,7 +335,9 @@ class BaseModbusConnection(ABC):
         if seconds < 0:
             raise ValueError("timeout must be non-negative")
         _record(self._unit_timeouts, unit_id, seconds)
-        self._timeout = _resolved(self._base_timeout, self._unit_timeouts)
+        self._timeout = _resolved(
+            self._base_timeout, self._unit_timeouts, _DEFAULT_TIMEOUT
+        )
         if self._timeout > self._client_timeout and (
             self._client is not None or self._connect_task is not None
         ):
@@ -332,7 +352,7 @@ class BaseModbusConnection(ABC):
             raise ValueError("connect_delay must be non-negative")
         _record(self._unit_connect_delays, unit_id, seconds)
         self._connect_delay = _resolved(
-            self._base_connect_delay, self._unit_connect_delays
+            self._base_connect_delay, self._unit_connect_delays, 0.0
         )
 
     async def disconnect(self) -> None:
