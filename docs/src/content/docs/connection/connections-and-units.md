@@ -160,10 +160,8 @@ unit.require_connect_delay(1.0)
 
 Both are floors. The connection runs with the largest value asked of it, by the
 connection itself or by any unit on it. Pass `None` to withdraw a requirement.
-
-A raised timeout cannot reach a link that is already up, because the backend
-client is built with it. The connection drops the link, and the next request
-opens one that carries the new value.
+Raising the timeout drops the link, and the next request opens one that carries
+the new value.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.
