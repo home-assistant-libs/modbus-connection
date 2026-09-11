@@ -213,14 +213,12 @@ def _record(required: dict[int, float], unit_id: int, seconds: float | None) -> 
 def _resolved(base: float | None, required: dict[int, float], default: float) -> float:
     """The largest value asked for, or ``default`` when nothing was asked.
 
-    ``base`` is ``None`` where the caller asked the connection for nothing. The
-    default then applies only while no unit requires anything, so a requirement
-    is not held up to a value nobody chose.
+    A default nobody chose must not outrank a unit asking for less.
     """
     asked = list(required.values())
     if base is not None:
         asked.append(base)
-    return max(asked) if asked else default
+    return max(asked, default=default)
 
 
 def _consume_failure(task: asyncio.Task[None]) -> None:
@@ -250,21 +248,16 @@ class BaseModbusConnection(ABC):
         message_spacing: float | None = None,
         connect_delay: float | None = None,
     ) -> None:
-        """Open nothing yet; the first unit operation connects.
-
-        Each tuning value is optional. ``None`` asks for nothing, leaving the
-        value to the units on the connection and, failing that, to the default.
-        """
         self._params = params
-        self._pacer = Pacer(0.0 if message_spacing is None else message_spacing)
+        self._pacer = Pacer(message_spacing or 0.0)
         # What the caller asked the connection for; None where it asked for
         # nothing.
         self._base_timeout = timeout
         self._base_connect_delay = connect_delay
         self._unit_timeouts: dict[int, float] = {}
         self._unit_connect_delays: dict[int, float] = {}
-        self._timeout = _resolved(timeout, self._unit_timeouts, _DEFAULT_TIMEOUT)
-        self._connect_delay = _resolved(connect_delay, self._unit_connect_delays, 0.0)
+        self._timeout = _DEFAULT_TIMEOUT if timeout is None else timeout
+        self._connect_delay = connect_delay or 0.0
         # The timeout the live (or in-flight) backend client carries. It is
         # built with the value, so raising it needs a new client.
         self._client_timeout = self._timeout
