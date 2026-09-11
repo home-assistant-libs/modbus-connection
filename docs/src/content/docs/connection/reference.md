@@ -235,14 +235,14 @@ on it, so this never shortens another unit's timeout. Where the connection was
 built without a timeout, this decides it: the 10 second default applies only
 while nothing asks. Raising it above what a
 live link carries drops that link, and the next request opens one with the new
-value. Pass `0` to withdraw the requirement. Raises `ValueError` if `seconds` is
-negative. See [Device requirements](/modbus-connection/connection/connections-and-units/#device-requirements).
+value. Pass `None` to withdraw the requirement. Raises `ValueError` if `seconds`
+is negative. See [Device requirements](/modbus-connection/connection/connections-and-units/#device-requirements).
 
 #### `require_connect_delay(seconds)`
 
 Ask the link for a pause of at least `seconds` after it opens, resolved the same
 way. It applies to the next connect, so it never disturbs a link that is up.
-Pass `0` to withdraw the requirement. Raises `ValueError` if `seconds` is
+Pass `None` to withdraw the requirement. Raises `ValueError` if `seconds` is
 negative.
 
 #### `on_connection_lost(callback)`

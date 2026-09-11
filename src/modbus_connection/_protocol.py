@@ -50,11 +50,17 @@ class ModbusUnit(Protocol):
     def set_message_spacing(self, seconds: float) -> None:
         """Set the minimum interval between requests to this unit."""
 
-    def require_timeout(self, seconds: float) -> None:
-        """Ask the link for a per-request timeout of at least ``seconds``."""
+    def require_timeout(self, seconds: float | None) -> None:
+        """Ask the link for a per-request timeout of at least ``seconds``.
 
-    def require_connect_delay(self, seconds: float) -> None:
-        """Ask the link for a pause of at least ``seconds`` after it opens."""
+        ``None`` withdraws the requirement.
+        """
+
+    def require_connect_delay(self, seconds: float | None) -> None:
+        """Ask the link for a pause of at least ``seconds`` after it opens.
+
+        ``None`` withdraws the requirement.
+        """
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a callback fired when the link drops; returns an unsubscribe."""

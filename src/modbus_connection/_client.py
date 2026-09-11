@@ -202,12 +202,12 @@ class ModbusSerialParams:
         return ("serial", self.device)
 
 
-def _record(required: dict[int, float], unit_id: int, seconds: float) -> None:
-    """Store a unit's requirement, dropping it when the unit asks for nothing."""
-    if seconds:
-        required[unit_id] = seconds
-    else:
+def _record(required: dict[int, float], unit_id: int, seconds: float | None) -> None:
+    """Store a unit's requirement, dropping it when the unit withdraws."""
+    if seconds is None:
         required.pop(unit_id, None)
+    else:
+        required[unit_id] = seconds
 
 
 def _resolved(base: float | None, required: dict[int, float], default: float) -> float:
@@ -330,9 +330,9 @@ class BaseModbusConnection(ABC):
         """Register a callback fired when the link drops; returns an unsubscribe."""
         return self._lost_callbacks.subscribe(callback)
 
-    def _require_timeout(self, unit_id: int, seconds: float) -> None:
+    def _require_timeout(self, unit_id: int, seconds: float | None) -> None:
         """Raise the link's timeout to at least ``seconds`` for ``unit_id``."""
-        if seconds < 0:
+        if seconds is not None and seconds < 0:
             raise ValueError("timeout must be non-negative")
         _record(self._unit_timeouts, unit_id, seconds)
         self._timeout = _resolved(
@@ -346,9 +346,9 @@ class BaseModbusConnection(ABC):
             task = asyncio.create_task(self.disconnect())
             task.add_done_callback(_consume_failure)
 
-    def _require_connect_delay(self, unit_id: int, seconds: float) -> None:
+    def _require_connect_delay(self, unit_id: int, seconds: float | None) -> None:
         """Raise the link's connect delay to at least ``seconds`` for ``unit_id``."""
-        if seconds < 0:
+        if seconds is not None and seconds < 0:
             raise ValueError("connect_delay must be non-negative")
         _record(self._unit_connect_delays, unit_id, seconds)
         self._connect_delay = _resolved(

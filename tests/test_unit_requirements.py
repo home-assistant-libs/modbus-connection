@@ -69,11 +69,11 @@ def test_the_most_demanding_unit_wins() -> None:
     assert conn._timeout == 30
 
 
-def test_zero_clears_a_requirement() -> None:
+def test_none_withdraws_a_requirement() -> None:
     conn = _FakeConnection(timeout=3)
     conn._require_timeout(UNIT_A, 30)
 
-    conn._require_timeout(UNIT_A, 0)
+    conn._require_timeout(UNIT_A, None)
 
     assert conn._timeout == 3
 
@@ -128,7 +128,7 @@ async def test_relaxing_the_timeout_leaves_a_live_link_alone() -> None:
     conn._require_timeout(UNIT_A, 30)
     await conn.connect()
 
-    conn._require_timeout(UNIT_A, 0)
+    conn._require_timeout(UNIT_A, None)
     await asyncio.sleep(0.01)
 
     assert conn.connected is True
@@ -171,12 +171,17 @@ def test_a_units_requirement_reaches_its_connection(
 def test_the_mock_records_what_a_library_requires() -> None:
     """Tests over the mock assert on the timing a device library asked for."""
     unit = MockModbusConnection().for_unit(UNIT_A)
+    assert unit.required_timeout is None
 
     unit.require_timeout(30)
     unit.require_connect_delay(1)
 
     assert unit.required_timeout == 30
     assert unit.required_connect_delay == 1
+
+    unit.require_timeout(None)
+
+    assert unit.required_timeout is None
 
 
 # -- the default steps aside for a requirement --------------------------------

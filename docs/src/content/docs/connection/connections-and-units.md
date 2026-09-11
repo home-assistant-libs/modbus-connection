@@ -160,7 +160,7 @@ unit.require_connect_delay(1.0)
 ```
 
 Both are floors. The connection runs with the largest value asked of it, by the
-connection itself or by any unit on it. Pass `0` to withdraw a requirement.
+connection itself or by any unit on it. Pass `None` to withdraw a requirement.
 
 A value the connection was built with counts as one of them. Where it was built
 without one, the requirement decides alone. The library default applies only
