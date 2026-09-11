@@ -153,14 +153,6 @@ The coordinator's first read establishes the link. If the device is unreachable,
 that read fails, and `async_config_entry_first_refresh()` turns the failure into
 `ConfigEntryNotReady`. Home Assistant then retries setup for you.
 
-:::note[If your device needs a pause, or more time]
-Your device library declares it on the unit:
-[`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
-for a gap between its own requests, and
-[`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements)
-for a device slow to answer or to come up.
-:::
-
 ## The coordinator
 
 `async_update()` returns an `UpdateReport` — which sub-systems refreshed, and

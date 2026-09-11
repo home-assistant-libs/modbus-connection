@@ -82,9 +82,8 @@ every backend carries every framing — see
 [Choosing a backend](/modbus-connection/getting-started/backends/).
 
 The [reference](/modbus-connection/connection/reference/#parameter-dataclasses)
-lists every field and default. `timeout`, `message_spacing` and `connect_delay`
-belong to the connection rather than the parameters. Pass them to
-`ModbusConnection` itself.
+lists every field and default. Timing is not a parameter: a device asks for
+what it needs through its unit, below.
 
 ### TLS
 
@@ -98,48 +97,6 @@ store by default. The options:
 - `sslctx` supplies a ready-made `ssl.SSLContext` that overrides the other
   options.
 
-## Request spacing
-
-Some devices require a pause between frames. Set `message_spacing` in seconds on
-the connection:
-
-```python
-connection = ModbusConnection(
-    ModbusSerialParams(device="/dev/ttyUSB0"),
-    message_spacing=0.1,
-)
-```
-
-The interval is measured from the completion of one request to the start of the
-next. The default `0` disables spacing.
-
-To pace only one device on a shared link, set the interval on its unit:
-
-```python
-connection.for_unit(7).set_message_spacing(0.05)
-```
-
-This setting belongs to the unit ID and applies to every handle for that ID. It
-combines with connection-wide spacing by waiting for the longer interval. Pass
-`0` to clear it.
-
-## Connect delay
-
-Some devices need a pause **after the link opens** before they answer reliably.
-Set `connect_delay` in seconds on the connection. The delay is awaited each time
-the link is established — the first connect and every reconnect — before any
-request uses it:
-
-```python
-connection = ModbusConnection(
-    ModbusTcpParams(host="192.168.1.50"),
-    connect_delay=1.0,
-)
-```
-
-This is not request pacing. `message_spacing` spaces requests on a live link;
-`connect_delay` runs once per connection establishment.
-
 :::note[Legacy connection factories]
 The backend modules retain `connect_tcp`, `connect_udp`, `connect_tls`, and
 `connect_serial` for compatibility. They are no longer recommended. New code
@@ -149,19 +106,31 @@ object.
 
 ## Device requirements
 
-The tuning above belongs to whoever builds the connection. A device library
-builds none. It receives a `ModbusUnit`, and it is the layer that knows the
-device, so it asks through the unit:
+A device library receives a `ModbusUnit`, and it is the layer that knows the
+device, so it asks for the timing the device needs through the unit:
 
 ```python
-unit.require_timeout(5.0)
-unit.require_connect_delay(1.0)
+unit.require_timeout(5.0)        # slow to answer
+unit.require_connect_delay(1.0)  # needs a moment after the link opens
 ```
 
 Both are floors. The connection runs with the largest value asked of it, by the
 connection itself or by any unit on it. Pass `None` to withdraw a requirement.
 Raising the timeout drops the link, and the next request opens one that carries
 the new value.
+
+## Request spacing
+
+Some devices require a pause between frames. Set the interval on the unit:
+
+```python
+unit.set_message_spacing(0.05)
+```
+
+The interval is measured from the completion of one request to the start of the
+next, and it paces this unit alone. Pass `0` to clear it. A gap the *line* needs,
+such as RS485 turnaround before any frame, belongs to the connection instead.
+The two combine by waiting for the longer interval.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

@@ -32,7 +32,7 @@ counting and value printing every time:
 | Building block | What it does |
 | --- | --- |
 | `add_connection_args(parser, connections=…)` | Add the connection arguments (target, transport, framer, port, timeout, serial/TLS options) to an `argparse` parser. |
-| `connect_from_args(args, *, message_spacing=0.0)` | Open the connection those arguments describe (over whichever backend is installed). |
+| `connect_from_args(args, *, message_spacing=None)` | Open the connection those arguments describe (over whichever backend is installed). |
 | `CountingUnit` | Wrap a `ModbusUnit` to count the block reads an update performs. |
 | `print_component(component, *, title=None, file=None, indent="")` | Print every field on a component, and each repeating group's instances, by reflection. |
 | `field_rows(component)` | The `(name, value)` rows behind `print_component`, if you want to format them yourself. |
@@ -147,11 +147,12 @@ step.
 ### `connect_from_args`
 
 Opens the connection the parsed arguments describe. Backends are resolved
-lazily, so importing the module needs no backend. Pass `message_spacing=` for a
-device that needs a gap between frames:
+lazily, so importing the module needs no backend. A device that needs a gap
+between frames asks for it on its
+[unit](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 ```python
-conn = await connect_from_args(args, message_spacing=0.1)
+conn = await connect_from_args(args)
 ```
 
 The returned connection is already connected. It raises `ModbusError` if it

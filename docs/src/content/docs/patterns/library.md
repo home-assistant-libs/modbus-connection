@@ -207,6 +207,12 @@ asyncio.run(main())
   backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
 - **One sub-system per `Component`.** Group registers by function; give each its
   own file. It keeps the address map readable and lets a sub-system refresh alone.
+- **Ask for the timing your device needs.** A device slow to answer says so on
+  its unit, with
+  [`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements),
+  and [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
+  for a gap between its own frames. Whoever builds the connection cannot know
+  this; your library can.
 - **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
   the address, so the model *is* the datasheet.
 - **Decide once, poll forever.** Everything that cannot change between two polls
