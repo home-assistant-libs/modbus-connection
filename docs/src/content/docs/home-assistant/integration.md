@@ -154,13 +154,11 @@ that read fails, and `async_config_entry_first_refresh()` turns the failure into
 `ConfigEntryNotReady`. Home Assistant then retries setup for you.
 
 :::note[If your device needs a pause, or more time]
-Your device library declares that on the unit it receives.
+Your device library declares it on the unit:
 [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
-sets a gap between its own requests.
+for a gap between its own requests, and
 [`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements)
-ask the shared link for more time, for a device that is slow to answer or slow
-to come up. The timing then lives with the register map rather than in the code
-that builds the params.
+for a device slow to answer or to come up.
 :::
 
 ## The coordinator

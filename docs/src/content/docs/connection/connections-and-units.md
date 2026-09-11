@@ -149,10 +149,9 @@ object.
 
 ## Device requirements
 
-The tuning above belongs to whoever builds the connection. A device library does
-not build one. It receives a `ModbusUnit` and nothing else, yet it is the layer
-that knows the device. When the device needs more time, it says so through the
-unit:
+The tuning above belongs to whoever builds the connection. A device library
+builds none. It receives a `ModbusUnit`, and it is the layer that knows the
+device, so it asks through the unit:
 
 ```python
 unit.require_timeout(5.0)
@@ -162,25 +161,9 @@ unit.require_connect_delay(1.0)
 Both are floors. The connection runs with the largest value asked of it, by the
 connection itself or by any unit on it. Pass `None` to withdraw a requirement.
 
-A value the connection was built with counts as one of them. Where it was built
-without one, the requirement decides alone. The library default applies only
-while nothing asks for anything, so a device is never held to a timeout nobody
-chose.
-
-The timing then lives with the device knowledge, in the library that holds it,
-rather than in the code that opens the connection. A library that only learns
-which model it is talking to when it probes can state its requirement there.
-
-A raised timeout has to reach a link that is already up. The backend client is
-built with the timeout, so the connection drops the link and the next request
-opens one carrying the new value. That drop is scheduled rather than awaited. A
-relaxed timeout and every connect delay wait for the next connect, so they never
-interrupt the units still using the link.
-
-The link is shared, so a requirement one device raises applies to every unit on
-it. That only makes the others more patient, which costs nothing until a device
-fails to answer. A requirement also lives as long as the connection: withdraw it
-with `0` if the device it belongs to goes away while other units stay.
+A raised timeout cannot reach a link that is already up, because the backend
+client is built with it. The connection drops the link, and the next request
+opens one that carries the new value.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

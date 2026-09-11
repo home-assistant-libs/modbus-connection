@@ -260,8 +260,8 @@ configuration surface:
 | `set_response(method, value)` | Arm a [canned response](#canned-responses-for-the-other-operations) for a non-store operation. |
 | `load_raw(raw)` | Load an [`async_read_raw()` snapshot](#replaying-a-raw-snapshot) into the stores; raises `ValueError` for an unknown space. |
 | `set_message_spacing(seconds)` | Records the interval on the `message_spacing` attribute for assertions; raises `ValueError` if negative. |
-| `require_timeout(seconds)` | Records the requirement on the `required_timeout` attribute for assertions, `None` where nothing is required; raises `ValueError` if negative. |
-| `require_connect_delay(seconds)` | Records the requirement on the `required_connect_delay` attribute for assertions, `None` where nothing is required; raises `ValueError` if negative. |
+| `require_timeout(seconds)` | Records the requirement on the `required_timeout` attribute, `None` where nothing is required; raises `ValueError` if negative. |
+| `require_connect_delay(seconds)` | Records the requirement on the `required_connect_delay` attribute, `None` where nothing is required; raises `ValueError` if negative. |
 
 ### `WriteEvent`
 
