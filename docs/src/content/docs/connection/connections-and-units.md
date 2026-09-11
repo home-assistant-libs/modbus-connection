@@ -110,7 +110,7 @@ A device library receives a `ModbusUnit`, and it is the layer that knows the
 device, so it asks for the timing the device needs through the unit:
 
 ```python
-unit.require_timeout(5.0)        # slow to answer
+unit.require_timeout(5.0)  # slow to answer
 unit.require_connect_delay(1.0)  # needs a moment after the link opens
 ```
 
