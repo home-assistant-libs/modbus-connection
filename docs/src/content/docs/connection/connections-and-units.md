@@ -169,5 +169,9 @@ next, and it paces this unit alone. Pass `0` to clear it. A gap the *line* needs
 such as RS485 turnaround before any frame, belongs to the connection instead.
 The two combine by waiting for the longer interval.
 
+A serial link paces itself at 30 ms without being asked, because a half-duplex
+RS485 adapter needs that long to switch direction between frames. Pass
+`message_spacing` to `ModbusConnection` to widen it, or `0` to disable it.
+
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.
