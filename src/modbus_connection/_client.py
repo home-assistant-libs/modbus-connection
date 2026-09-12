@@ -275,8 +275,12 @@ def _consume_failure(task: asyncio.Task[None]) -> None:
 def _default_message_spacing(
     params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
 ) -> float:
-    """The gap the transport needs when the caller asks for none."""
-    return _SERIAL_MESSAGE_SPACING if isinstance(params, ModbusSerialParams) else 0.0
+    """The gap the transport needs when the caller asks for none.
+
+    Keyed on the endpoint rather than the params class, so a serial line keeps
+    its gap under either spelling of it.
+    """
+    return _SERIAL_MESSAGE_SPACING if params.endpoint[0] == "serial" else 0.0
 
 
 def _target(

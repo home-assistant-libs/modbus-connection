@@ -100,6 +100,14 @@ def test_an_explicit_gap_overrides_the_serial_default(spacing: float) -> None:
     assert conn._pacer._message_spacing == spacing
 
 
+@pytest.mark.filterwarnings("ignore:ModbusTcpParams:DeprecationWarning")
+def test_a_serial_framing_over_tcp_paces_itself_too() -> None:
+    """One serial line, so both spellings of it get the same gap."""
+    conn = PymodbusConnection(ModbusTcpParams(host="test", port=8899, framer="rtu"))
+
+    assert conn._pacer._message_spacing == SERIAL_DEFAULT_SPACING
+
+
 def test_a_socket_link_paces_itself_not_at_all() -> None:
     conn = PymodbusConnection(ModbusTcpParams(host="test"))
 
