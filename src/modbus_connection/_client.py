@@ -27,8 +27,15 @@ __all__ = [
 ]
 
 # The per-request timeout applied when neither the caller nor any unit asks
-# for one. Message spacing and the connect delay default to none.
+# for one. The connect delay defaults to none.
 _DEFAULT_TIMEOUT = 10.0
+
+# The gap a serial link takes when the caller asks for none. A half-duplex RS485
+# adapter needs time to switch direction between frames. Home Assistant has
+# applied this gap to every serial Modbus link since 2021, so it is the value
+# the field has proven. The inter-frame silence RTU asks for is far shorter, and
+# is not what makes a USB adapter reliable.
+_SERIAL_MESSAGE_SPACING = 0.03
 
 # How long disconnect() and close() wait for the request in flight. A healthy
 # request answers in milliseconds, so this is long enough for one to finish and
@@ -265,6 +272,17 @@ def _consume_failure(task: asyncio.Task[None]) -> None:
         task.exception()
 
 
+def _default_message_spacing(
+    params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
+) -> float:
+    """The gap the transport needs when the caller asks for none.
+
+    Keyed on the endpoint rather than the params class, so a serial line keeps
+    its gap under either spelling of it.
+    """
+    return _SERIAL_MESSAGE_SPACING if params.endpoint[0] == "serial" else 0.0
+
+
 def _target(
     params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
 ) -> str:
@@ -287,7 +305,9 @@ class BaseModbusConnection(ABC):
         connect_delay: float | None = None,
     ) -> None:
         self._params = params
-        self._pacer = Pacer(message_spacing or 0.0)
+        if message_spacing is None:
+            message_spacing = _default_message_spacing(params)
+        self._pacer = Pacer(message_spacing)
         # What the caller asked the connection for; None where it asked for
         # nothing.
         self._base_timeout = timeout

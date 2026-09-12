@@ -15,7 +15,13 @@ from typing import Any
 
 import pytest
 
-from modbus_connection import ModbusTcpParams, ModbusUnit, _client, _pacing
+from modbus_connection import (
+    ModbusSerialParams,
+    ModbusTcpParams,
+    ModbusUnit,
+    _client,
+    _pacing,
+)
 from modbus_connection._client import BaseModbusConnection
 from modbus_connection._pacing import Pacer
 from modbus_connection.pymodbus import PymodbusConnection
@@ -23,6 +29,8 @@ from modbus_connection.pymodbus import connect_tcp as pymodbus_connect_tcp
 from modbus_connection.tmodbus import connect_tcp as tmodbus_connect_tcp
 
 from .conftest import UNIT_ID
+
+SERIAL_DEFAULT_SPACING = 0.03
 
 
 def _fake_clock(
@@ -71,6 +79,39 @@ def test_connection_rejects_negative_message_spacing() -> None:
 async def test_tmodbus_connect_rejects_negative_message_spacing() -> None:
     with pytest.raises(ValueError):
         await tmodbus_connect_tcp("127.0.0.1", port=502, message_spacing=-0.1)
+
+
+# -- the transport default ----------------------------------------------------
+
+
+def test_a_serial_link_paces_itself() -> None:
+    """An RS485 adapter needs time to switch direction, whoever opens the link."""
+    conn = PymodbusConnection(ModbusSerialParams(device="/dev/ttyUSB0"))
+
+    assert conn._pacer._message_spacing == SERIAL_DEFAULT_SPACING
+
+
+@pytest.mark.parametrize("spacing", [0, 0.1], ids=["disabled", "widened"])
+def test_an_explicit_gap_overrides_the_serial_default(spacing: float) -> None:
+    conn = PymodbusConnection(
+        ModbusSerialParams(device="/dev/ttyUSB0"), message_spacing=spacing
+    )
+
+    assert conn._pacer._message_spacing == spacing
+
+
+@pytest.mark.filterwarnings("ignore:ModbusTcpParams:DeprecationWarning")
+def test_a_serial_framing_over_tcp_paces_itself_too() -> None:
+    """One serial line, so both spellings of it get the same gap."""
+    conn = PymodbusConnection(ModbusTcpParams(host="test", port=8899, framer="rtu"))
+
+    assert conn._pacer._message_spacing == SERIAL_DEFAULT_SPACING
+
+
+def test_a_socket_link_paces_itself_not_at_all() -> None:
+    conn = PymodbusConnection(ModbusTcpParams(host="test"))
+
+    assert conn._pacer._message_spacing == 0
 
 
 # -- the connection-wide gap --------------------------------------------------

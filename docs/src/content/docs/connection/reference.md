@@ -22,7 +22,7 @@ ModbusConnection(params, *, timeout=None, message_spacing=None, connect_delay=No
 | --- | --- | --- |
 | `params` | `ModbusTcpParams \| ModbusUdpParams \| ModbusTlsParams \| ModbusSerialParams` | The transport to connect over — see [the parameter dataclasses](#parameter-dataclasses). |
 | `timeout` | `float \| None`, default `None` | Per-request timeout in seconds. |
-| `message_spacing` | `float \| None`, default `None` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `0` disables spacing. Raises `ValueError` if negative. |
+| `message_spacing` | `float \| None`, default `None` | Connection-wide minimum interval, in seconds, from the completion of one request to the start of the next. `None` takes the transport default: 30 ms on a serial link, none elsewhere. `0` disables spacing. Raises `ValueError` if negative. |
 | `connect_delay` | `float \| None`, default `None` | Pause, in seconds, after the link is established before it is used. For devices that need a moment after connecting before they answer reliably. Concurrent connectors share one pause. |
 
 Each tuning value is optional. A value given here joins the resolution with

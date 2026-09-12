@@ -108,7 +108,9 @@ the box runs its own line at. No UART is opened here, so nothing configures
 one. The client uses the value to space frames: RTU separates them by 3.5
 character times, which is 4 ms at 9600 and 2 ms at 19200. A box forwarding
 bytes cannot add that gap itself, because it does not know where one frame
-ends. `rfc2217://` negotiates the line settings with the box as well.
+ends. `rfc2217://` negotiates the line settings with the box as well. The
+connection paces a serial link by default at a gap longer than either figure —
+see [Request spacing](#request-spacing).
 
 :::caution[Deprecated]
 `ModbusTcpParams` takes a `framer`, and passing one is deprecated. `rtu` and
@@ -168,6 +170,10 @@ The interval is measured from the completion of one request to the start of the
 next, and it paces this unit alone. Pass `0` to clear it. A gap the *line* needs,
 such as RS485 turnaround before any frame, belongs to the connection instead.
 The two combine by waiting for the longer interval.
+
+A serial link paces itself at 30 ms without being asked, because a half-duplex
+RS485 adapter needs that long to switch direction between frames. Pass
+`message_spacing` to `ModbusConnection` to widen it, or `0` to disable it.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.
