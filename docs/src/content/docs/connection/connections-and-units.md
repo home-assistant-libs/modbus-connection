@@ -84,7 +84,7 @@ fixed. Not every backend carries every framing — see
 ### A serial line reached over the network
 
 RTU and ASCII frame a serial line. A box that puts such a line on the network
-does one of two things, and which one decides the parameters.
+does one of two things. Which one it does decides the parameters.
 
 A **serial server** forwards the line byte for byte. The frames on the network
 are the frames on the wire. This is a serial link on a socket transport, so it
@@ -104,18 +104,16 @@ ModbusTcpParams(host="192.168.1.50", port=502)
 ```
 
 Both backends accept a URL as the serial device. Set `baudrate` to the speed
-the box runs its own line at. No UART is opened here, so nothing configures
-one. The client uses the value to space frames: RTU separates them by 3.5
-character times, which is 4 ms at 9600 and 2 ms at 19200. A box forwarding
-bytes cannot add that gap itself, because it does not know where one frame
-ends. `rfc2217://` negotiates the line settings with the box as well.
+the box runs its line at. It opens no port here, so it configures nothing,
+but the client spaces frames by it: RTU separates them by 3.5 character
+times, which is 4 ms at 9600 and 2 ms at 19200. A box forwarding bytes
+cannot add that gap, because it does not know where a frame ends.
+`rfc2217://` also negotiates the line settings with the box.
 
 :::caution[Deprecated]
-`ModbusTcpParams` takes a `framer`, and passing one is deprecated. `rtu` and
-`ascii` name a serial server the other way round; the warning gives the
-`ModbusSerialParams` that replaces them. `socket` is the only framing a
-Modbus TCP link has, so it says nothing: omit the argument. Every value
-still works, and omitting it reads back as `socket`.
+Passing `framer` to `ModbusTcpParams` is deprecated. Use
+`ModbusSerialParams` with a `socket://` device for `rtu` and `ascii`, and
+drop the argument for `socket`. All three still work.
 :::
 
 The [reference](/modbus-connection/connection/reference/#parameter-dataclasses)

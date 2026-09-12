@@ -120,6 +120,28 @@ proxy also accepts `esphome://<host>/<instance>`.
 Percent-encode the `noise_psk` or `password` value. A base64 key can contain
 `+`, and a URL reads `+` as a space. Write `+` as `%2B`.
 
+## Dumping the registers undecoded
+
+A wrong field decodes to a plausible value. A 32-bit number read in the wrong
+word order is still a number. A register that two parts of a spec describe
+differently decodes to whichever reading the model took. Neither shows up in
+the printed value.
+
+Add a `--raw` flag that prints the registers as the device returned them:
+
+```python
+parser.add_argument(
+    "--raw", action="store_true", help="also dump every register read as JSON"
+)
+...
+if args.raw:
+    print(json.dumps(await device.async_read_raw(), indent=2, sort_keys=True))
+```
+
+An issue can then quote the registers, not the values you decoded from them.
+[`load_raw`](/modbus-connection/patterns/testing/#replaying-a-raw-snapshot)
+loads the dump into the mock, so the report becomes a test.
+
 ## The building blocks
 
 ### `add_connection_args`

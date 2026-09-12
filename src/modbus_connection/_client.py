@@ -38,8 +38,8 @@ _TEARDOWN_GRACE = 0.5
 
 # RTU and ASCII frame a serial line. Carrying one over a socket is a serial
 # link on a socket transport, which both backends already reach through a
-# ``socket://`` serial device, so ``ModbusSerialParams`` is the spelling that
-# names it. ``ModbusTcpParams`` keeps accepting these framings for now.
+# ``socket://`` serial device, so ``ModbusSerialParams`` is what it should be
+# built from. ``ModbusTcpParams`` keeps accepting these framings for now.
 _SERIAL_FRAMINGS = ("rtu", "ascii")
 
 
@@ -50,7 +50,7 @@ def _normalize_host(host: str) -> str:
 
 
 def _socket_device(host: str, port: int) -> str:
-    """The serial device a socket transport to this host and port is spelled as.
+    """The serial device for a socket transport to this host and port.
 
     An IPv6 literal is bracketed. Without the brackets the URL does not parse,
     because the address's own colons are read as the port separator.
@@ -103,7 +103,7 @@ class ModbusTcpParams:
 
         Two params objects with equal endpoints point at the same device. A
         serial framing gives the same identity as the ``ModbusSerialParams``
-        that names the same link.
+        for that link.
         """
         if self.framer in _SERIAL_FRAMINGS:
             return ("serial", _socket_device(self.host, self.port))
