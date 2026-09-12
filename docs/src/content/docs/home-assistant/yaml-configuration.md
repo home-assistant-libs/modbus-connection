@@ -7,19 +7,19 @@ Home Assistant's [Modbus integration](https://www.home-assistant.io/integrations
 is configured in YAML. Each sensor names an `address`, a `data_type`, an
 `input_type`, and value shaping like `scale`, `offset` and `swap`. If you
 already run a device through Home Assistant's Modbus integration, that YAML is
-a **ready-made description of the device's register map**.
+a ready-made description of the device's register map.
 
-That makes it an excellent starting point for a
+That makes it a good starting point for a
 [device library](/modbus-connection/patterns/library/). Translate each YAML
 entry into a typed [field](/modbus-connection/modelling/fields/) on a
 [`Component`](/modbus-connection/modelling/overview/). The mapping is almost
 one-to-one.
 
-:::note[This is a translation, not a loader]
-The goal here is to turn a YAML config into a **`Component` class you commit as
-source** — part of building a proper library, with typed attributes and IDE
-completion. It is not about loading YAML at runtime. If you genuinely must
-build the layout from config the program only sees at runtime, use a
+:::note[A translation rather than a loader]
+The goal here is to turn a YAML config into a `Component` class you commit as
+source, with typed attributes and IDE completion, as part of building a
+library. The YAML is not loaded at runtime. If you must build the layout from
+config the program only sees at runtime, use a
 [`ManualComponent`](/modbus-connection/modelling/manual-component/).
 :::
 
@@ -91,8 +91,7 @@ class Hub1Inputs(Component):
 ```
 
 Now every value is a typed attribute, checked by your type checker and
-completed by your editor. This is what translating to a class gives you over
-reading dicts:
+completed by your editor:
 
 ```python
 hub = Hub1(unit)
@@ -100,28 +99,29 @@ await hub.async_update()
 hub.outside_temperature  # float | None
 ```
 
-The register map now lives in code as the datasheet: addresses, scales, units
-and ranges all sit next to the attribute they describe.
+The register map now lives in code: addresses, scales, units and ranges all
+sit next to the attribute they describe.
 
-## Caveats worth knowing
+## Options without a direct mapping
 
-A few Home Assistant options don't map to a single field helper. Handle them as
-you translate:
+A few Home Assistant options do not map to a single field helper. Handle them
+as you translate:
 
-- **`precision`** — Home Assistant rounds the *display* value to this many
-  decimals. modbus-connection rounds by the decimals implied by `scale`, so apply
+- `precision`: Home Assistant rounds the display value to this many decimals.
+  modbus-connection rounds by the decimals implied by `scale`, so apply
   `precision` in a `@property` if you need Home Assistant's exact rounding.
-- **`swap: byte` / `swap: word_byte`** — these swap *bytes within* a register.
-  The field helpers model **word** order (`word_order`), not byte order, which
-  is fixed big-endian. A byte-swapping device needs a custom
-  [`RegisterField` subclass](/modbus-connection/modelling/fields/#when-the-helpers-dont-fit).
-- **`data_type: float16`** — not a built-in codec; decode the raw word with a
+- `swap: byte` / `swap: word_byte`: these swap bytes within a register. The
+  field helpers model word order (`word_order`). Byte order is fixed
+  big-endian. A byte-swapping device needs a custom
+  [`RegisterField` subclass](/modbus-connection/modelling/fields/#beyond-the-helpers).
+- `data_type: float16`: no built-in codec. Decode the raw word with a
   `raw_register` and convert in a `@property`.
-- **`data_type: custom` + `structure`** — a Python `struct` format string. Read
-  the raw words with `raw_register`(s) and unpack them in a `@property`.
-- **`slave` / `device_address`** — this is the **unit id**. Pick it when you build
-  the `ModbusUnit` with `connection.for_unit(slave)`, not on a field.
-- **`virtual_count` / `slave_count`** — Home Assistant fans one entry out into
+- `data_type: custom` + `structure`: a Python `struct` format string. Read the
+  raw words with one or more `raw_register` fields and unpack them in a
+  `@property`.
+- `slave` / `device_address`: this is the unit id. Pick it when you build the
+  `ModbusUnit` with `connection.for_unit(slave)`. It is not a field option.
+- `virtual_count` / `slave_count`: Home Assistant fans one entry out into
   several consecutive entities. Model it with a
   [placed component](/modbus-connection/modelling/placement/) (`stride`) or one
   field per index.
@@ -152,5 +152,5 @@ await climate.write("relay", True)
 await climate.write("target_temp", 21.5)
 ```
 
-Some devices honour only FC16 for writes — Home Assistant's `write_type:
-holdings`. Pass `force_fc16=True` on the field for those.
+Some devices honour only FC16 for writes, which is Home Assistant's
+`write_type: holdings`. Pass `force_fc16=True` on the field for those.

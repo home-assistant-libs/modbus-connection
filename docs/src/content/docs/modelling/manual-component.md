@@ -3,9 +3,9 @@ title: Manual components
 description: Build a read/write group imperatively at runtime when the field layout comes from config rather than a typed class.
 ---
 
-Sometimes the field layout comes from **config** (e.g. YAML) rather than a
-typed class, so there is no `Component` subclass to declare. Use a
-`ManualComponent` for this case. It is the imperative twin of
+Sometimes the field layout comes from config (e.g. YAML) rather than a typed
+class, so there is no `Component` subclass to declare. Use a `ManualComponent`
+for this case. It is the imperative twin of
 [`Component`](/modbus-connection/modelling/overview/): you `add()` targets by
 key at runtime, and it pools them into as few reads as possible, mixing all
 four tables (holding, input, coils, discrete inputs) in one update.
@@ -24,7 +24,7 @@ mc.get("flow_temp")  # 21.5
 await mc.write("relay", True)  # per-key write (holding / coils only)
 ```
 
-## How it differs from `Component`
+## Differences from `Component`
 
 | | `Component` | `ManualComponent` |
 | --- | --- | --- |
@@ -43,14 +43,14 @@ mc.add(key, target, *, space=None)
 mc.remove(key)
 ```
 
-- A **register** target takes its `space` on `add()`: `"holding"` (default) or
+- A register target takes its `space` on `add()`: `"holding"` (default) or
   `"input"`.
-- A **bit** target's space is fixed by the helper (`coil` → FC01,
-  `discrete_input` → FC02). Passing `space` for a bit raises.
+- A bit target's space is fixed by the helper (`coil` reads FC01,
+  `discrete_input` reads FC02). Passing `space` for a bit raises.
 - A [`repeating_group`](/modbus-connection/modelling/repeats/) can be `add()`ed
   like any other target. Its instances come out via `get(key)` as a `list` of
   sub-components, sized at poll time for a register count.
-- The field `address` is **absolute** — there is no `index` / `stride`.
+- The field `address` is absolute. There is no `index` / `stride`.
 
 `add()` and `remove()` invalidate the cached plan, so it re-plans on the next
 update. Adding a key that already exists replaces the previous target.
@@ -78,7 +78,7 @@ writing one raises.
 
 ## Readable ranges
 
-Ranges are **per-table** keyword arguments on the constructor:
+Ranges are per-table keyword arguments on the constructor:
 `holding_ranges` / `input_ranges` / `coil_ranges` / `discrete_ranges`. Any
 table left unset falls back to gap-based planning:
 

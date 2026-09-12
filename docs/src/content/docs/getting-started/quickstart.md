@@ -1,9 +1,9 @@
 ---
 title: Quickstart
-description: Read your first registers — connect, read, decode, and close in twenty lines.
+description: Read your first registers. Connect, read, decode, and close in twenty lines.
 ---
 
-This is the whole loop: connect to a device, read two holding registers, decode
+The whole loop is: connect to a device, read two holding registers, decode
 them, and close. It assumes you have
 [installed the package](/modbus-connection/getting-started/installation/) with a
 backend extra.
@@ -31,12 +31,12 @@ asyncio.run(main())
 ```
 
 Register reads return raw 16-bit words. The `decode` module turns them into
-Python values — here, two words into one unsigned 32-bit integer. To switch
-backends, replace `modbus_connection.tmodbus` with
+Python values. Here it turns two words into one unsigned 32-bit integer. To
+switch backends, replace `modbus_connection.tmodbus` with
 `modbus_connection.pymodbus`. Nothing else changes.
 
-Every operation raises a subclass of `ModbusError` on failure. A minimal robust
-read looks like this:
+Every operation raises a subclass of `ModbusError` on failure. A minimal
+guarded read looks like this:
 
 ```python
 from modbus_connection import ModbusError
@@ -50,14 +50,14 @@ except ModbusError as err:
 From here:
 
 - [Connections and units](/modbus-connection/connection/connections-and-units/)
-  — ownership, lifecycle, transports, and request spacing.
-- [Modbus operations](/modbus-connection/connection/operations/) — the full
-  operation surface and decoding.
-- [Device modelling](/modbus-connection/modelling/overview/) — map registers to
-  typed attributes instead of decoding by hand. Use this for any device with
+  covers ownership, lifecycle, transports, and request spacing.
+- [Modbus operations](/modbus-connection/connection/operations/) covers the
+  full operation surface and decoding.
+- [Device modelling](/modbus-connection/modelling/overview/) maps registers to
+  typed attributes instead of decoding by hand. Use it for any device with
   more than a handful of values.
-- [Building a library](/modbus-connection/patterns/library/) — writing a device
-  library for others to use? This is the pattern to build it around, with a
-  [query helper](/modbus-connection/patterns/query-helper/) to check a real
-  device and a [mock backend](/modbus-connection/patterns/testing/) to test
+- [Building a library](/modbus-connection/patterns/library/) is the pattern for
+  a device library other people use. A
+  [query helper](/modbus-connection/patterns/query-helper/) checks a real
+  device and the [mock backend](/modbus-connection/patterns/testing/) tests
   without one.

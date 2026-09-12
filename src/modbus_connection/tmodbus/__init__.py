@@ -205,7 +205,7 @@ class ModbusConnection(BaseModbusConnection):
         if isinstance(params, ModbusTcpParams):
             if params.framer in ("rtu", "ascii"):
                 # A serial framing over a socket is a serial link, so it takes
-                # the serial client over a socket:// device — the same path a
+                # the serial client over a socket:// device. That is the path a
                 # ModbusSerialParams takes, which is what these deprecated
                 # framings tell the caller to use. tmodbus has an RTU-over-TCP
                 # client too, but it cannot be given an inter-frame gap

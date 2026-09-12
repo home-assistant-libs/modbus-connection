@@ -1,19 +1,18 @@
 ---
 title: Restricting fields
-description: Narrow a typed Component to the subset of a layout a device actually serves, when the served registers vary by firmware.
+description: Narrow a typed Component to the subset of a layout a device serves, when the served registers vary by firmware.
 ---
 
-Some devices serve only a **subset** of a known layout. Which registers they
+Some devices serve only a subset of a known layout. Which registers they
 answer depends on the firmware, often with no model or version register to key
-off. The layout is otherwise perfectly typed; only the served subset varies per
+off. The layout is otherwise fully typed. Only the served subset varies per
 device.
 
-A block read is atomic, so this is a problem: a single unserved register
-*inside* a block
-[fails the whole read](/modbus-connection/modelling/reading/#when-a-block-read-fails),
-taking every other field in that block down with it. Splitting the layout
+A block read is atomic. A single unserved register inside a block
+[fails the whole read](/modbus-connection/modelling/reading/#a-refused-block-read)
+and takes every other field in that block down with it. Splitting the layout
 across [separate components](/modbus-connection/modelling/component-group/)
-doesn't help when the served and unserved registers are interleaved.
+does not help when the served and unserved registers are interleaved.
 
 ## `restrict_fields`
 
@@ -42,27 +41,25 @@ The kept fields keep typed attribute access (`boiler.flow_temperature`), a
 stock `async_update()`, and typed `write()`. An excluded field reads as `None`
 and can no longer be written.
 
-This also constrains the **read plan**, not just the field set: a block read
-can never span an excluded register. That is what stops the update failing on a
-firmware that omits one. Excluding a field on its own would not achieve this —
-the planner would still pool a block across the gap between the fields it
-keeps.
+This also constrains the read plan: a block read can never span an excluded
+register. That is what stops the update failing on a firmware that omits one.
+Excluding a field from the field set alone would not achieve this, because the
+planner would still pool a block across the gap between the fields it keeps.
 
 ## Determining the served set
 
-Which fields to keep is up to you. The library deliberately doesn't decide,
-because how a device reveals its layout is device-specific. Two common
-approaches:
+Which fields to keep is up to you. The library does not decide, because how a
+device reveals its layout is device-specific. Common approaches:
 
-- **Probe once at setup.** Read each declared range, falling back to
-  single-register reads on a refusal, and keep the fields that answered. This
-  belongs to a library's [setup](/modbus-connection/patterns/library/), not its
+- Probe once at setup. Read each declared range, fall back to single-register
+  reads on a refusal, and keep the fields that answered. This belongs to a
+  library's [setup](/modbus-connection/patterns/library/) rather than its
   polling path.
-- **Look it up.** If the device reports a model or firmware version somewhere,
-  map that to a known field set.
+- Look it up. If the device reports a model or firmware version somewhere, map
+  that to a known field set.
 
 Either way you end up with the list of field names to pass to
-`restrict_fields`. Both approaches start from the names the component declares:
+`restrict_fields`. Both approaches start from the names the component declares.
 `Component.declared_fields` is a read-only mapping of attribute name to field
 object, in declaration order, on the class as well as on an instance.
 `restrict_fields` never narrows it, so it keeps describing the full declared

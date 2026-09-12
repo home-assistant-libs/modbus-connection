@@ -15,14 +15,14 @@ _MAX_SPAN = 125
 Range = tuple[int, int]  # an inclusive (low, high) readable address range
 
 # Which register space a field is read from: input (FC04) or holding (FC03).
-# They are separate address spaces — input 507 is not holding 507 — so blocks
-# from different spaces are never merged into one read.
+# They are separate address spaces (input 507 is a different register from
+# holding 507), so blocks from different spaces are never merged into one read.
 RegisterSpace = Literal["input", "holding"]
 
 # Any of the four Modbus address spaces a read target can live in.
 Space = RegisterSpace | BitSpace
 
-# Raw read results, grouped ``{space: {address: value}}`` — words for the
+# Raw read results, grouped ``{space: {address: value}}``: words for the
 # register spaces, booleans for the bit spaces.
 Raw = dict[str, dict[int, int | bool]]
 

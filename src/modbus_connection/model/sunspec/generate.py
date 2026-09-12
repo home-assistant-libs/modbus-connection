@@ -392,7 +392,7 @@ def _parse_group(
     ``counts`` supplies a value for a count point the device would otherwise
     report at poll time, which makes the block it sizes a fixed-count repeat.
 
-    A device-sized block has no fixed size, so nothing can follow it - except
+    A device-sized block has no fixed size, so nothing can follow it except
     same-shaped blocks, which collapse into one repeat of it. The trip models
     put three such regions in each curve.
     """
@@ -579,8 +579,8 @@ def _block_write_method(
 ) -> list[str]:
     """Emit the method that writes a whole repeated block, on its owner.
 
-    Named after the block, not fixed: one class can own several writable
-    blocks - model 704 owns four - and they each need their own method.
+    Named after the block, because one class can own several writable blocks
+    (model 704 owns four) and each needs its own method.
     """
     fields = module.class_fields.get(child_class, [])
     method = writer.attr_name(f"write_{attr}")

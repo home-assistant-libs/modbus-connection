@@ -29,14 +29,14 @@ export default defineConfig({
     starlight({
       title: "modbus-connection",
       description:
-        "A small, backend-neutral Modbus connection abstraction and device-modelling framework for Python.",
+        "A backend-neutral Modbus connection abstraction and device-modelling framework for Python.",
       plugins: [
         // Fails the build on a broken internal link or heading anchor.
         starlightLinksValidator(),
         starlightLlmsTxt({
           projectName: "modbus-connection",
           description:
-            "modbus-connection is a small, backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface — the ModbusConnection / ModbusUnit Protocols — with interchangeable tmodbus and pymodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
+            "modbus-connection is a backend-neutral Modbus connection abstraction for Python. The top-level package is a pure interface, the ModbusConnection class and the ModbusUnit Protocol, with interchangeable tmodbus and pymodbus backends. An optional modbus_connection.model framework maps a device's registers and coils to typed Python attributes and reads a device in as few Modbus calls as possible.",
           details: [
             "Important notes for working with modbus-connection:",
             "",

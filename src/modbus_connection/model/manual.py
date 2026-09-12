@@ -48,7 +48,7 @@ class ManualComponent(_ComponentBase):
         self._bits: dict[str, CoilField | DiscreteInputField] = {}
         self._values: dict[str, Any] = {}
         # repeating_group support (counts read from holding); groups are added by
-        # key like any other target. base_offset stays 0 — addresses are absolute.
+        # key like any other target. base_offset stays 0 because addresses are absolute.
         self._static_groups: dict[str, RepeatingGroupField[Any]] = {}
         self._repeating_fields: dict[str, RepeatingGroupField[Any]] = {}
         self._build_groups()

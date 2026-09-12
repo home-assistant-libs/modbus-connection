@@ -4,9 +4,9 @@ description: Map a device's registers and coils to typed attributes with Compone
 ---
 
 `modbus_connection.model` is an optional, backend-neutral framework. It maps a
-device's registers and coils to typed Python attributes, then reads the whole
-device — or one sub-system — in as few Modbus calls as possible. It talks only
-to a `ModbusUnit`, so it runs over any backend and over the
+device's registers and coils to typed Python attributes. It then reads the
+whole device, or one sub-system, in as few Modbus calls as possible. It talks
+only to a `ModbusUnit`, so it runs over any backend and over the
 [mock](/modbus-connection/patterns/testing/).
 
 ## A first component
@@ -42,19 +42,19 @@ The string under each field is an attribute docstring. It is optional, but
 editors show it when hovering `meter.voltage` anywhere in the codebase.
 
 `async_update()` reads every field, decodes it, and stores the result. Reading
-an attribute returns the decoded value, or `None` for a field that has not been
-read yet or a device sentinel that decodes to "no value". A component reads
-only its own registers, so it can refresh independently.
+an attribute returns the decoded value. It returns `None` for a field that has
+not been read yet, or for a device sentinel that decodes to "no value". A
+component reads only its own registers, so it can refresh independently.
 
-The update is not one request per field. Neighbouring addresses are pooled into
-block reads, bounded by what the device is willing to serve. See
-[Reading a device](/modbus-connection/modelling/reading/) for the pooling knobs,
-the readable ranges, and what a refused block does to an update.
+The update does not issue one request per field. Neighbouring addresses are
+pooled into block reads, bounded by what the device serves. See
+[Reading a device](/modbus-connection/modelling/reading/) for the pooling
+settings, the readable ranges, and what a refused block does to an update.
 
-## Register spaces: holding vs input
+## Register spaces: holding and input
 
-A component's register fields default to the **holding** space (FC03). For a
-read-only sub-system whose data lives in **input** registers (FC04), set
+A component's register fields default to the holding space (FC03). For a
+read-only sub-system whose data lives in input registers (FC04), set
 `register_space = "input"`. The field declarations are unchanged:
 
 ```python
@@ -63,11 +63,11 @@ class Sensors(Component):
     flow_temp = gauge(5, 0.1, unit="°C")  # read with FC04
 ```
 
-Input and holding are separate address spaces (input 507 ≠ holding 507), so the
-planner never merges them into one read. Input registers are physically
-read-only, so writing an `"input"` field raises.
+Input and holding are separate address spaces (input 507 is a different
+register from holding 507), so the planner never merges them into one read.
+Input registers are read-only, so writing an `"input"` field raises.
 
-## Bit spaces: coils vs discrete inputs
+## Bit spaces: coils and discrete inputs
 
 Bits work the same way over their own pair of spaces:
 
@@ -77,7 +77,7 @@ from modbus_connection.model import Component, coil, discrete_input
 
 class IO(Component):
     relay = coil(0, writable=True)  # FC01, read/write
-    fault = discrete_input(0)  # FC02, read-only — distinct from coil 0
+    fault = discrete_input(0)  # FC02, read-only, distinct from coil 0
 ```
 
 `coil` fields are read and written via FC01. `discrete_input` fields are read
@@ -111,28 +111,29 @@ unsubscribe()
 Pass `async_update(notify=False)` to read without firing the listeners, for a
 caller that notifies them itself.
 
-## Where to next
+## Next steps
 
-Building a device library? Read
-[The device object](/modbus-connection/patterns/library/) once you know the
-basics here — it shows how components combine into a full library.
+To build a device library, read
+[The device object](/modbus-connection/patterns/library/) after this page. It
+shows how components combine into a full library.
 
 The rest of this section, in reading order:
 
-- [Built-in fields](/modbus-connection/modelling/fields/) — every generic field type.
-- [Reading a device](/modbus-connection/modelling/reading/) — block pooling,
-  readable ranges, failed blocks, and the raw register map.
-- [Placing a component](/modbus-connection/modelling/placement/) — read the same
+- [Built-in fields](/modbus-connection/modelling/fields/): every generic field
+  type.
+- [Reading a device](/modbus-connection/modelling/reading/): block pooling,
+  readable ranges, refused blocks, and the raw register map.
+- [Placing a component](/modbus-connection/modelling/placement/): read the same
   layout at another address with `index` / `stride` or `base_offset`.
-- [Repeating groups](/modbus-connection/modelling/repeats/) — one sub-unit
+- [Repeating groups](/modbus-connection/modelling/repeats/): one sub-unit
   modelled once, the list sized from a fixed or device-reported count.
-- [Restricting fields](/modbus-connection/modelling/restricting-fields/) — narrow a
-  component to the subset of a layout a device actually serves.
-- [Component groups](/modbus-connection/modelling/component-group/) — refresh
+- [Restricting fields](/modbus-connection/modelling/restricting-fields/): narrow
+  a component to the subset of a layout a device serves.
+- [Component groups](/modbus-connection/modelling/component-group/): refresh
   several components in one pooled read.
-- [Manual components](/modbus-connection/modelling/manual-component/) — build the
+- [Manual components](/modbus-connection/modelling/manual-component/): build the
   layout at runtime from config.
-- [SunSpec](/modbus-connection/modelling/sunspec/) — the SunSpec point types.
+- [SunSpec](/modbus-connection/modelling/sunspec/): the SunSpec point types.
 - [Field reference](/modbus-connection/modelling/fields-reference/) and
-  [Component reference](/modbus-connection/modelling/components-reference/) —
+  [Component reference](/modbus-connection/modelling/components-reference/):
   every class, method, and field of the modelling layer.

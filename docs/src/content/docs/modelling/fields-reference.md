@@ -1,6 +1,6 @@
 ---
 title: Field reference
-description: Every field helper and field class of modbus_connection.model — the generic helpers, the codec classes, the writable/convert types, and the SunSpec point helpers.
+description: Every field helper and field class of modbus_connection.model. The generic helpers, the codec classes, the writable/convert types, and the SunSpec point helpers.
 ---
 
 The complete API of the modelling layer's fields. The generic helpers and
@@ -20,7 +20,7 @@ returns the decoded value or `None`. See
 | --- | --- | --- | --- |
 | `integer(address, *, offset=0.0, signed=True, nan=None, …)` | `NumberField[int]` | 1 | An unscaled integer. |
 | `gauge(address, scale, *, offset=0.0, signed=True, nan=None, …)` | `NumberField[float]` | 1 | A scaled number; `scale` is required. |
-| `raw_register(address, *, stride=0, writable=False, force_fc16=False)` | `RawField` | 1 | A raw word — no scaling, sign handling, or sentinel. |
+| `raw_register(address, *, stride=0, writable=False, force_fc16=False)` | `RawField` | 1 | A raw word with no scaling, sign handling, or sentinel. |
 | `uint32(address, …)` / `int32(address, …)` | `NumberField[int]` | 2 | 32-bit integers; take `scale`, `offset`, `word_order`. |
 | `uint64(address, …)` / `int64(address, …)` | `NumberField[int]` | 4 | 64-bit integers. |
 | `float32(address, …)` / `float64(address, …)` | `FloatField` | 2 / 4 | IEEE-754 floats; take `scale`, `offset`, `word_order`. A NaN decodes to `None`. |
@@ -40,7 +40,7 @@ returns the decoded value or `None`. See
 | `address` | Address of the value's first register word, in declared coordinates. |
 | `scale` / `offset` | Affine transform: the value decodes as `raw * scale + offset`. |
 | `signed` | Interpret the raw integer as two's-complement. |
-| `nan` | Raw sentinel value — an `int` or an iterable of them — that decodes to `None`. Deprecated and ignored on `float32` / `float64`. |
+| `nan` | Raw sentinel value, an `int` or an iterable of them, that decodes to `None`. Deprecated and ignored on `float32` / `float64`. |
 | `word_order` | `"big"` (default) or `"little"` for multi-register values. |
 | `unit` | Unit-of-measure label carried as metadata; not used in decoding. |
 | `stride` | Per-index address step for a [placed component](/modbus-connection/modelling/placement/). |
@@ -61,14 +61,14 @@ while the count is 0, and a resolved `stride` that is not `> 0` raises
 `ValueError` from the update.
 `count_in_block=False` reads a nested group's register count at the outermost
 layout's address instead of shifting it with each enclosing instance. Reading the
-attribute returns `list[C]` — the instances built on the last update. See
+attribute returns `list[C]`, the instances built on the last update. See
 [Repeating groups](/modbus-connection/modelling/repeats/).
 
 ## Field classes
 
 The classes the helpers return. Construct one directly only for something the
-helpers can't express (e.g. a `convert` mapping); subclass `RegisterField` for a
-custom codec.
+helpers cannot express (e.g. a `convert` mapping). Subclass `RegisterField` for
+a custom codec.
 
 ### `RegisterField[T]`
 
@@ -84,12 +84,12 @@ Instance attributes: `address`, `count`, `writable`, `stride`, `unit`,
 attribute name when declared on a class). As a descriptor, reading it on an
 instance returns `T | None`; on the class, the field object itself.
 
-- **`decode(words, scale_exponent=None)`** — decode register words into the
-  field's value; `scale_exponent` is the signed int16 read from
-  `scale_register`, if any. Implemented by each subclass.
-- **`encode(value, scale_exponent=None)`** — encode a value into register
-  words. The base implementation raises `NotImplementedError` (read-only
-  codec); numeric, raw, float, and string fields implement it.
+- `decode(words, scale_exponent=None)` decodes register words into the
+  field's value. `scale_exponent` is the signed int16 read from
+  `scale_register`, if any. Each subclass implements it.
+- `encode(value, scale_exponent=None)` encodes a value into register words.
+  The base implementation raises `NotImplementedError` (read-only codec).
+  Numeric, raw, float, and string fields implement it.
 
 ### `NumberField[T]`
 
@@ -105,8 +105,8 @@ by `scale` and `offset`.
 
 ### `RawField`
 
-`RegisterField[int]` decoding the raw register words as an unsigned integer —
-no scaling, sign handling, or sentinel. Takes `word_order="big"`.
+`RegisterField[int]` decoding the raw register words as an unsigned integer,
+with no scaling, sign handling, or sentinel. Takes `word_order="big"`.
 
 ### `FloatField`
 
@@ -168,7 +168,7 @@ on a component instance returns `list[C]`.
 
 ### `Placement`
 
-`Callable[[Any], int]` — a callable passed as a `repeating_group`'s `stride`.
+`Callable[[Any], int]`. A callable passed as a `repeating_group`'s `stride`.
 It receives the component that owns the outermost block (a
 `ManualComponent` when the group was added to one) after that component's
 fixed block has been read, and returns the resolved value. See
@@ -176,20 +176,20 @@ fixed block has been read, and returns the resolved value. See
 
 ### `WriteValidator`
 
-`Callable[[Any], Any]` — a callable passed as a field's `writable`. It marks
-the field writable and is invoked with the requested value before encoding,
-returning the value to actually write; raise to reject.
+`Callable[[Any], Any]`. A callable passed as a field's `writable`. It marks
+the field writable and is invoked with the requested value before encoding. It
+returns the value to write, or raises to reject.
 
 ### `Converter`
 
-`Callable[[int], Any] | Mapping[int, Any]` — a `NumberField`'s `convert`:
+`Callable[[int], Any] | Mapping[int, Any]`. A `NumberField`'s `convert`. It
 maps the decoded (sign-applied) integer to the field's value. A callable
-raising `ValueError`, or a mapping missing the key, decodes to `None` (warned
-once per distinct value); any other exception propagates.
+raising `ValueError`, or a mapping missing the key, decodes to `None`, warned
+once per distinct value. Any other exception propagates.
 
 ## SunSpec point helpers
 
-From `modbus_connection.model.sunspec` — see
+From `modbus_connection.model.sunspec`. See
 [SunSpec fields](/modbus-connection/modelling/sunspec/) for the guide, and the
 [component reference](/modbus-connection/modelling/components-reference/#sunspec-discovery-and-components)
 for `scan` and `SunSpecComponent`.
@@ -221,7 +221,7 @@ against it.
 | `enum16 / enum32(address, enum=None, *, stride=0, writable=False)` | `NumberField[E]` or `NumberField[int]` | 1 / 2 | `0xFFFF` / `0xFFFFFFFF` |
 | `bitfield16 / bitfield32 / bitfield64(address, flags=None, *, stride=0, writable=False)` | `NumberField[F]` or `NumberField[int]` | 1 / 2 / 4 | `0xFFFF` / `0xFFFFFFFF` / `0xFFFF…` |
 | `float32 / float64(address, *, stride=0, writable=False, unit=None)` | `FloatField` | 2 / 4 | any NaN |
-| `string(address, length, *, stride=0, writable=False)` | `StringField` | `length` | — |
-| `ipaddr(address, *, stride=0)` | `IPv4Field` | 2 | — |
-| `ipv6addr(address, *, stride=0)` | `IPv6Field` | 8 | — |
-| `eui48(address, *, stride=0)` | `Eui48Field` | 3 | — |
+| `string(address, length, *, stride=0, writable=False)` | `StringField` | `length` | none |
+| `ipaddr(address, *, stride=0)` | `IPv4Field` | 2 | none |
+| `ipv6addr(address, *, stride=0)` | `IPv6Field` | 8 | none |
+| `eui48(address, *, stride=0)` | `Eui48Field` | 3 | none |

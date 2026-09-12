@@ -61,8 +61,11 @@ class ModbusTimeoutError(ModbusError, TimeoutError):
 
 
 class ModbusProtocolError(ModbusError):
-    """A response could not be used: a corrupt frame, or a well-formed answer
-    to a different request than the one sent."""
+    """A response could not be used.
+
+    Either the frame was corrupt, or a well-formed answer belonged to a
+    different request than the one sent.
+    """
 
 
 class ModbusDesyncError(ModbusProtocolError):

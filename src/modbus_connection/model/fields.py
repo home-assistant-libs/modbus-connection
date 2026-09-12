@@ -57,17 +57,18 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 # A ``writable`` value may be a validator: a callable invoked with the requested
-# value before it is encoded, returning the value to actually write. Passing one
+# value before it is encoded, returning the value to write. Passing one
 # marks the field writable (a callable is truthy) and lets the validator vet or
-# coerce the value — raise to reject it. ``writable=True`` writes the value as-is
-# with no validation.
+# coerce the value. It raises to reject a value. ``writable=True`` writes the
+# value as-is with no validation.
 WriteValidator = Callable[[Any], Any]
 
-# A ``convert`` value maps the decoded integer to the field's Python value:
-# a callable taking the raw (sign-decoded) int — an ``IntEnum`` / ``IntFlag``
-# class or a plain function — or a mapping looked up by that int. A callable
-# raising ``ValueError``, or a mapping missing the key, decodes the value to
-# ``None`` (warned once per distinct value); any other exception propagates.
+# A ``convert`` value maps the decoded integer to the field's Python value. It
+# is a callable taking the raw (sign-decoded) int, such as an ``IntEnum`` /
+# ``IntFlag`` class or a plain function, or a mapping looked up by that int. A
+# callable raising ``ValueError``, or a mapping missing the key, decodes the
+# value to ``None`` (warned once per distinct value). Any other exception
+# propagates.
 Converter = Callable[[int], Any] | Mapping[int, Any]
 
 
@@ -262,7 +263,7 @@ class NumberField[T](_ScaledField[T]):
         if enum_type is not None:
             if convert is not None:
                 raise ValueError("pass either convert or enum_type, not both")
-            convert = enum_type  # an enum class is just a converter
+            convert = enum_type  # an enum class is a converter
         # Callable or mapping applied to the raw value (an IntEnum / IntFlag
         # class, a plain function, or a dict); None returns the raw int.
         self.convert = convert
@@ -462,7 +463,7 @@ class PackedBitsField(RegisterField[int]):
     """Expose a run of bits inside one register as an ``int``.
 
     Writing one packed field must leave the register's other bits alone, so
-    the write reads the register back first and merges — see ``merge``.
+    the write reads the register back first and merges. See ``merge``.
     """
 
     def __init__(

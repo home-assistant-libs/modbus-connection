@@ -94,7 +94,7 @@ class MockModbusConnection(BaseModbusConnection):
     def simulate_connection_lost(self) -> None:
         """Drop the link and fire every ``on_connection_lost`` callback.
 
-        The drop is transient, as it is on a real connection: the next request
+        The drop is transient, as on a real connection. The next request
         establishes the link again.
         """
         self._client = None
@@ -210,15 +210,16 @@ class MockModbusUnit:
     def fail_requests(self, error: Exception | None) -> None:
         """Set the exception raised by every read and write on this unit.
 
-        Models a device that is not answering at all — powered down, unplugged,
-        behind a dead gateway — where no address is special and a test should
-        not have to know which one its caller happens to reach first. Pass
-        ``None`` to let the unit answer again.
+        Models a device that is not answering at all (powered down, unplugged,
+        behind a dead gateway), where no address is special and a test need
+        not know which one its caller reaches first. Pass ``None`` to let the
+        unit answer again.
 
-        This is about the device, not the link: ``connected`` still follows the
-        connection, and reads are still recorded in ``read_events`` before they
-        raise, so a test can assert what was attempted. Per-address
-        ``fail_read`` and ``fail_write`` continue to apply on top.
+        This models the device rather than the link. ``connected`` still
+        follows the connection, and reads are still recorded in
+        ``read_events`` before they raise, so a test can assert what was
+        attempted. Per-address ``fail_read`` and ``fail_write`` continue to
+        apply on top.
         """
         self._request_failure = error
 
