@@ -163,6 +163,9 @@ that read fails, and `async_config_entry_first_refresh()` turns the failure into
 refreshed and which failed. The coordinator's data is that report:
 
 ```python
+from modbus_connection.model import UpdateReport
+
+
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
     """Run one of the device's update methods on its own interval."""
 
@@ -346,8 +349,8 @@ unresponsive. Some bridges keep the socket open while the device behind them
 stops answering, so every poll times out against the same dead link. Most
 integrations never hit this and need nothing here. If yours is known to, as
 some serial-to-network bridges wedge this way, call `disconnect()` once polls
-keep timing out. A device built to the
-[library pattern](/modbus-connection/patterns/library/) raises
+keep timing out. A device built on the library's
+[`Device`](/modbus-connection/patterns/library/) base class raises
 `ModbusTimeoutError` only when nothing answered at all, which is exactly this
 condition. A timeout it reports in the `UpdateReport` instead means the device
 is answering, so the link is not wedged:
@@ -417,8 +420,9 @@ device the most useful payload is the raw register map: every register the
 integration reads, with its raw value. An issue report then shows exactly what
 the device returned. A `Component` exposes `async_read_raw()` for this. It runs
 the same reads as `async_update()`, but returns the raw words and bits keyed by
-absolute address, `{space: {address: value}}`, undecoded. Have the device merge
-its components' maps into one, so diagnostics is a single call:
+absolute address, `{space: {address: value}}`, undecoded. The
+[`Device`](/modbus-connection/patterns/library/) base class merges its
+components' maps into one, so diagnostics is a single call:
 
 ```python
 async def async_get_config_entry_diagnostics(hass, entry):
@@ -466,8 +470,9 @@ wiring.
       address is a constant in the integration. It asks nothing the library
       settles by probing.
 - [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`.
-- [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
-      `UpdateFailed`, and fails the update when no sub-system answered.
+- [ ] Coordinator returns the `UpdateReport` from `modbus_connection.model`,
+      maps `ModbusError` to `UpdateFailed`, and fails the update when no
+      sub-system answered.
 - [ ] Every coordinator has run `async_config_entry_first_refresh()` before the
       platforms are forwarded.
 - [ ] The entry is not reloaded when the connection drops. Reconnection is

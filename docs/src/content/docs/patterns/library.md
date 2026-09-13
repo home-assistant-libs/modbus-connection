@@ -18,55 +18,53 @@ chooses how often to read each. Read every sub-system on its own, or as a
 read already spans the other's registers. One sub-system failing then does not
 take the rest with it.
 
+The [`Device`](/modbus-connection/modelling/components-reference/#device) base
+class carries the plumbing. It holds the `ModbusUnit` as `modbus_unit`, runs
+your `_async_setup()` once before the first poll, and runs it again on the next
+poll if the device was unreachable. `async_poll()` reads the sub-systems you
+name by attribute and returns an
+[`UpdateReport`](/modbus-connection/modelling/components-reference/#updatereport)
+of what refreshed and what failed. `async_read_raw()` merges their raw register
+maps for diagnostics. Both skip an attribute that is `None`, so a fixed tuple of
+names can include an optional sub-system.
+[`read_optional()`](/modbus-connection/modelling/components-reference/#read_optionalcomponent)
+probes for one at setup.
+
 The example below is a heating controller:
 
 ```python
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from modbus_connection import (
-    IllegalDataAddressError,
-    IllegalFunctionError,
-    ModbusConnectionError,
-    ModbusError,
-    ModbusTimeoutError,
+from modbus_connection.model import (
+    ComponentGroup,
+    Device,
+    UpdateReport,
+    read_optional,
 )
-from modbus_connection.model import Component, ComponentGroup
 
-from .sensors import Sensors
 from .controller import Controller
 from .heating_circuit import HeatingCircuit
 from .hot_water import HotWater
+from .sensors import Sensors
 from .settings import Settings
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
-
-async def _optional[C: Component](component: C) -> C | None:
-    """Read an optional sub-system; None if this device does not have it."""
-    try:
-        await component.async_update()
-    except (IllegalDataAddressError, IllegalFunctionError):
-        return None
-    return component
+# Attribute names of the sub-systems each update method reads.
+READINGS = ("sensors", "circuits", "hot_water")
+SETTINGS = ("settings",)
+ALL = ("controller", *READINGS, *SETTINGS)
 
 
-@dataclass
-class UpdateReport:
-    """What one poll managed to refresh."""
-
-    updated: list[str] = field(default_factory=list)
-    failed: dict[str, ModbusError] = field(default_factory=dict)
-
-
-class MyDevice:
+class MyDevice(Device):
     """A heating controller reached through a ``ModbusUnit``."""
 
     def __init__(self, unit: ModbusUnit) -> None:
-        self._unit = unit
+        super().__init__(unit)
 
         # Sub-systems, each a Component. Repeated ones take an index.
         self.controller = Controller(unit)
@@ -74,102 +72,54 @@ class MyDevice:
         self.heating_circuit_1 = HeatingCircuit(unit, index=1)
         self.settings = Settings(unit)
 
-        # Optional: filled in by the first update if this model has them.
+        # Optional: filled in by setup if this model has them.
         self.heating_circuit_2: HeatingCircuit | None = None
         self.hot_water: HotWater | None = None
 
         # One circuit's read already spans the other's, so they read as one.
         self.circuits: ComponentGroup | None = None
 
-        # class attributes of components that are updated together
-        self._readings: tuple[str, ...] | None = None
-        self._settings = ("settings",)
-
     async def _async_setup(self) -> None:
-        """Read what never changes, and settle which sub-systems this model has.
-
-        Runs from the first update, and again on the next one if the device
-        was unreachable.
-        """
+        """Read what never changes, and settle which sub-systems this model has."""
         await self.controller.async_update()  # identity: read once, never polled
 
         # Probe to see which sub-systems this device has.
-        self.heating_circuit_2 = await _optional(HeatingCircuit(self._unit, index=2))
-        self.hot_water = await _optional(HotWater(self._unit))
+        self.heating_circuit_2 = await read_optional(
+            HeatingCircuit(self.modbus_unit, index=2)
+        )
+        self.hot_water = await read_optional(HotWater(self.modbus_unit))
         self.circuits = ComponentGroup(
-            self._unit,
+            self.modbus_unit,
             [c for c in (self.heating_circuit_1, self.heating_circuit_2) if c],
         )
 
-        self._readings = tuple(
-            n
-            for n in ("sensors", "circuits", "hot_water")
-            if getattr(self, n) is not None
-        )
-
-    async def _async_poll(
-        self, names: tuple[str, ...], report: UpdateReport
-    ) -> UpdateReport:
-        """Read each named sub-system on its own, adding what happened to *report*."""
-        for name in names:
-            try:
-                await getattr(self, name).async_update(notify=False)
-            except ModbusConnectionError:
-                raise  # the link is down; the rest would only wait for timeouts
-            except ModbusTimeoutError as err:
-                if not report.updated and not report.failed:
-                    raise  # nothing answered yet: assume the rest time out too
-                report.failed[name] = err
-            except ModbusError as err:
-                report.failed[name] = err
-            else:
-                report.updated.append(name)
-        return report
-
-    def _notify(self, report: UpdateReport) -> None:
-        """Fire the listeners of everything this update refreshed."""
-        for name in report.updated:
-            getattr(self, name).notify()
-
     async def async_update_readings(self) -> UpdateReport:
         """Refresh what the controller measures."""
-        if self._readings is None:
-            await self._async_setup()
-            assert self._readings is not None
-        report = await self._async_poll(self._readings, UpdateReport())
-        self._notify(report)
-        return report
+        return await self.async_poll(READINGS)
 
     async def async_update_settings(self) -> UpdateReport:
         """Refresh what the controller has been configured to do."""
-        if self._readings is None:
-            await self._async_setup()
-        report = await self._async_poll(self._settings, UpdateReport())
-        self._notify(report)
-        return report
+        return await self.async_poll(SETTINGS)
 
     async def async_update(self) -> UpdateReport:
         """Refresh all components."""
-        if self._readings is None:
-            await self._async_setup()
-            assert self._readings is not None
-        report = await self._async_poll(self._readings, UpdateReport())
-        await self._async_poll(self._settings, report)
-        self._notify(report)
-        return report
+        report = await self.async_poll(READINGS)
+        return await self.async_poll(SETTINGS, report)
 
-    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+    async def async_read_raw(
+        self, names: Iterable[str] = ALL
+    ) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded, for diagnostics."""
-        if self._readings is None:
-            await self._async_setup()
-            assert self._readings is not None
-        raw: dict[str, dict[int, int | bool]] = {}
-        for name in ("controller", *self._readings, *self._settings):
-            read = await getattr(self, name).async_read_raw(notify=False)
-            for space, values in read.items():
-                raw.setdefault(space, {}).update(values)
-        return raw
+        return await super().async_read_raw(names)
 ```
+
+`async_poll()` reads each named sub-system on its own. A sub-system the device
+rejects lands in `report.failed` and the rest still refresh. A
+`ModbusConnectionError` propagates at once, since the link is down. A
+`ModbusTimeoutError` propagates only while nothing has answered yet. Once one
+sub-system has answered, a later timeout lands in `report.failed` like any
+other error. Listeners fire after the whole poll, for the sub-systems that
+refreshed.
 
 The consumer then works entirely in Python objects:
 
@@ -217,8 +167,8 @@ asyncio.run(main())
 - Carry metadata on the fields. `unit=`, ranges, and validators live next to
   the address, so the model doubles as the datasheet.
 - Decide at setup. Everything that cannot change between two polls (the model,
-  the static registers, which optional components exist) belongs to setup, so
-  the polling path stays a fixed list of components to read.
+  the static registers, which optional components exist) belongs to
+  `_async_setup()`, so the polling path stays a fixed tuple of names to read.
 - Split where the blocks divide. Give the settings their own update method
   when they sit in blocks of their own.
 

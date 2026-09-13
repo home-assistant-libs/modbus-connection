@@ -57,7 +57,8 @@ From here:
   typed attributes instead of decoding by hand. Use it for any device with
   more than a handful of values.
 - [Building a library](/modbus-connection/patterns/library/) is the pattern for
-  a device library other people use. A
+  a device library other people use. The `Device` base class carries its
+  setup and polling. A
   [query helper](/modbus-connection/patterns/query-helper/) checks a real
   device and the [mock backend](/modbus-connection/patterns/testing/) tests
   without one.

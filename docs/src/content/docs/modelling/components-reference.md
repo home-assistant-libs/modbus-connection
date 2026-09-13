@@ -3,8 +3,8 @@ title: Component reference
 description: Every class and method of the modelling layer's components. Component, ComponentGroup, ManualComponent, the supporting types, and SunSpec discovery.
 ---
 
-The complete API of the modelling layer's component classes, importable from
-`modbus_connection.model` (the [SunSpec section](#sunspec-discovery-and-components)
+The complete API of the modelling layer's component classes and the `Device`
+base class, importable from `modbus_connection.model` (the [SunSpec section](#sunspec-discovery-and-components)
 from `modbus_connection.model.sunspec`). The fields declared on them are in the
 [field reference](/modbus-connection/modelling/fields-reference/).
 
@@ -206,6 +206,80 @@ unknown or read-only key).
 `async_read_raw()`, `async_update_repeating_groups()`,
 `add_update_listener(listener)`, and `notify()` work exactly as on
 [`Component`](#methods).
+
+## `Device`
+
+The base class for a library's top-level device object. A subclass holds one
+`Component` (or `ComponentGroup`) per sub-system as an attribute and overrides
+`_async_setup()`. See [The device object](/modbus-connection/patterns/library/).
+
+```python
+Device(unit)
+```
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `unit` | `ModbusUnit` | The unit every sub-system is read from. Stored as `modbus_unit`. |
+
+### Methods
+
+#### `_async_setup()`
+
+`async`. The hook a subclass overrides to read what never changes and settle
+which optional sub-systems the device has. The default does nothing.
+
+#### `async_ensure_setup()`
+
+`async`. Run `_async_setup()` if it has not completed yet. A run that raised
+does not count, so the next call runs it again. `async_poll()` and
+`async_read_raw()` call it first.
+
+#### `async_poll(names, report=None)`
+
+`async`. Ensure setup, then read each sub-system in `names` on its own with
+`async_update(notify=False)`, where each name is an attribute of the device.
+Returns an [`UpdateReport`](#updatereport): a sub-system that refreshed is
+appended to `updated`, one that raised a `ModbusError` is recorded under
+`failed`. Pass `report` to add to an earlier poll's report instead of a new
+one. Listeners of every refreshed sub-system fire once the whole poll is done.
+An attribute that is `None` is skipped.
+
+Two errors propagate instead of being recorded. A `ModbusConnectionError`
+propagates at once. A `ModbusTimeoutError` propagates while the report holds
+nothing under `updated` or `failed`, so a device that answers nothing surfaces
+as a timeout.
+
+#### `async_read_raw(names)`
+
+`async`. Ensure setup, then read each sub-system in `names` with
+`async_read_raw(notify=False)` and merge the results into one
+`{space: {address: value}}` map, keyed by the four Modbus spaces like
+[`Component.async_read_raw()`](#async_read_raw-notifytrue). An attribute that
+is `None` is skipped. Raises the same `ModbusError` subclasses as an update.
+
+#### `modbus_unit`
+
+The [`ModbusUnit`](/modbus-connection/connection/reference/#modbusunit) passed
+to the constructor.
+
+## `UpdateReport`
+
+A dataclass describing what one `async_poll()` refreshed:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `updated` | `list[str]` | The attribute names of the sub-systems that refreshed, in poll order. |
+| `failed` | `dict[str, ModbusError]` | The sub-systems that raised, with the error each raised. |
+
+Both default to empty, so `UpdateReport()` starts a fresh report.
+
+## `read_optional(component)`
+
+`async`. Call `async_update()` on `component` and return it. Returns `None` if
+the device answers with `IllegalDataAddressError` or `IllegalFunctionError`,
+the codes a device uses to refuse a sub-system it does not have. Any other
+`ModbusError` propagates. The return type follows the argument, so
+`await read_optional(HotWater(unit))` is typed `HotWater | None`.
 
 ## Supporting types
 
