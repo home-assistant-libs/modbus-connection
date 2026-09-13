@@ -36,7 +36,7 @@ class ManualComponent(_ComponentBase):
         self.max_span = max_span
         # Readable address ranges per table; a table left None falls back to
         # gap-based planning, like Component does.
-        self._ranges = DeviceRanges(
+        self._ranges = DeviceRanges.declared(
             {
                 "holding": holding_ranges,
                 "input": input_ranges,

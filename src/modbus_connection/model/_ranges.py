@@ -1,9 +1,22 @@
-"""Readable address-range maps and the operations on them."""
+"""Readable address-range maps and the operations on them.
+
+Each address space a component reads has one of three kinds of map. An
+unconstrained space has no map and is planned gap-based. A declared map is
+what the author stated in ``register_ranges`` and its siblings: the addresses
+the device answers. A claimed map is what a component reads on its own,
+planned alone. It stands in where the author declared nothing.
+
+Two rules govern a merge. Declarations draw boundaries and conflict where they
+overlap without matching, because they describe one device. Claims draw no
+boundary and overlap freely, because they only say that something reads those
+addresses. A merged map therefore never widens a read past a split a
+declaration drew, and never bridges a gap no part reads.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ._const import _RANGE_ATTR, Range, Space
 
@@ -34,8 +47,8 @@ def _validate_ranges(ranges: tuple[Range, ...]) -> None:
             )
 
 
-def _coalesce(ranges: tuple[Range, ...], *, within: int = 0) -> tuple[Range, ...]:
-    """Join ranges that touch or overlap, or sit within ``within`` of each other.
+def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
+    """Join ranges that touch or overlap.
 
     Two ranges with nothing between them describe one readable run, so a read
     may span both. Only called on maps whose parts have already been checked
@@ -43,7 +56,7 @@ def _coalesce(ranges: tuple[Range, ...], *, within: int = 0) -> tuple[Range, ...
     """
     joined: list[Range] = []
     for low, high in sorted(ranges):
-        if joined and low <= joined[-1][1] + 1 + within:
+        if joined and low <= joined[-1][1] + 1:
             joined[-1] = (joined[-1][0], max(joined[-1][1], high))
         else:
             joined.append((low, high))
@@ -96,6 +109,16 @@ def _ranges_excluding(
 
 
 @dataclass(frozen=True)
+class SpaceMap:
+    """The readable ranges of one address space."""
+
+    ranges: tuple[Range, ...]
+
+    declared: bool = True
+    """Whether an author declared the ranges. A claim records reads instead."""
+
+
+@dataclass(frozen=True)
 class DeviceRanges:
     """A device's readable ranges per address space.
 
@@ -104,44 +127,53 @@ class DeviceRanges:
     resolves them in. ``shift`` moves the whole device's map between systems.
     """
 
-    maps: Mapping[Space, tuple[Range, ...] | None]
-    # Spaces whose ranges are a claim rather than an exhaustive declaration: what
-    # something reads, with dropped addresses cut out. Two claims may overlap.
-    # Two declarations that overlap contradict each other.
-    claimed: frozenset[Space] = frozenset()
+    maps: Mapping[Space, SpaceMap | None]
+
+    @classmethod
+    def declared(cls, ranges: Mapping[Space, tuple[Range, ...] | None]) -> DeviceRanges:
+        """Wrap ranges an author declared; ``None`` leaves a space unconstrained."""
+        return cls(
+            {
+                space: None if space_ranges is None else SpaceMap(space_ranges)
+                for space, space_ranges in ranges.items()
+            }
+        )
 
     def for_space(self, space: Space) -> tuple[Range, ...] | None:
         """The readable ranges of one space, or ``None`` if unconstrained."""
-        return self.maps.get(space)
+        space_map = self.maps.get(space)
+        return None if space_map is None else space_map.ranges
 
     def shift(self, offset: int) -> DeviceRanges:
         """Move every space's ranges, like the addresses they constrain."""
         if offset == 0:
             return self
-        shifted: dict[Space, tuple[Range, ...] | None] = {}
-        for space, ranges in self.maps.items():
-            shifted[space] = (
-                None
-                if ranges is None
-                else tuple((low + offset, high + offset) for low, high in ranges)
-            )
-        return DeviceRanges(shifted, claimed=self.claimed)
+        return DeviceRanges(
+            {
+                space: (
+                    None
+                    if space_map is None
+                    else replace(
+                        space_map,
+                        ranges=tuple(
+                            (low + offset, high + offset)
+                            for low, high in space_map.ranges
+                        ),
+                    )
+                )
+                for space, space_map in self.maps.items()
+            }
+        )
 
-    def widened(self, claims: Mapping[Space, tuple[Range, ...]]) -> DeviceRanges:
-        """Return these maps with ``claims`` folded into the spaces they cover.
-
-        A claim says only that something reads those addresses. It says
-        nothing about whether the device serves the span they sit in, so it is
-        added to a map rather than checked against it. Boundaries the map
-        already draws are kept.
-        """
-        if not claims:
-            return self
-        widened: dict[Space, tuple[Range, ...] | None] = dict(self.maps)
-        for space, ranges in claims.items():
-            existing = (tuple(widened.get(space) or ()),)
-            widened[space] = _partitioned((*existing, ranges), existing)
-        return DeviceRanges(widened, claimed=self.claimed)
+    @classmethod
+    def claims(cls, ranges: Mapping[Space, tuple[Range, ...]]) -> DeviceRanges:
+        """Wrap the addresses something reads, as a claim per space."""
+        return cls(
+            {
+                space: SpaceMap(space_ranges, declared=False)
+                for space, space_ranges in ranges.items()
+            }
+        )
 
     @classmethod
     def merged(
@@ -153,35 +185,31 @@ class DeviceRanges:
         """Merge several devices' maps into the map they jointly describe.
 
         Per space, unset maps add no constraint and the rest merge, so parts
-        of one device at different offsets fit together. Maps covering the
-        same addresses differently conflict.
+        of one device at different offsets fit together. Declarations are
+        compared by the addresses they name, so maps of a different shape
+        over the same addresses agree. Declarations covering the same
+        addresses differently conflict.
 
-        Maps naming the same addresses in a different shape agree, because
-        they are compared by the addresses they name. The merged map keeps
-        every boundary any of them draws, so pooling never widens a read past
-        a split a component declared, and a gap no map claims still separates
-        two runs.
+        The merged map keeps every boundary a declaration draws, so pooling
+        never widens a read past a split a component declared. Claims draw no
+        boundary. They overlap freely and their coverage widens the merge, and
+        a gap no map covers still separates two runs.
 
-        Only declarations can conflict, and only declarations draw
-        boundaries. A claimed map (``claimed``) records reads: it overlaps
-        freely, its coverage widens the merge, and touching claims describe
-        one run. A hole splits by not being covered.
-
-        Raises ``ValueError`` if the maps conflict. ``whose`` names whose maps
-        are being merged in the error. A callable receives the conflicting
-        space, so the message can say which one (``register_ranges`` alone is
-        ambiguous between holding and input).
+        Raises ``ValueError`` if the declarations conflict. ``whose`` names
+        whose maps are being merged in the error. A callable receives the
+        conflicting space, so the message can say which one
+        (``register_ranges`` alone is ambiguous between holding and input).
         """
         describe = whose if callable(whose) else lambda _space: whose
         declared_by: dict[Space, set[tuple[Range, ...]]] = {}
         claimed_by: dict[Space, set[tuple[Range, ...]]] = {}
         for device in maps:
-            for space, ranges in device.maps.items():
-                if ranges is None:
+            for space, space_map in device.maps.items():
+                if space_map is None:
                     continue
-                kind = claimed_by if space in device.claimed else declared_by
-                kind.setdefault(space, set()).add(ranges)
-        merged: dict[Space, tuple[Range, ...] | None] = {}
+                kind = declared_by if space_map.declared else claimed_by
+                kind.setdefault(space, set()).add(space_map.ranges)
+        merged: dict[Space, SpaceMap | None] = {}
         for space in declared_by.keys() | claimed_by.keys():
             declared = declared_by.get(space, set())
             if declared:
@@ -197,5 +225,7 @@ class DeviceRanges:
                         f"{sorted(declared)}"
                     ) from err
             parts = declared | claimed_by.get(space, set())
-            merged[space] = _partitioned(parts, declared)
-        return cls(merged, claimed=frozenset(claimed_by.keys() - declared_by.keys()))
+            merged[space] = SpaceMap(
+                _partitioned(parts, declared), declared=bool(declared)
+            )
+        return cls(merged)
