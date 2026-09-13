@@ -402,8 +402,9 @@ class BaseModbusConnection(ABC):
         old link down fails. The link is dropped regardless.
         """
         if (task := self._connect_task) is not None:
-            # Wait a shared connect attempt out (shielded, as in close()) so
-            # its client is published and disposed of here rather than leaked.
+            # Wait a shared connect attempt out so its client is published and
+            # disposed of here rather than leaked. Shielded so cancelling this
+            # teardown does not kill the flight for concurrent connect() callers.
             try:
                 await asyncio.shield(task)
             except Exception:
@@ -419,23 +420,12 @@ class BaseModbusConnection(ABC):
         """Close the connection permanently.
 
         The connection is marked closed first, so no further request can
-        start. Waits up to ``_TEARDOWN_GRACE`` for a request that is about to
-        answer. A wedged one is cut.
+        start. The link is then dropped as in ``disconnect()``: waits up to
+        ``_TEARDOWN_GRACE`` for a request that is about to answer, cuts a
+        wedged one, and does not fire ``on_connection_lost`` callbacks.
         """
         self._closed = True
-        if (task := self._connect_task) is not None:
-            # Wait the shared connect attempt out; shielded so cancelling this
-            # close does not kill the flight for concurrent connect() callers.
-            try:
-                await asyncio.shield(task)
-            except Exception:
-                pass
-        async with self._pacer.exclusive(_TEARDOWN_GRACE):
-            client = self._client
-            if client is None:
-                return
-            self._client = None
-            await self._close_client(client)
+        await self.disconnect()
 
     # -- backend hooks ----------------------------------------------------------
 
