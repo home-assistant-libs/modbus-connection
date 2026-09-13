@@ -22,6 +22,7 @@ from modbus_connection.mock import (
     WriteEvent,
 )
 from modbus_connection.model import Component, integer
+from modbus_connection.model._const import Space
 
 
 def test_satisfies_protocols(
@@ -173,7 +174,7 @@ async def test_read_events_record_every_block(mock_modbus_unit: MockModbusUnit) 
         ReadEvent("holding", 10, 4),
         ReadEvent("input", 20, 2),
         ReadEvent("coil", 0, 8),
-        ReadEvent("discrete_input", 5, 3),
+        ReadEvent("discrete", 5, 3),
     ]
 
 
@@ -370,6 +371,39 @@ async def test_fail_read_applies_per_table(mock_modbus_unit: MockModbusUnit) -> 
     # Holding, coil and discrete-input tables are independent of the armed input.
     assert await mock_modbus_unit.read_holding_registers(5, 1) == [0]
     assert await mock_modbus_unit.read_coils(5, 1) == [False]
+    assert await mock_modbus_unit.read_discrete_inputs(5, 1) == [False]
+
+
+@pytest.mark.parametrize(
+    ("register_type", "read"),
+    [
+        pytest.param("holding", "read_holding_registers", id="holding"),
+        pytest.param("input", "read_input_registers", id="input"),
+        pytest.param("coil", "read_coils", id="coil"),
+        pytest.param("discrete", "read_discrete_inputs", id="discrete"),
+    ],
+)
+async def test_fail_read_names_each_space_like_a_raw_snapshot(
+    mock_modbus_unit: MockModbusUnit, register_type: Space, read: str
+) -> None:
+    mock_modbus_unit.fail_read(5, ModbusExceptionError(2), register_type=register_type)
+    with pytest.raises(ModbusExceptionError):
+        await getattr(mock_modbus_unit, read)(5, 1)
+    assert mock_modbus_unit.read_events == [ReadEvent(register_type, 5, 1)]
+
+
+async def test_fail_read_accepts_discrete_input_with_a_warning(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    with pytest.warns(DeprecationWarning, match="discrete_input"):
+        mock_modbus_unit.fail_read(
+            5, ModbusExceptionError(2), register_type="discrete_input"
+        )
+    with pytest.raises(ModbusExceptionError):
+        await mock_modbus_unit.read_discrete_inputs(5, 1)
+
+    # Both spellings address one table, so either one clears it.
+    mock_modbus_unit.fail_read(5, None, register_type="discrete")
     assert await mock_modbus_unit.read_discrete_inputs(5, 1) == [False]
 
 
