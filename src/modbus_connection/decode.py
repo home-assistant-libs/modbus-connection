@@ -83,14 +83,14 @@ def decode_float32(words: list[int], *, word_order: WordOrder = "big") -> float:
     """Decode two registers as an IEEE-754 single-precision float."""
     ordered = words if word_order == "big" else list(reversed(words))
     raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in ordered)
-    return struct.unpack(">f", raw)[0]
+    return float(struct.unpack(">f", raw)[0])
 
 
 def decode_float64(words: list[int], *, word_order: WordOrder = "big") -> float:
     """Decode four registers as an IEEE-754 double-precision float."""
     ordered = words if word_order == "big" else list(reversed(words))
     raw = b"".join((w & 0xFFFF).to_bytes(2, "big") for w in ordered)
-    return struct.unpack(">d", raw)[0]
+    return float(struct.unpack(">d", raw)[0])
 
 
 def decode_string(words: list[int]) -> str:

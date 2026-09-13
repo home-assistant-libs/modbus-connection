@@ -124,12 +124,12 @@ class ModbusUdpParams:
     """Wire framing."""
 
     def __post_init__(self) -> None:
-        """Validate the wire framing."""
+        """Normalize the host and validate the wire framing."""
+        object.__setattr__(self, "host", _normalize_host(self.host))
         if self.framer not in ("socket", "rtu", "ascii"):
             raise ValueError(
                 f"unknown framer {self.framer!r}; expected 'socket', 'rtu', or 'ascii'"
             )
-        object.__setattr__(self, "host", _normalize_host(self.host))
 
     @property
     def endpoint(self) -> tuple[str, str, int]:

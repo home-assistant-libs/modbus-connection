@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import ssl
 from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, Concatenate
+from typing import Any, Concatenate, cast
 
 from pymodbus import FramerType
 from pymodbus.client import (
@@ -23,7 +23,13 @@ from pymodbus.exceptions import (
 )
 from pymodbus.pdu import ExceptionResponse, ModbusPDU
 from pymodbus.pdu.diag_message import DiagnosticBase
-from pymodbus.pdu.file_message import FileRecord
+from pymodbus.pdu.file_message import (
+    FileRecord,
+    ReadFifoQueueResponse,
+    ReadFileRecordResponse,
+)
+from pymodbus.pdu.mei_message import ReadDeviceInformationResponse
+from pymodbus.pdu.other_message import GetCommEventLogResponse, ReportDeviceIdResponse
 
 from .._client import (
     BaseModbusConnection,
@@ -320,10 +326,13 @@ class PymodbusUnit:
 
     @_map_errors
     async def report_server_id(self) -> bytes:  # 0x11
-        response = _check(await self._client.report_device_id(device_id=self._unit_id))
-        # pymodbus types every response as the base ModbusPDU; the concrete
-        # response subclass carries the function-code-specific attribute.
-        return bytes(response.identifier)  # type: ignore[attr-defined]
+        # pymodbus types every response as the base ModbusPDU; the cast names
+        # the concrete subclass that carries the function-code-specific attribute.
+        response = cast(
+            ReportDeviceIdResponse,
+            _check(await self._client.report_device_id(device_id=self._unit_id)),
+        )
+        return bytes(response.identifier)
 
     @_map_errors
     async def mask_write_register(
@@ -359,17 +368,23 @@ class PymodbusUnit:
 
     @_map_errors
     async def read_fifo_queue(self, address: int) -> list[int]:  # 0x18
-        response = _check(
-            await self._client.read_fifo_queue(address=address, device_id=self._unit_id)
+        response = cast(
+            ReadFifoQueueResponse,
+            _check(
+                await self._client.read_fifo_queue(
+                    address=address, device_id=self._unit_id
+                )
+            ),
         )
-        return response.values  # type: ignore[attr-defined]  # concrete response attr
+        return response.values
 
     @_map_errors
     async def read_device_identification(self) -> dict[int, bytes]:  # 0x2B / 0x0E
-        response = _check(
-            await self._client.read_device_information(device_id=self._unit_id)
+        response = cast(
+            ReadDeviceInformationResponse,
+            _check(await self._client.read_device_information(device_id=self._unit_id)),
         )
-        return response.information  # type: ignore[attr-defined]  # concrete response attr
+        return response.information
 
     @_map_errors
     async def read_file_record(
@@ -378,12 +393,15 @@ class PymodbusUnit:
         request_record = FileRecord(
             file_number=file, record_number=record, record_length=length
         )
-        response = _check(
-            await self._client.read_file_record(
-                records=[request_record], device_id=self._unit_id
-            )
+        response = cast(
+            ReadFileRecordResponse,
+            _check(
+                await self._client.read_file_record(
+                    records=[request_record], device_id=self._unit_id
+                )
+            ),
         )
-        data = response.records[0].record_data  # type: ignore[attr-defined]  # concrete response attr
+        data = response.records[0].record_data
         return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
 
     @_map_errors
@@ -425,13 +443,11 @@ class PymodbusUnit:
 
     @_map_errors
     async def get_comm_event_log(self) -> bytes:  # 0x0C
-        response = _check(
-            await self._client.diag_get_comm_event_log(device_id=self._unit_id)
+        response = cast(
+            GetCommEventLogResponse,
+            _check(await self._client.diag_get_comm_event_log(device_id=self._unit_id)),
         )
-        return b"".join(
-            int(event).to_bytes(1, "big")
-            for event in response.events  # type: ignore[attr-defined]  # concrete response attr
-        )
+        return b"".join(int(event).to_bytes(1, "big") for event in response.events)
 
     def on_connection_lost(self, callback: Callable[[], None]) -> Callable[[], None]:
         return self._conn.on_connection_lost(callback)
