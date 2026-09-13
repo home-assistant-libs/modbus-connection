@@ -257,7 +257,7 @@ def acc16(
     stride: int = 0,
     unit: str | None = None,
 ) -> NumberField[int]:
-    """A 16-bit accumulator — a monotonic counter (0 means not accumulated)."""
+    """A 16-bit accumulator, a monotonic counter (0 means not accumulated)."""
     return NumberField(
         address,
         count=1,
@@ -591,7 +591,7 @@ def model_length_group[C: Component](
     Declare this on a ``SunSpecComponent``. ``start`` is the first block's
     offset from the model header, including its two registers. ``stride`` is
     the number of registers per block. The component class declares fields at
-    instance-0 addresses, just as for ``repeating_group``.
+    instance-0 addresses, as for ``repeating_group``.
 
     The count is bound from the scanned length when the parent is constructed.
     A model ending at ``start`` has no instances. A shorter model or a partial

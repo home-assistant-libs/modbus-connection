@@ -57,7 +57,7 @@ def _partitioned(
 
     A map that splits one run of addresses into parts says a read may not cross
     where it splits them, so a merge keeps those splits. Addresses something
-    merely *reads* cut nothing — they are covered, not partitioned.
+    only reads cut nothing. They are covered without being partitioned.
     """
     cuts = sorted(
         {edge for ranges in cutters for low, high in ranges for edge in (low, high + 1)}
@@ -78,10 +78,10 @@ def _ranges_excluding(
 ) -> tuple[Range, ...]:
     """Split ``intervals`` around every excluded address, dropping empty runs.
 
-    Each ``(low, high)`` interval is cut at every excluded address it covers,
-    so the result only ever *splits* the input — it never merges across an
-    interval boundary. Used to narrow a component's readable ranges to the
-    addresses a device actually serves.
+    Each ``(low, high)`` interval is cut at every excluded address it covers.
+    The result only splits the input and never merges across an interval
+    boundary. Used to narrow a component's readable ranges to the addresses a
+    device serves.
     """
     result: list[Range] = []
     for low, high in intervals:
@@ -99,15 +99,15 @@ def _ranges_excluding(
 class DeviceRanges:
     """A device's readable ranges per address space.
 
-    A space mapped to ``None`` — or absent entirely — is unconstrained (planned
-    gap-based). The maps live in whatever coordinate system their owner resolves
-    them in; ``shift`` moves the whole device's map between systems.
+    A space mapped to ``None``, or absent entirely, is unconstrained and is
+    planned gap-based. The maps live in whatever coordinate system their owner
+    resolves them in. ``shift`` moves the whole device's map between systems.
     """
 
     maps: Mapping[Space, tuple[Range, ...] | None]
-    # Spaces whose ranges are a claim — evidence of what something reads, with
-    # dropped addresses cut out — rather than an exhaustive declaration. Two
-    # claims may overlap; two declarations that overlap contradict each other.
+    # Spaces whose ranges are a claim rather than an exhaustive declaration: what
+    # something reads, with dropped addresses cut out. Two claims may overlap.
+    # Two declarations that overlap contradict each other.
     claimed: frozenset[Space] = frozenset()
 
     def for_space(self, space: Space) -> tuple[Range, ...] | None:
@@ -130,9 +130,10 @@ class DeviceRanges:
     def widened(self, claims: Mapping[Space, tuple[Range, ...]]) -> DeviceRanges:
         """Return these maps with ``claims`` folded into the spaces they cover.
 
-        A claim says only that something reads those addresses, not that the
-        device serves the span they sit in, so it is added to a map rather
-        than checked against it. Boundaries the map already draws are kept.
+        A claim says only that something reads those addresses. It says
+        nothing about whether the device serves the span they sit in, so it is
+        added to a map rather than checked against it. Boundaries the map
+        already draws are kept.
         """
         if not claims:
             return self
@@ -151,23 +152,23 @@ class DeviceRanges:
     ) -> DeviceRanges:
         """Merge several devices' maps into the map they jointly describe.
 
-        Per space, unset maps add no constraint and the rest merge — parts of
-        one device at different offsets fit together — but maps covering the
+        Per space, unset maps add no constraint and the rest merge, so parts
+        of one device at different offsets fit together. Maps covering the
         same addresses differently conflict.
 
-        Maps naming the same addresses in a different shape agree — they are
-        compared by the addresses they name. The merged map keeps every
-        boundary any of them draws, so pooling never widens a read past a
-        split a component declared, and a gap no map claims still separates
+        Maps naming the same addresses in a different shape agree, because
+        they are compared by the addresses they name. The merged map keeps
+        every boundary any of them draws, so pooling never widens a read past
+        a split a component declared, and a gap no map claims still separates
         two runs.
 
         Only declarations can conflict, and only declarations draw
-        boundaries. A claimed map (``claimed``) is evidence of reads: it
-        overlaps freely, its coverage widens the merge, and touching claims
-        describe one run — a hole splits by not being covered.
+        boundaries. A claimed map (``claimed``) records reads: it overlaps
+        freely, its coverage widens the merge, and touching claims describe
+        one run. A hole splits by not being covered.
 
-        Raises ``ValueError`` if the maps conflict; ``whose`` names whose maps
-        are being merged in the error — a callable receives the conflicting
+        Raises ``ValueError`` if the maps conflict. ``whose`` names whose maps
+        are being merged in the error. A callable receives the conflicting
         space, so the message can say which one (``register_ranges`` alone is
         ambiguous between holding and input).
         """

@@ -36,7 +36,7 @@ __all__ = [
 ]
 
 # The framings each transport accepts. A framer of ``None`` means "no framing
-# choice" — the backend default (and the only option for TLS).
+# choice", which is the backend default (and the only option for TLS).
 _FRAMERS = ("socket", "rtu", "ascii")
 _TRANSPORT_FRAMERS: dict[str, tuple[str, ...]] = {
     "tcp": _FRAMERS,
@@ -117,7 +117,7 @@ def add_connection_args(
     serial_ok = "serial" in transports
     tls_ok = "tls" in transports
 
-    # What a target may look like, for the transports actually offered. The
+    # What a target may look like, for the transports offered. The
     # serial one takes a URL as well as a port path, which is how it reaches a
     # serial server, so a reader should not have to find that out elsewhere.
     net_names = [t for t in ("tcp", "udp", "tls") if t in transports]
@@ -369,12 +369,12 @@ class CountingUnit:
 def _format_flag(value: Flag) -> str:
     """Render a flag value as the lowercased names of the bits it has set.
 
-    A ``flags()`` field decodes to an ``IntFlag``, which is a ``ReprEnum`` — its
-    ``__str__`` is ``int``'s — and is not an ``IntEnum``, so the generic path
-    would print a status or fault word as a bare number. An ``IntFlag`` also
-    keeps bits its type does not name; those are reported as a hex remainder
-    rather than silently dropped, since a fault word is the last place to hide a
-    set bit. An empty flag renders as ``none``.
+    A ``flags()`` field decodes to an ``IntFlag``. That is a ``ReprEnum``
+    whose ``__str__`` is ``int``'s, and not an ``IntEnum``, so the generic
+    path would print a status or fault word as a bare number. An ``IntFlag``
+    also keeps bits its type does not name. Those are reported as a hex
+    remainder rather than dropped, so a fault word never hides a set bit. An
+    empty flag renders as ``none``.
     """
     names: list[str] = []
     named_bits = 0
@@ -446,7 +446,7 @@ def group_rows(
     """Return each ``repeating_group`` on ``component`` with its instances.
 
     An unread register-counted group has no instances yet and yields an empty
-    list, which is the honest answer rather than an omission.
+    list.
     """
     if isinstance(component, ManualComponent):
         return [
@@ -474,9 +474,8 @@ def print_component(
     """Print every field on ``component`` under a heading.
 
     Each ``repeating_group``'s instances follow as indented sub-blocks, so a
-    device modelled as repeated sub-units dumps in full rather than showing
-    only the fields that happen to sit on the parent. ``indent`` prefixes every
-    line, for embedding the output in a wider report.
+    device modelled as repeated sub-units dumps in full. ``indent`` prefixes
+    every line, for embedding the output in a wider report.
     """
     rows = field_rows(component)
     out = file if file is not None else sys.stdout

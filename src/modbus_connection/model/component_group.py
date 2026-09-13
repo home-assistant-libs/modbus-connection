@@ -68,8 +68,8 @@ class ComponentGroup(_Readable):
         return ReadPlan.build(
             [item for c in self._components for item in c._read_items],
             self._ranges,
-            # Every space a member reads carries a map here — its own if it
-            # declared none — so gap bridging has nothing left to decide.
+            # Every space a member reads carries a map here, its own if it
+            # declared none, so gap bridging has nothing left to decide.
             max_gap=0,
             max_span=self._max_span,
         )

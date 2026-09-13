@@ -6,7 +6,7 @@ description: Install modbus-connection and verify the package is available.
 modbus-connection requires **Python 3.12 or newer**.
 
 The top-level package is a pure interface and imports no Modbus library. A bare
-install therefore pulls **neither** backend. Pick one with an extra:
+install pulls neither backend. Pick one with an extra:
 
 ```bash
 pip install "modbus-connection[tmodbus]"    # tmodbus backend

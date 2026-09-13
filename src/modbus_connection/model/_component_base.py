@@ -97,9 +97,9 @@ class _ComponentBase(_Readable):
     ) -> list[Component]:
         # instances inherit the parent's block position (base_offset, which
         # also moves scale registers); their own per-instance shift applies to
-        # fields only, so shared scale factors stay in the parent's fixed block —
-        # unless the sub-unit sets ``scale_in_block``, which moves each instance's
-        # scale registers with its shift too (a block carrying its own factors)
+        # fields only, so shared scale factors stay in the parent's fixed block.
+        # A sub-unit that sets ``scale_in_block`` carries its own factors, so its
+        # instances' scale registers move with their shift too.
         instances = [
             field.component_class(
                 self._unit,
@@ -200,7 +200,7 @@ class _ComponentBase(_Readable):
         plan, so their declared maps only mean something if they reach it.
 
         Where the merged map constrains a space, a part that declares nothing
-        for it stands for the addresses it reads by itself — like an undeclared
+        for it stands for the addresses it reads by itself, like an undeclared
         member of a ``ComponentGroup``.
 
         Raises ``ValueError`` if the maps conflict.

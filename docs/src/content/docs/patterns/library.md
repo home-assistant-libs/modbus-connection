@@ -3,22 +3,22 @@ title: The device object
 description: How the top-level device object of a library built on modbus-connection comes together.
 ---
 
-modbus-connection is a foundation you build a **device library** on. A good
-device library exposes one **top-level object**. A consumer constructs it from a
-`ModbusUnit` — never a connection, and never a host/port — and reads sub-systems
+modbus-connection is a foundation you build a device library on. A good
+device library exposes one top-level object. A consumer constructs it from a
+`ModbusUnit`, never from a connection or a host and port, and reads sub-systems
 as plain Python attributes.
 
 Each sub-system is a [`Component`](/modbus-connection/modelling/overview/). Some
 are read once at setup: identity, model info, and whatever settles which
-components this device serves. The rest are polled, grouped by category — what
-the device measures, what it has been configured to do, anything else worth its
-own interval. Give each category its own update method, so a consumer chooses
-how often to read each. Read every sub-system on its own, or as a
+components this device serves. The rest are polled, grouped by category: what
+the device measures, what it has been configured to do, and anything else that
+needs its own interval. Give each category its own update method, so a consumer
+chooses how often to read each. Read every sub-system on its own, or as a
 [`ComponentGroup`](/modbus-connection/modelling/component-group/) where one's
 read already spans the other's registers. One sub-system failing then does not
 take the rest with it.
 
-Here it is for a heating controller:
+The example below is a heating controller:
 
 ```python
 from __future__ import annotations
@@ -159,7 +159,7 @@ class MyDevice:
         return report
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
-        """Every register this device reads, undecoded — for diagnostics."""
+        """Every register this device reads, undecoded, for diagnostics."""
         if self._readings is None:
             await self._async_setup()
             assert self._readings is not None
@@ -202,23 +202,24 @@ asyncio.run(main())
 
 ## Principles
 
-- **Take a `ModbusUnit`, not a connection.** The consumer owns and closes the
-  link; your library only reads and writes registers. This keeps the library
-  backend-neutral — it works over tmodbus, pymodbus, or the mock unchanged.
-- **One sub-system per `Component`.** Group registers by function; give each its
-  own file. It keeps the address map readable and lets a sub-system refresh alone.
-- **Ask for the timing your device needs.** A device slow to answer says so on
-  its unit, with
+- Take a `ModbusUnit`. The consumer owns and closes the link. Your library
+  only reads and writes registers. This keeps the library backend-neutral, so
+  it works over tmodbus, pymodbus, or the mock unchanged.
+- Model one sub-system per `Component`. Group registers by function and give
+  each its own file. This keeps the address map readable and lets a sub-system
+  refresh alone.
+- Ask for the timing your device needs. A device slow to answer says so on its
+  unit, with
   [`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements),
   and [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
   for a gap between its own frames. Whoever builds the connection cannot know
-  this; your library can.
-- **Carry metadata on the fields.** `unit=`, ranges, and validators live next to
-  the address, so the model *is* the datasheet.
-- **Decide once, poll forever.** Everything that cannot change between two polls
-  — the model, the static registers, which optional components exist — belongs
-  to setup, so the polling path stays a fixed list of components to read.
-- **Split where the blocks divide.** Give the settings their own update method
+  this. Your library can.
+- Carry metadata on the fields. `unit=`, ranges, and validators live next to
+  the address, so the model doubles as the datasheet.
+- Decide at setup. Everything that cannot change between two polls (the model,
+  the static registers, which optional components exist) belongs to setup, so
+  the polling path stays a fixed list of components to read.
+- Split where the blocks divide. Give the settings their own update method
   when they sit in blocks of their own.
 
 ## A library built this way

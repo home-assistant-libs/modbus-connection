@@ -3,54 +3,53 @@ title: Integration structure
 description: How modbus-connection fits a Home Assistant integration.
 ---
 
-modbus-connection is a clean foundation for a **built-in Home Assistant
-integration**. The split it enforces — a connection owned at the top, stateless
-units handed down, typed components over them — lines up with how Home
-Assistant wants a device integration structured.
+modbus-connection is a foundation for a built-in Home Assistant integration.
+It enforces a split: a connection owned at the top, stateless units handed
+down, and typed components over them. This split matches how Home Assistant
+structures a device integration.
 
 :::note[Read the official guide first]
 Home Assistant maintains a dedicated guide for Modbus-based integrations. Read
 it alongside this page. It covers the coordinator pattern, entity setup, and
 config flow in Home Assistant terms:
 
-**[developers.home-assistant.io → Modbus integration](https://developers.home-assistant.io/docs/modbus/introduction)**
+**[Modbus integration guide on developers.home-assistant.io](https://developers.home-assistant.io/docs/modbus/introduction)**
 :::
 
 ## The library requirement
 
-A built-in integration **may not talk to the device directly**. Home Assistant
-Core requires all protocol and device communication to live in a **separate
-library published to PyPI**. The integration itself is a thin layer that wires
+A built-in integration may not talk to the device directly. Home Assistant
+Core requires all protocol and device communication to live in a separate
+library published to PyPI. The integration itself is a thin layer that wires
 that library to Home Assistant's entities, config flow and coordinator.
 
-That requirement is exactly the
+That requirement matches the
 [device-object pattern](/modbus-connection/patterns/library/): a standalone
 package, built on modbus-connection, that exposes a device object over
-`Component`s and consumes a `ModbusUnit`. Build that library first. The hard
-part — the register map — then gets tested against the
+`Component`s and consumes a `ModbusUnit`. Build that library first. The
+register map then gets tested against the
 [mock](/modbus-connection/patterns/testing/) with no Home Assistant in the loop.
 
 :::note[Custom integrations]
-A custom integration is not bound by the separate-library rule; you can ship
-the device code inside the integration itself. We still recommend modelling it
-as its own library. It keeps the register map testable without Home Assistant,
-and it is what you would need anyway to submit the integration to Core later.
+A custom integration is not bound by the separate-library rule. You can ship
+the device code inside the integration itself. A separate library is still
+recommended. It keeps the register map testable without Home Assistant, and
+Core requires it if you submit the integration later.
 :::
 
 ## The recommended layering
 
-An integration built this way has three clear layers:
+An integration built this way has these layers:
 
-1. **modbus-connection** — the connection + modelling foundation the library is
+1. modbus-connection: the connection and modelling foundation the library is
    built on.
-2. **A device library** (its own PyPI package) — the
-   [device-object pattern](/modbus-connection/patterns/library/): a top-level device
-   object over `Component`s, backend-neutral, consuming a `ModbusUnit`. This has
-   **no Home Assistant dependency** and is released and tested on its own.
-3. **Your device integration** (in `homeassistant/components/<domain>/`) — owns
-   the `ModbusConnection`, gathers its connection details in its own config flow,
-   hands a `ModbusUnit` to the library, and polls it from a
-   `DataUpdateCoordinator`.
+2. A device library, in its own PyPI package: the
+   [device-object pattern](/modbus-connection/patterns/library/), a top-level
+   device object over `Component`s, backend-neutral, consuming a `ModbusUnit`.
+   It has no Home Assistant dependency and is released and tested on its own.
+3. Your device integration, in `homeassistant/components/<domain>/`: gathers
+   its connection details in its own config flow, hands a `ModbusUnit` to the
+   library, and polls it from a `DataUpdateCoordinator`.
 
 [sofar-modbus](https://github.com/darkrain-nl/sofar-modbus) and the
 [`sofar`](https://github.com/home-assistant/core/tree/dev/homeassistant/components/sofar)
@@ -61,16 +60,16 @@ when the split is unclear.
 
 Collect the transport details for the params object your integration builds:
 `CONF_HOST` / `CONF_PORT` for TCP, the serial device and baud rate for RTU.
-Also ask for the **unit id where the user can choose it**. A device with a
-fixed station address — common for a TCP-native device — keeps that address as
-a constant in the integration instead of asking for it.
+Also ask for the unit id where the user can choose it. A device with a fixed
+station address, which is common for a TCP-native device, keeps that address
+as a constant in the integration instead of asking for it.
 
 Ask only for what you cannot detect. Whether a device serves an optional
 sub-system is the library's job to settle, and it does that by
 [probing at setup](/modbus-connection/patterns/library/).
 
-Validate the input by actually talking to the device. Do not open a connection
-yourself: ask `modbus` for a temporary unit with `async_get_temporary_unit`.
+Validate the input by talking to the device. Do not open a connection
+yourself. Ask `modbus` for a temporary unit with `async_get_temporary_unit`.
 The flow has no config entry yet to tie a hold to, so the hold lasts for the
 context. If an entry already uses the device over different link settings,
 entering the context raises `HomeAssistantError`.
@@ -160,8 +159,8 @@ that read fails, and `async_config_entry_first_refresh()` turns the failure into
 
 ## The coordinator
 
-`async_update()` returns an `UpdateReport` — which sub-systems refreshed, and
-which failed — so the coordinator's data is that report:
+`async_update()` returns an `UpdateReport` that says which sub-systems
+refreshed and which failed. The coordinator's data is that report:
 
 ```python
 class MyCoordinator(DataUpdateCoordinator[UpdateReport]):
@@ -310,9 +309,10 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 ```
 
 An entity whose sub-system failed goes unavailable, with one exception: a
-**long-term statistic**. A `TOTAL` or `TOTAL_INCREASING` sensor holds its last
-value, because devices legitimately go offline — a solar inverter powers down
-every night — and a gap damages long-term statistics and the energy dashboard.
+long-term statistic. A `TOTAL` or `TOTAL_INCREASING` sensor holds its last
+value, because devices go offline as part of normal operation (a solar
+inverter powers down every night) and a gap damages long-term statistics and
+the energy dashboard.
 [`RestoreSensor`](https://developers.home-assistant.io/docs/core/entity/sensor)
 seeds it across a restart.
 
@@ -338,15 +338,15 @@ after a dropped link opens a new one. A link that is down surfaces as a
 `ModbusConnectionError` out of the update. The coordinator marks the entities
 unavailable, and the next successful poll brings them back.
 
-So don't reload the config entry when the connection is lost. The condition
+Do not reload the config entry when the connection is lost. The condition
 heals itself within one update interval.
 
-Automatic reconnection cannot see one case: a link that is **up but
-unresponsive**. Some bridges keep the socket open while the device behind them
+Automatic reconnection cannot see one case: a link that is up but
+unresponsive. Some bridges keep the socket open while the device behind them
 stops answering, so every poll times out against the same dead link. Most
-integrations never hit this and need nothing here. If yours is known to — some
-serial-to-network bridges wedge this way — call `disconnect()` once polls keep
-timing out. A device built to the
+integrations never hit this and need nothing here. If yours is known to, as
+some serial-to-network bridges wedge this way, call `disconnect()` once polls
+keep timing out. A device built to the
 [library pattern](/modbus-connection/patterns/library/) raises
 `ModbusTimeoutError` only when nothing answered at all, which is exactly this
 condition. A timeout it reports in the `UpdateReport` instead means the device
@@ -358,7 +358,7 @@ async def _async_update_data(self) -> UpdateReport:
         report = await self._poll()
     except ModbusTimeoutError as err:
         self._timeouts += 1
-        if self._timeouts >= 3:  # a stuck link, not a slow reply
+        if self._timeouts >= 3:  # a stuck link rather than a slow reply
             await self.unit.disconnect()
         raise UpdateFailed(str(err)) from err
     except ModbusError as err:
@@ -369,15 +369,16 @@ async def _async_update_data(self) -> UpdateReport:
 
 The next poll establishes a fresh link over the same units and components.
 
-Count in one coordinator only — the one on the fastest interval. This prevents
+Count in one coordinator only, the one on the fastest interval. This prevents
 a second coordinator dropping the link under a poll already in flight.
 
 ## Reload when the SunSpec map shifts
 
-One condition *does* need setup to run again. Components placed at
+One condition does need setup to run again. Components placed at
 [discovered SunSpec models](/modbus-connection/modelling/sunspec-discovery/) are
 bound to the addresses that were scanned during setup. If the device rearranges
-its model chain — a firmware update, an added meter — those addresses are stale.
+its model chain, after a firmware update or an added meter, those addresses are
+stale.
 `SunSpecComponent` catches this by verifying the model header on every update
 and raising `SunSpecMapShiftError`. Reload the entry so setup rescans and
 rebuilds the components at their new addresses:
@@ -394,24 +395,24 @@ async def _async_update_data(self) -> UpdateReport:
     ...  # report handling as above
 ```
 
-`SunSpecMapShiftError` is **not** a `ModbusError`. It needs its own `except`
+`SunSpecMapShiftError` is not a `ModbusError`. It needs its own `except`
 clause, or it escapes the coordinator as an unexpected exception.
 
-## Errors map cleanly
+## Error handling
 
 Catch [`ModbusError`](/modbus-connection/connection/reference/#exceptions) in
 the coordinator and raise `UpdateFailed`. The neutral hierarchy means the same
 handling works whichever backend the integration ships:
 
-- `ModbusConnectionError` → the link dropped; the coordinator marks the device
+- `ModbusConnectionError`: the link dropped. The coordinator marks the device
   unavailable and the next poll reconnects.
-- `ModbusTimeoutError` (also a builtin `TimeoutError`) → a slow or absent
+- `ModbusTimeoutError` (also a builtin `TimeoutError`): a slow or absent
   response.
-- `ModbusExceptionError` → the device rejected the request (`.exception_code`).
+- `ModbusExceptionError`: the device rejected the request (`.exception_code`).
 
 ## Diagnostics
 
-Home Assistant lets a user **download diagnostics** for a device. For a Modbus
+Home Assistant lets a user download diagnostics for a device. For a Modbus
 device the most useful payload is the raw register map: every register the
 integration reads, with its raw value. An issue report then shows exactly what
 the device returned. A `Component` exposes `async_read_raw()` for this. It runs
@@ -435,9 +436,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
 `async_read_raw()` reads the device fresh, so it reflects the live register
 state at download time. It raises the same
 [`ModbusError`](/modbus-connection/connection/reference/#exceptions) subclasses
-as an update; catch them if you'd rather serialize a diagnostics payload than
-fail the download. Its keys are the four Modbus spaces — `"holding"`,
-`"input"`, `"coil"`, `"discrete"` — each an address-keyed map of raw values.
+as an update. Catch them to serialize a diagnostics payload instead of failing
+the download. Its keys are the four Modbus spaces `"holding"`, `"input"`,
+`"coil"` and `"discrete"`, each an address-keyed map of raw values.
 
 A downloaded snapshot also replays straight into the mock backend with
 [`load_raw()`](/modbus-connection/patterns/testing/#replaying-a-raw-snapshot).
@@ -454,11 +455,11 @@ wiring.
 
 ## Checklist
 
-- [ ] Device communication lives in a **separate PyPI library**, not the
+- [ ] Device communication lives in a separate PyPI library rather than the
       integration (a Core requirement).
 - [ ] Device library has no Home Assistant import and is tested against the mock.
-- [ ] The domain is named after the device, not after the transport:
-      `sofar`, not `sofar_modbus`.
+- [ ] The domain is named after the device rather than the transport:
+      `sofar` rather than `sofar_modbus`.
 - [ ] The config flow gathers the connection details and validates them by
       probing the device over a unit from `async_get_temporary_unit`. It asks
       for the unit id only when the device's address can differ; a fixed
@@ -469,7 +470,7 @@ wiring.
       `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] Every coordinator has run `async_config_entry_first_refresh()` before the
       platforms are forwarded.
-- [ ] The entry is **not** reloaded when the connection drops — reconnection is
+- [ ] The entry is not reloaded when the connection drops. Reconnection is
       automatic.
 - [ ] A SunSpec integration reloads the entry on `SunSpecMapShiftError`.
 - [ ] Entities read typed attributes. An entity goes unavailable when its own

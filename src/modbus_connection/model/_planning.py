@@ -22,8 +22,8 @@ class ResolvedField:
     """Where a component's field sits on the device.
 
     The addresses are absolute: the declared address plus everything that
-    places the layout — ``base_offset``, a repeated instance's shift, and a
-    per-field ``stride``.
+    places the layout, which is ``base_offset``, a repeated instance's shift,
+    and a per-field ``stride``.
     """
 
     field: RegisterField[Any] | CoilField | DiscreteInputField
@@ -137,8 +137,8 @@ def undeclared_claims(
     """What each part that declared no map for a space reads on its own.
 
     Each part is ``(declared map, read items, max_gap, max_span)``. The result
-    is claims, not a device map: they only widen what a plan may cover, so
-    unlike declared maps they are not checked against each other.
+    is claims rather than a device map. They only widen what a plan may cover,
+    so unlike declared maps they are not checked against each other.
     """
     claimed: dict[Space, tuple[Range, ...]] = {}
     for declared, items, max_gap, max_span in parts:

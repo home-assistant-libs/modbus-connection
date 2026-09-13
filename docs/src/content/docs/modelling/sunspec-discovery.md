@@ -31,7 +31,7 @@ models.at(40188)  # the model whose header sits there, or None
 ```
 
 `chain` tells repeats of one ID apart. For example, a SolarEdge meter is
-identified by the model `1` immediately before it, not by its own ID.
+identified by the model `1` immediately before it rather than by its own ID.
 
 A model's `length` is the data length its header reports. `span` adds the two
 header registers. `span` is therefore both the count that reads the whole block
@@ -63,8 +63,8 @@ components.
 
 ## Generating component classes
 
-You don't have to write those component classes by hand. SunSpec publishes its
-standard model definitions as JSON in
+You do not have to write those component classes by hand. SunSpec publishes
+its standard model definitions as JSON in
 [sunspec/models](https://github.com/sunspec/models). Generate component classes
 from model IDs or local `model_N.json` files:
 
@@ -154,7 +154,8 @@ gets `write_pfw_inj`, `write_pfw_inj_rvrt`, `write_pfw_abs` and
 `write_pfw_abs_rvrt`.
 
 The `write_block` helper is emitted once into the generated module. It is
-generated source, not library API. Adjust it with the classes that call it.
+generated source rather than library API. Adjust it with the classes that call
+it.
 
 A block gets no method when it contains a nested block, a read-only point, or a
 point that is never written, such as a scale factor or an accumulator.

@@ -38,15 +38,15 @@ class SunSpecModel:
 
 
 class SunSpecModels(dict[int, list[SunSpecModel]]):
-    """The discovered models by ID — a plain dict with lookup helpers."""
+    """The discovered models by ID, a plain dict with lookup helpers."""
 
     @property
     def chain(self) -> list[SunSpecModel]:
         """Return every discovered model in chain order.
 
-        A device may repeat a model ID, and what separates the repeats is
-        their place in the chain: a meter's identity block is the ``1`` that
-        precedes it, whichever meter model follows.
+        A device may repeat a model ID. Their place in the chain separates the
+        repeats: a meter's identity block is the ``1`` that precedes it,
+        whichever meter model follows.
         """
         return sorted(
             (model for found in self.values() for model in found),

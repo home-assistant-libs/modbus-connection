@@ -1,9 +1,9 @@
 ---
 title: Testing
-description: The in-memory mock backend — a pytest plugin that implements the same connection and unit APIs.
+description: The in-memory mock backend, a pytest plugin that implements the same connection and unit APIs.
 ---
 
-An in-memory **mock backend** ships as a `pytest` plugin. It is auto-registered
+An in-memory mock backend ships as a `pytest` plugin. It is auto-registered
 via an entry point, so no `conftest` wiring is needed. It implements the same
 `ModbusConnection` / `ModbusUnit` APIs, so code typed against `ModbusUnit` runs
 against it unchanged. This is how you test a device library with no hardware
@@ -11,8 +11,8 @@ and no Home Assistant in the loop.
 
 ## Fixtures
 
-- `mock_modbus_connection` — a `MockModbusConnection`.
-- `mock_modbus_unit` — its unit 1.
+- `mock_modbus_connection` is a `MockModbusConnection`.
+- `mock_modbus_unit` is its unit 1.
 
 `MockModbusConnection` / `MockModbusUnit` are also importable from
 `modbus_connection.mock` for direct construction.
@@ -39,11 +39,11 @@ callbacks.
 ## Replaying a raw snapshot
 
 A raw dump from
-[`async_read_raw()`](/modbus-connection/modelling/reading/#raw-diagnostics) —
-e.g. captured from a real device in a bug report — loads straight into the mock
-with `load_raw()`. You can reproduce that device and check your model decodes
-it. The dump is keyed by the four Modbus spaces — `holding`, `input`, `coil`,
-`discrete` — which `load_raw()` maps onto the stores:
+[`async_read_raw()`](/modbus-connection/modelling/reading/#raw-diagnostics),
+for example one captured from a real device in a bug report, loads straight
+into the mock with `load_raw()`. You can reproduce that device and check your
+model decodes it. The dump is keyed by the four Modbus spaces `holding`,
+`input`, `coil` and `discrete`, which `load_raw()` maps onto the stores:
 
 ```python
 async def test_decodes_a_captured_device(mock_modbus_unit):
@@ -76,9 +76,9 @@ async def test_meter(mock_modbus_unit):
 ## Asserting on the reads a poll issued
 
 `read_events` logs every block read the unit received, in order, as a
-[`ReadEvent`](#readevent). Where `async_read_raw()` reports which *addresses* a
-poll covered, this reports the **blocks the planner actually asked for**. A
-test can pin down how many round-trips a poll costs, and how wide each one was:
+[`ReadEvent`](#readevent). Where `async_read_raw()` reports which addresses a
+poll covered, this reports the blocks the planner asked for. A test can pin
+down how many round-trips a poll costs, and how wide each one was:
 
 ```python
 async def test_poll_respects_the_controller_limits(mock_modbus_unit):
@@ -101,9 +101,9 @@ still appears: the request went out.
 
 Arm `fail_read` and any read whose block covers that address raises the given
 error instead of returning values. This mirrors a device that refuses a
-register block it doesn't serve, such as an uninstalled module.
-`register_type` defaults to `"holding"`; use `"input"`, `"coil"` or
-`"discrete_input"` for the other tables — they are independent. Pass `None` to
+register block it does not serve, such as an uninstalled module.
+`register_type` defaults to `"holding"`. Use `"input"`, `"coil"` or
+`"discrete_input"` for the other tables, which are independent. Pass `None` to
 clear:
 
 ```python
@@ -118,11 +118,11 @@ async def test_read_refused(mock_modbus_unit):
 
 ## Simulating a device that answers nothing
 
-`fail_requests` arms one error for **every** read and write on the unit — a
-device that is powered down, unplugged, or behind a dead gateway, where no
-address is special. Use it instead of `fail_read` when the test shouldn't have
-to know which address a component's read plan happens to reach first. Pass
-`None` to let the unit answer again:
+`fail_requests` arms one error for every read and write on the unit. This
+models a device that is powered down, unplugged, or behind a dead gateway,
+where no address is special. Use it instead of `fail_read` when the test need
+not know which address a component's read plan reaches first. Pass `None` to
+let the unit answer again:
 
 ```python
 async def test_device_unreachable(mock_modbus_unit):
@@ -133,9 +133,9 @@ async def test_device_unreachable(mock_modbus_unit):
     mock_modbus_unit.fail_requests(None)  # the device answers again
 ```
 
-This models the device, not the link. `connected` still follows the connection;
-use [`simulate_connection_lost()`](#simulating-a-dropped-link) for a transport
-drop. Reads are still recorded in `read_events` before they raise, so a test
+This models the device rather than the link. `connected` still follows the
+connection. Use [`simulate_connection_lost()`](#simulating-a-dropped-link) for
+a transport drop. Reads are still recorded in `read_events` before they raise, so a test
 can assert what was attempted. It is per unit, so one silent device on a shared
 gateway does not silence its neighbours. Per-address `fail_read` / `fail_write`
 keep applying on top.
@@ -143,8 +143,8 @@ keep applying on top.
 ## Reacting to writes
 
 Register an `on_write` callback to simulate a device that changes state in
-response to a command — e.g. flips a "ready" flag when a command register is
-written:
+response to a command, for example one that flips a "ready" flag when a command
+register is written:
 
 ```python
 def test_command_sets_ready(mock_modbus_unit):
@@ -158,9 +158,9 @@ def test_command_sets_ready(mock_modbus_unit):
 ## Simulating a rejected write
 
 Arm `fail_write` and the next write covering that address raises the given
-error *before* the store is touched. The value is left unchanged and `on_write`
-callbacks don't fire. `register_type` defaults to `"holding"`; use `"coil"` for
-coil writes — the tables are independent. Pass `None` to clear.
+error before the store is touched. The value is left unchanged and `on_write`
+callbacks do not fire. `register_type` defaults to `"holding"`. Use `"coil"`
+for coil writes. The tables are independent. Pass `None` to clear.
 
 Arm the [typed exception](/modbus-connection/connection/reference/#modbusexceptionerror)
 for the condition. It constructs with its code implied, and it is what the
@@ -178,11 +178,11 @@ async def test_write_rejected(mock_modbus_unit):
     await mock_modbus_unit.write_register(40, 99)  # now succeeds
 ```
 
-The error you arm is the condition you're simulating:
+The error you arm is the condition you simulate:
 
 ```python
 mock_modbus_unit.fail_write(40, IllegalDataValueError())  # device rejects the value
-mock_modbus_unit.fail_write(40, ModbusTimeoutError())  # device doesn't answer
+mock_modbus_unit.fail_write(40, ModbusTimeoutError())  # device does not answer
 mock_modbus_unit.fail_write(40, ModbusConnectionError())  # device unreachable
 mock_modbus_unit.fail_write(40, ModbusProtocolError())  # corrupt reply
 ```
@@ -216,7 +216,7 @@ and the next request reconnects.
 
 The register and bit operations resolve against the stores. The diagnostic,
 file-record, and identification operations have no natural store. Arm each one
-you use with `set_response(method, value)` — a callable value is evaluated per
+you use with `set_response(method, value)`. A callable value is evaluated per
 call. Without one, the mock raises `NotImplementedError` telling you which
 response to configure:
 
@@ -237,11 +237,11 @@ no-op.)
 
 ### `MockModbusConnection`
 
-Implements the full `ModbusConnection` API in memory — `connected`,
+Implements the full `ModbusConnection` API in memory: `connected`,
 `for_unit(unit_id)`, `connect()`, `close()`, and
-`on_connection_lost(callback)` — plus the test hook
+`on_connection_lost(callback)`. It adds the test hook
 [`simulate_connection_lost()`](#simulating-a-dropped-link). `for_unit` returns
-**the same `MockModbusUnit` per unit id**, so the unit you seed is the unit the
+the same `MockModbusUnit` per unit id, so the unit you seed is the unit the
 code under test reads.
 
 ### `MockModbusUnit`
@@ -249,10 +249,10 @@ code under test reads.
 Implements the full `ModbusUnit` API against in-memory stores, plus the test
 configuration surface:
 
-| Member | What it does |
+| Member | Purpose |
 | --- | --- |
-| `holding`, `input`, `coils`, `discrete_inputs` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read) — [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
-| `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes; returns an unsubscribe callable. |
+| `holding`, `input`, `coils`, `discrete_inputs` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read). See [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
+| `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes. Returns an unsubscribe callable. |
 | `read_events` | The [`ReadEvent`](#readevent) log of [every block read](#asserting-on-the-reads-a-poll-issued) the unit received, in order. |
 | `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |
 | `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete_input"`); `None` clears it. |

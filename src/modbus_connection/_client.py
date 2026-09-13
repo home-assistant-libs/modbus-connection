@@ -180,7 +180,7 @@ class ModbusTlsParams:
         Two params objects with equal endpoints point at the same device even
         when the TLS settings differ. The transport tag is ``"tcp"``: a TLS
         link and a plain-TCP link to the same host and port target the same
-        TCP endpoint, hence the same device.
+        TCP endpoint, and therefore the same device.
         """
         return ("tcp", self.host, self.port)
 
@@ -389,17 +389,17 @@ class BaseModbusConnection(ABC):
     async def disconnect(self) -> None:
         """Drop the link; the next request establishes a new one.
 
-        For recycling a link that is up but unusable — a peer that keeps the
-        socket open but stops answering. Unlike ``close()``, the connection
-        stays usable: existing unit handles and components reconnect on their
-        next request. A connection is *lost* when the transport takes it away;
-        this is tearing it down, so ``on_connection_lost`` callbacks do not
-        fire. A no-op when there is no link.
+        Use it to recycle a link that is up but unusable, such as a peer that
+        keeps the socket open but stops answering. Unlike ``close()``, the
+        connection stays usable: existing unit handles and components
+        reconnect on their next request. A connection is lost when the
+        transport takes it away. This is the owner tearing it down, so
+        ``on_connection_lost`` callbacks do not fire. A no-op when there is no
+        link.
 
-        Waits out a request that is about to answer, up to
-        ``_TEARDOWN_GRACE``; a wedged one is cut. Raises
-        ``ModbusConnectionError`` if tearing the old link down fails; the link
-        is dropped regardless.
+        Waits up to ``_TEARDOWN_GRACE`` for a request that is about to answer.
+        A wedged one is cut. Raises ``ModbusConnectionError`` if tearing the
+        old link down fails. The link is dropped regardless.
         """
         if (task := self._connect_task) is not None:
             # Wait a shared connect attempt out (shielded, as in close()) so
@@ -419,13 +419,13 @@ class BaseModbusConnection(ABC):
         """Close the connection permanently.
 
         The connection is marked closed first, so no further request can
-        start. Waits out a request that is about to answer, up to
-        ``_TEARDOWN_GRACE``; a wedged one is cut.
+        start. Waits up to ``_TEARDOWN_GRACE`` for a request that is about to
+        answer. A wedged one is cut.
         """
         self._closed = True
         if (task := self._connect_task) is not None:
             # Wait the shared connect attempt out; shielded so cancelling this
-            # close doesn't kill the flight for concurrent connect() callers.
+            # close does not kill the flight for concurrent connect() callers.
             try:
                 await asyncio.shield(task)
             except Exception:

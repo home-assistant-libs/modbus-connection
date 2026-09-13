@@ -1,9 +1,9 @@
 ---
 title: modbus-connection
-description: A small, backend-neutral Modbus connection abstraction and device-modelling framework for Python.
+description: A backend-neutral Modbus connection abstraction and device-modelling framework for Python.
 template: splash
 hero:
-  tagline: A small, backend-neutral Modbus connection abstraction — and a typed device-modelling framework on top of it.
+  tagline: A backend-neutral Modbus connection abstraction with a typed device-modelling framework on top of it.
   actions:
     - text: Get started
       link: /modbus-connection/getting-started/installation/
@@ -16,16 +16,18 @@ hero:
 
 import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-**modbus-connection** is two things in one package:
+**modbus-connection** provides a connection abstraction and an optional
+device-modelling framework.
 
-1. A **connection abstraction**: the abstract `ModbusConnection` class and the
-   `ModbusUnit` Protocol. Your code types against these, not against a specific
-   Modbus library. Two interchangeable backends implement them:
-   [tmodbus](https://github.com/wlcrs/tmodbus) and
-   [pymodbus](https://github.com/pymodbus-dev/pymodbus).
-2. An optional **device-modelling framework** (`modbus_connection.model`). It
-   maps a device's registers and coils to typed Python attributes. It reads the
-   whole device, or one sub-system, in as few Modbus calls as possible.
+The connection abstraction is the abstract `ModbusConnection` class and the
+`ModbusUnit` Protocol. Your code types against these instead of a specific
+Modbus library. Two interchangeable backends implement them:
+[tmodbus](https://github.com/wlcrs/tmodbus) and
+[pymodbus](https://github.com/pymodbus-dev/pymodbus).
+
+The device-modelling framework, `modbus_connection.model`, maps a device's
+registers and coils to typed Python attributes. It reads the whole device, or
+one sub-system, in as few Modbus calls as possible.
 
 The package imports no Modbus library at the top level and nothing from Home
 Assistant. You can build a device library once and let the consumer choose the
@@ -73,19 +75,19 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## The two classes to know
+## Connections and units
 
 <CardGrid>
   <Card title="ModbusConnection" icon="random">
-    The link to a Modbus network, shared by every unit on it. It is
-    **owner-held**: construct it from a backend-neutral parameter object, and
-    only the owner tears it down with `close()`. The first request connects on
-    demand. A dropped link is re-established.
+    The link to a Modbus network, shared by every unit on it. The owner
+    constructs it from a backend-neutral parameter object, and only the owner
+    tears it down with `close()`. The first request connects on demand. A
+    dropped link is re-established.
   </Card>
   <Card title="ModbusUnit" icon="puzzle">
     One device on that link, from `connection.for_unit(unit_id)`. It carries the
-    read and write operations for that unit id and holds no state. Hand this, not
-    the connection, to a device library.
+    read and write operations for that unit id and holds no state. A device
+    library receives a unit handle, never the connection.
   </Card>
 </CardGrid>
 
@@ -94,7 +96,7 @@ cannot interleave. Many consumers can share one connection instead of each
 opening a competing socket. This abstraction makes that sharing possible while
 keeping the backend swappable.
 
-[Read more about connections and units →](/modbus-connection/connection/connections-and-units/)
+[Read more about connections and units](/modbus-connection/connection/connections-and-units/).
 
 ## Explore the docs
 
@@ -111,7 +113,7 @@ keeping the backend swappable.
   />
   <LinkCard
     title="Built-in fields"
-    description="Every generic field type — integers, gauges, floats, strings, enums, coils — in one place."
+    description="Every generic field type: integers, gauges, floats, strings, enums, and coils."
     href="/modbus-connection/modelling/fields/"
   />
   <LinkCard
@@ -132,8 +134,7 @@ keeping the backend swappable.
 </CardGrid>
 
 :::note[Not Home Assistant specific]
-This library is a general-purpose Modbus toolkit. It works in any async Python
-program and the core has no dependency on Home Assistant. It does ship helpers
-and patterns that make it a good fit for Home Assistant — see the Home Assistant
-section.
+The core has no dependency on Home Assistant and works in any async Python
+program. The Home Assistant section covers the helpers and patterns that ship
+for Home Assistant integrations.
 :::

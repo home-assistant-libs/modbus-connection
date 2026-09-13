@@ -4,7 +4,7 @@ description: Compare tmodbus and pymodbus support and select the backend for a c
 ---
 
 Both backend modules export their concrete connection class as
-`ModbusConnection`. Selecting a backend changes the import, not the API:
+`ModbusConnection`. Selecting a backend changes only the import:
 
 ```python
 from modbus_connection.tmodbus import ModbusConnection

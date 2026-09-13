@@ -5,12 +5,13 @@ description: SunSpec point types as ready-made model fields, pre-wired with thei
 
 [SunSpec](https://sunspec.org) defines a standard Modbus information model used
 by most PV inverters, meters and batteries. Each point has a fixed data type
-and a reserved *unimplemented* value the device sends when the point is absent.
+and a reserved unimplemented value the device sends when the point is absent.
 
 `modbus_connection.model.sunspec` provides helpers that build model fields with
-the right width, sign and sentinel, so an unimplemented point decodes to `None`
-automatically. They are the same fields you would otherwise hand-roll with the
-[generic fields](/modbus-connection/modelling/fields/), minus the boilerplate.
+the right width, sign and sentinel, so an unimplemented point decodes to `None`.
+They build the same fields you would otherwise declare with the
+[generic fields](/modbus-connection/modelling/fields/), without the repeated
+options.
 The full signatures live in the
 [field reference](/modbus-connection/modelling/fields-reference/#sunspec-point-helpers).
 
@@ -33,7 +34,7 @@ Word order is big-endian throughout, per the SunSpec spec.
 
 ## Scale factors (`sunssf`)
 
-Scaled SunSpec points reference a **scale-factor register**: a signed int16
+Scaled SunSpec points reference a scale-factor register: a signed int16
 power-of-ten exponent. Pass its address as `scale_register=`, and the value is
 returned as `raw * 10**sf`, with `sf` read alongside the point on each update:
 
@@ -49,11 +50,11 @@ works too: pass the engineering value, and the scale factor is read fresh in
 the same write. A factor the device shifted meanwhile therefore cannot
 mis-scale the write. A not-implemented factor raises `ValueError`.
 
-The spec constrains a `sunssf` exponent to **-10..10**. Devices have been seen
-reporting garbage exponents outside that range, typically around an inverter's
-sleep/wake transition. Such an exponent would scale a sane raw value into an
-absurd reading. A point whose exponent falls outside the spec range therefore
-decodes to `None`, and a write with one raises `ValueError`.
+The spec constrains a `sunssf` exponent to -10..10. Some devices report
+exponents outside that range, typically around an inverter's sleep/wake
+transition. Such an exponent would scale a valid raw value into an absurd
+reading. A point whose exponent falls outside the spec range therefore decodes
+to `None`, and a write with one raises `ValueError`.
 
 ## Numeric points
 
@@ -84,8 +85,8 @@ scale-factor register like the numeric points do.
 | `acc32` | 2 |
 | `acc64` | 4 |
 
-They take the numeric points' options minus `writable` — a counter is never
-written.
+They take the numeric points' options without `writable`, because a counter is
+never written.
 
 ## Scale-factor point
 
@@ -95,10 +96,10 @@ it as its own field.
 
 ## Boolean points
 
-SunSpec models are full of 0/1 enable flags. `boolean` decodes one to a
+SunSpec models contain many 0/1 enable flags. `boolean` decodes one to a
 `bool`: 0 is `False`, 1 is `True`, and the unimplemented `0xFFFF` is `None`.
-Any other code decodes to `None` too (warned once), since an out-of-spec code
-should read as unknown rather than truthy. Pass `writable=True` (or a write
+Any other code decodes to `None` too, warned once, so an out-of-spec code reads
+as unknown rather than truthy. Pass `writable=True` (or a write
 validator) for a controllable flag; writing encodes `True`/`False` as 1/0.
 
 ```python
@@ -159,11 +160,11 @@ poll time. The Multiple MPPT Inverter Extension Model (160) counts its MPPT
 modules this way. Model one sub-block as a `Component` and size the list at
 runtime with [`repeating_group`](/modbus-connection/modelling/repeats/).
 
-A sub-block's scale factors can sit in the model's shared fixed block — model
-160 keeps `DCA_SF`, `DCV_SF`, … there, and that is the default. Or the block
-can carry its **own** scale factor per repeat: declare the `sunssf` inside the
-sub-block and set the sub-block's `scale_in_block` class attribute, so each
-instance's scale registers shift with it.
+A sub-block's scale factors can sit in the model's shared fixed block. Model
+160 keeps `DCA_SF`, `DCV_SF` and the rest there, and that is the default. Or
+the block can carry its own scale factor per repeat. For that, declare the
+`sunssf` inside the sub-block and set the sub-block's `scale_in_block` class
+attribute, so each instance's scale registers shift with it.
 
 ```python
 from modbus_connection.model import Component, repeating_group

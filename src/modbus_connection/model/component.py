@@ -51,9 +51,9 @@ class Component(_ComponentBase):
 
     # The device's readable address ranges; None falls back to gap-based planning.
     # Override on a subclass (or set per instance) to constrain reads to the
-    # addresses the device actually answers. Each applies within its own address
-    # space — ``register_ranges`` to this component's register space, ``coil_ranges``
-    # to coils (FC01) and ``discrete_ranges`` to discrete inputs (FC02), which are
+    # addresses the device answers. Each applies within its own address space:
+    # ``register_ranges`` to this component's register space, ``coil_ranges`` to
+    # coils (FC01) and ``discrete_ranges`` to discrete inputs (FC02), which are
     # distinct spaces with their own readable maps. They are part of the declared
     # layout, so they are stated in the same coordinates as the field addresses and
     # move with the component (see ``_resolved_ranges``).
@@ -63,7 +63,7 @@ class Component(_ComponentBase):
 
     # Block-planning limits, overridable per device. ``max_gap`` only applies to
     # gap-based planning (no ranges): spans within this many addresses merge into
-    # one read — higher means fewer reads but more over-reading. ``max_span`` caps
+    # one read. Higher means fewer reads but more over-reading. ``max_span`` caps
     # a single block's width (125 is the Modbus per-request ceiling; lower it for
     # a gateway that caps reads shorter).
     max_gap: int = _MAX_GAP
@@ -121,7 +121,7 @@ class Component(_ComponentBase):
         self._values: dict[str, Any] = {}
         self._bits: dict[str, bool | None] = {}
         # Spaces whose ranges restrict_fields synthesised: a claim over what
-        # the kept fields read, not a declaration of what the device serves.
+        # the kept fields read rather than a declaration of what the device serves.
         self._claimed_spaces: set[Space] = set()
         # Set up listener and repeating_group state; fixed-count groups'
         # instances are built now so they fold into the normal read plan like
@@ -198,10 +198,10 @@ class Component(_ComponentBase):
         super()._invalidate_caches()
 
     def _resolved_ranges(self) -> DeviceRanges:
-        """This component's readable ranges at the addresses it actually reads.
+        """This component's readable ranges at the addresses it reads.
 
         The declared ranges share the coordinate system of the declared field
-        addresses, so they take the same shift ``_address`` applies — everything
+        addresses, so they take the same shift ``_address`` applies: everything
         that moves the whole block. A per-field ``stride`` is not part of that
         shift, so a layout addressed by ``index`` states its ranges absolutely.
 
@@ -271,7 +271,7 @@ class Component(_ComponentBase):
             reshaped = self._reshaped_ranges(declared, kept, dropped)
             setattr(self, attr, reshaped)
             if declared is None and reshaped is not None:
-                # synthesised from the kept fields: a claim, not a declaration
+                # synthesised from the kept fields: a claim rather than a declaration
                 self._claimed_spaces.add(space)
 
         self._register_fields = kept_registers
@@ -301,7 +301,7 @@ class Component(_ComponentBase):
             address = self._declared_address(field)
             excluded.update(range(address, address + field.count))
         if not excluded:
-            return declared  # nothing dropped from this space — leave it as declared
+            return declared  # nothing dropped from this space, so leave it as declared
         spans: list[tuple[int, int]] = []
         for f in kept_fields:
             spans.append((self._declared_address(f), f.count))
@@ -316,7 +316,7 @@ class Component(_ComponentBase):
         if declared is not None:
             return _ranges_excluding(declared, excluded)
         if not spans:
-            return declared  # every field in this space dropped — ranges unused
+            return declared  # every field in this space dropped, so ranges are unused
         blocks = _plan_blocks(spans, max_gap=self.max_gap, max_span=self.max_span)
         return _ranges_excluding(
             [(start, start + count - 1) for start, count in blocks], excluded
@@ -441,11 +441,11 @@ def repeating_group[C: Component](
 
     On readable ranges: a fixed-count group's instances are read from the
     parent's own plan, so their maps merge into it and must not describe the
-    same addresses differently. Either let the parent's ``register_ranges``
-    cover the instance addresses and leave the sub-component's unset — the
-    common case, and what keeps the repeated area in the parent's block — or
-    give the sub-component ranges disjoint from the parent's, for a sub-unit
-    whose own map has holes the parent cannot express. Declaring the same
+    same addresses differently. The common case is to let the parent's
+    ``register_ranges`` cover the instance addresses and leave the
+    sub-component's unset, which keeps the repeated area in the parent's
+    block. For a sub-unit whose own map has holes the parent cannot express,
+    give the sub-component ranges disjoint from the parent's. Declaring the same
     addresses in both raises ``ValueError``.
 
     Raises ``ValueError`` for a non-positive stride or negative fixed count. A

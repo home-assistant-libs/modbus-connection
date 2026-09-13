@@ -1,19 +1,19 @@
 # modbus-connection
 
-A small, **backend-neutral** Modbus connection abstraction.
+A backend-neutral Modbus connection abstraction for Python.
 
 The top-level `modbus_connection` package provides the abstract
-`ModbusConnection`, the `ModbusUnit`
+`ModbusConnection` class, the `ModbusUnit`
 [Protocol](https://typing.readthedocs.io/en/latest/spec/protocol.html), and a
-tiny exception hierarchy. Two interchangeable backends implement them
-([tmodbus](https://github.com/wlcrs/tmodbus) and
-[pymodbus](https://github.com/pymodbus-dev/pymodbus)); the bare install pulls
+small exception hierarchy. Two interchangeable backends implement them:
+[tmodbus](https://github.com/wlcrs/tmodbus) and
+[pymodbus](https://github.com/pymodbus-dev/pymodbus). The bare install pulls
 neither.
 
 One physical Modbus link addresses many units (1–247). Many consumers can
-share a single, internally-serialized connection instead of each opening a
-competing socket. This package is the connection abstraction that makes that
-sharing possible while keeping the backend swappable.
+share one serialized connection instead of each opening a competing socket.
+This package is the connection abstraction that makes that sharing possible
+while keeping the backend swappable.
 
 ## Install
 
@@ -68,10 +68,10 @@ asyncio.run(main())
 
 ## Documentation
 
-Everything else — the other transports (UDP, serial, TLS), the full field-type
-and read-planning reference, repeated sub-units, the SunSpec field types and
+The website documents the rest: the other transports (UDP, serial, TLS), the
+field types and read planning, repeated sub-units, the SunSpec field types and
 model generator, the in-memory mock backend for tests, and the exception
-hierarchy — lives on the website:
+hierarchy.
 
 **<https://home-assistant-libs.github.io/modbus-connection/>**
 
@@ -82,14 +82,15 @@ uv sync --extra tmodbus
 uv run pytest
 ```
 
-The suite runs both backends against a real in-process Modbus server (tmodbus's,
-over TCP, UDP, RTU-over-TCP, serial and TLS) rather than against mocks, so it
-covers actual framing and error responses — and running the pymodbus client
-against the tmodbus server checks the two implementations against each other.
-`tests/conftest.py` has the datastore and the server helpers.
+The suite runs both backends against an in-process tmodbus server over TCP,
+UDP, RTU-over-TCP, serial and TLS, so it covers real framing and error
+responses. Running the pymodbus client against the tmodbus server also checks
+the two implementations against each other. `tests/conftest.py` has the
+datastore and the server helpers.
 
-Formatting/linting is [ruff](https://docs.astral.sh/ruff/) and type-checking is
-[mypy](https://mypy-lang.org/), both enforced in CI. Run them locally with:
+Formatting and linting is [ruff](https://docs.astral.sh/ruff/) and type
+checking is [mypy](https://mypy-lang.org/). CI enforces both. Run them locally
+with:
 
 ```bash
 uv run mypy
