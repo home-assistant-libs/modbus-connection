@@ -431,7 +431,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
     for address in range(SERIAL_REGISTER, SERIAL_REGISTER + SERIAL_WORDS):
         registers["holding"].pop(address, None)
     return {
-        "updated": coordinator.data.updated,
+        "updated": sorted(coordinator.data.updated),
         "failed": {name: str(err) for name, err in coordinator.data.failed.items()},
         "registers": registers,
     }

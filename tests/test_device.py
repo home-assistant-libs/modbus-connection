@@ -91,7 +91,7 @@ async def test_setup_reruns_after_failure(
     mock_modbus_unit.fail_requests(None)
     report = await heater.async_poll(("sensors",))
     assert heater.setups == 2
-    assert report.updated == ["sensors"]
+    assert report.updated == {"sensors"}
 
 
 async def test_poll_updates_and_notifies(heater: Heater) -> None:
@@ -101,7 +101,8 @@ async def test_poll_updates_and_notifies(heater: Heater) -> None:
 
     report = await heater.async_poll(("sensors", "settings"))
 
-    assert report == UpdateReport(updated=["sensors", "settings"])
+    assert report == UpdateReport(updated={"sensors", "settings"})
+    assert report.complete
     assert heater.sensors.temperature == 215
     assert heater.settings.setpoint == 21
     assert fired == ["sensors", "settings"]
@@ -131,7 +132,8 @@ async def test_poll_records_a_failed_sub_system(
 
     report = await heater.async_poll(("sensors", "settings"))
 
-    assert report.updated == ["sensors"]
+    assert not report.complete
+    assert report.updated == {"sensors"}
     assert list(report.failed) == ["settings"]
     assert isinstance(report.failed["settings"], type(error))
     assert fired == []
@@ -153,7 +155,7 @@ async def test_poll_adds_to_an_earlier_report(
 
     report = await heater.async_poll(("settings",), report)
 
-    assert report.updated == ["sensors"]
+    assert report.updated == {"sensors"}
     assert isinstance(report.failed["settings"], ModbusTimeoutError)
 
 
@@ -201,5 +203,5 @@ async def test_absent_sub_system_is_skipped(
     raw = await heater.async_read_raw(("sensors", "hot_water"))
 
     assert heater.hot_water is None
-    assert report == UpdateReport(updated=["sensors"])
+    assert report == UpdateReport(updated={"sensors"})
     assert raw == {"holding": {SENSORS_ADDRESS: 215}}

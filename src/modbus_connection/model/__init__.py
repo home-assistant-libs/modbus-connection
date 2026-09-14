@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .._types import BitSpace
 from ._component_base import UpdateListener
-from ._const import Range, RegisterSpace
+from ._const import Range, Raw, RegisterSpace
 from ._planning import ResolvedField
 from .component import (
     Component,
@@ -61,6 +61,7 @@ __all__ = [
     "PackedBitsField",
     "Placement",
     "Range",
+    "Raw",
     "RawField",
     "RegisterField",
     "RegisterSpace",
