@@ -103,7 +103,7 @@ Arm `fail_read` and any read whose block covers that address raises the given
 error instead of returning values. This mirrors a device that refuses a
 register block it does not serve, such as an uninstalled module.
 `register_type` defaults to `"holding"`. Use `"input"`, `"coil"` or
-`"discrete_input"` for the other tables, which are independent. Pass `None` to
+`"discrete"` for the other tables, which are independent. Pass `None` to
 clear:
 
 ```python
@@ -255,7 +255,7 @@ configuration surface:
 | `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes. Returns an unsubscribe callable. |
 | `read_events` | The [`ReadEvent`](#readevent) log of [every block read](#asserting-on-the-reads-a-poll-issued) the unit received, in order. |
 | `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |
-| `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete_input"`); `None` clears it. |
+| `fail_read(address, error, *, register_type="holding")` | Arm the exception reads covering the address raise (`"holding"`, `"input"`, `"coil"`, or `"discrete"`); `None` clears it. |
 | `fail_requests(error)` | Arm the exception [every read and write](#simulating-a-device-that-answers-nothing) on this unit raises; `None` clears it. |
 | `set_response(method, value)` | Arm a [canned response](#canned-responses-for-the-other-operations) for a non-store operation. |
 | `load_raw(raw)` | Load an [`async_read_raw()` snapshot](#replaying-a-raw-snapshot) into the stores; raises `ValueError` for an unknown space. |
@@ -280,7 +280,7 @@ The frozen dataclass `read_events` collects:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `register_type` | `"holding" \| "input" \| "coil" \| "discrete_input"` | Which table was read. |
+| `register_type` | `"holding" \| "input" \| "coil" \| "discrete"` | Which table was read, named as in an `async_read_raw()` snapshot. |
 | `address` | `int` | The block's first address. |
 | `count` | `int` | How many addresses the block covers. |
 

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from ._client import BaseModbusConnection, ModbusTcpParams
+from .model._const import Space
 
 __all__ = [
     "CoilSpec",
@@ -24,9 +26,7 @@ CoilSpec = bool | list[bool] | Callable[[], "bool | list[bool]"]
 """Value accepted by a mock bit store."""
 
 RegisterType = Literal["holding", "coil"]
-
-ReadRegisterType = Literal["holding", "input", "coil", "discrete_input"]
-"""Selects one of the four readable data tables for ``fail_read``."""
+"""Selects one of the two writable address spaces."""
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class WriteEvent:
 class ReadEvent:
     """Describe a block read from a mock unit."""
 
-    register_type: ReadRegisterType
+    register_type: Space
     address: int
     count: int
 
@@ -71,6 +71,19 @@ def _read_registers(space: dict[int, Any], address: int, count: int) -> list[int
 def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
     materialized = _materialize(space, bool)
     return [bool(materialized.get(address + i, False)) for i in range(count)]
+
+
+def _space(register_type: Space | Literal["discrete_input"]) -> Space:
+    """Resolve a ``register_type`` argument to the address space it names."""
+    if register_type == "discrete_input":
+        warnings.warn(
+            'register_type="discrete_input" is deprecated. Use "discrete", the '
+            "name async_read_raw() and ReadEvent use for that space.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return "discrete"
+    return register_type
 
 
 class MockModbusConnection(BaseModbusConnection):
@@ -123,7 +136,7 @@ class MockModbusUnit:
         self.discrete_inputs: dict[int, CoilSpec] = {}
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
-        self._read_failures: dict[tuple[ReadRegisterType, int], Exception] = {}
+        self._read_failures: dict[tuple[Space, int], Exception] = {}
         self._request_failure: Exception | None = None
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
@@ -198,10 +211,15 @@ class MockModbusUnit:
         address: int,
         error: Exception | None,
         *,
-        register_type: ReadRegisterType = "holding",
+        register_type: Space | Literal["discrete_input"] = "holding",
     ) -> None:
-        """Set the exception raised by matching reads."""
-        key = (register_type, address)
+        """Set the exception raised by matching reads.
+
+        ``register_type`` names the address space with the same words as an
+        ``async_read_raw()`` snapshot. ``"discrete_input"`` is accepted for
+        ``"discrete"`` and raises a ``DeprecationWarning``.
+        """
+        key = (_space(register_type), address)
         if error is None:
             self._read_failures.pop(key, None)
         else:
@@ -254,7 +272,7 @@ class MockModbusUnit:
                 raise error
 
     def _raise_if_read_fails(
-        self, register_type: ReadRegisterType, address: int, count: int
+        self, register_type: Space, address: int, count: int
     ) -> None:
         if self._request_failure is not None:
             raise self._request_failure
@@ -264,7 +282,7 @@ class MockModbusUnit:
                 raise error
 
     async def _dispatch_read(
-        self, register_type: ReadRegisterType, address: int, count: int
+        self, register_type: Space, address: int, count: int
     ) -> None:
         """Connect, record the block, then apply any configured read failure."""
         await self._ensure_connected()
@@ -315,7 +333,7 @@ class MockModbusUnit:
         return _read_bits(self.coils, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        await self._dispatch_read("discrete_input", address, count)
+        await self._dispatch_read("discrete", address, count)
         return _read_bits(self.discrete_inputs, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:
