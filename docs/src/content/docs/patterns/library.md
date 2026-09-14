@@ -19,18 +19,8 @@ read already spans the other's registers. One sub-system failing then does not
 take the rest with it.
 
 The [`Device`](/modbus-connection/modelling/components-reference/#device) base
-class carries the plumbing. It holds the `ModbusUnit` as `modbus_unit`, runs
-your `_async_setup()` once before the first poll, and runs it again on the next
-poll if the device was unreachable. `async_poll()` reads the sub-systems you
-name by attribute and returns an
-[`UpdateReport`](/modbus-connection/modelling/components-reference/#updatereport)
-of what refreshed and what failed. `async_read_raw()` merges their raw register
-maps for diagnostics. Both skip an attribute that is `None`, so a fixed tuple of
-names can include an optional sub-system.
-[`read_optional()`](/modbus-connection/modelling/components-reference/#read_optionalcomponent)
-probes for one at setup.
-
-The example below is a heating controller:
+class is these practices as code. Subclass it, declare your components on it,
+and implement `_async_setup()`. The example below is a heating controller:
 
 ```python
 from __future__ import annotations
