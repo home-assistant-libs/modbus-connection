@@ -235,6 +235,11 @@ def _merge_raw(
         into.setdefault(space, {}).update(values)
 
 
+def _sorted_raw(raw: Raw) -> Raw:
+    """The same raw map with every space's addresses ascending."""
+    return {space: dict(sorted(values.items())) for space, values in raw.items()}
+
+
 class _Readable:
     """Share read-plan execution between component types."""
 
@@ -286,4 +291,4 @@ class _Readable:
         Raises ``ModbusExceptionError`` if the device rejects a block.
         """
         raw = await self._refresh(collect_raw=True, notify=notify)
-        return {space: dict(sorted(values.items())) for space, values in raw.items()}
+        return _sorted_raw(raw)

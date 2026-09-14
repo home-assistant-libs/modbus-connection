@@ -192,6 +192,14 @@ async def test_read_raw_merges_components(heater: Heater) -> None:
     assert fired == []
 
 
+async def test_read_raw_orders_addresses_across_components(heater: Heater) -> None:
+    """The sub-systems are read high address first; the dump still comes back
+    ascending, as one component's own dump does."""
+    raw = await heater.async_read_raw(("settings", "sensors"))
+
+    assert list(raw["holding"]) == [SENSORS_ADDRESS, SETTINGS_ADDRESS]
+
+
 async def test_absent_sub_system_is_skipped(
     mock_modbus_unit: MockModbusUnit, heater: Heater
 ) -> None:

@@ -14,7 +14,7 @@ from ..exceptions import (
     ModbusTimeoutError,
 )
 from ._const import Raw
-from ._planning import _merge_raw
+from ._planning import _merge_raw, _sorted_raw
 
 if TYPE_CHECKING:
     from .._protocol import ModbusUnit
@@ -122,4 +122,4 @@ class Device:
             if component is None:
                 continue
             _merge_raw(raw, await component.async_read_raw(notify=False))
-        return raw
+        return _sorted_raw(raw)
