@@ -27,8 +27,13 @@ if TYPE_CHECKING:
 class UpdateReport:
     """What one poll managed to refresh."""
 
-    updated: list[str] = field(default_factory=list)
+    updated: set[str] = field(default_factory=set)
     failed: dict[str, ModbusError] = field(default_factory=dict)
+
+    @property
+    def complete(self) -> bool:
+        """Whether every sub-system the poll covered refreshed."""
+        return not self.failed
 
 
 async def read_optional[C: Component | ComponentGroup | ManualComponent](
@@ -100,7 +105,7 @@ class Device:
             except ModbusError as err:
                 report.failed[name] = err
             else:
-                report.updated.append(name)
+                report.updated.add(name)
                 updated.append(name)
         # Listeners fire once every read is in, so they see a consistent poll.
         for name in updated:

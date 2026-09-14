@@ -239,7 +239,7 @@ does not count, so the next call runs it again. `async_poll()` and
 `async`. Ensure setup, then read each sub-system in `names` on its own with
 `async_update(notify=False)`, where each name is an attribute of the device.
 Returns an [`UpdateReport`](#updatereport): a sub-system that refreshed is
-appended to `updated`, one that raised a `ModbusError` is recorded under
+added to `updated`, one that raised a `ModbusError` is recorded under
 `failed`. Pass `report` to add to an earlier poll's report instead of a new
 one. Listeners of every refreshed sub-system fire once the whole poll is done.
 An attribute that is `None` is skipped.
@@ -253,9 +253,10 @@ as a timeout.
 
 `async`. Ensure setup, then read each sub-system in `names` with
 `async_read_raw(notify=False)` and merge the results into one
-`{space: {address: value}}` map, keyed by the four Modbus spaces like
-[`Component.async_read_raw()`](#async_read_raw-notifytrue). An attribute that
-is `None` is skipped. Raises the same `ModbusError` subclasses as an update.
+[`Raw`](#raw) map, keyed by the four Modbus spaces with addresses ascending,
+like [`Component.async_read_raw()`](#async_read_raw-notifytrue). An attribute
+that is `None` is skipped. Raises the same `ModbusError` subclasses as an
+update.
 
 #### `modbus_unit`
 
@@ -268,10 +269,11 @@ A dataclass describing what one `async_poll()` refreshed:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `updated` | `list[str]` | The attribute names of the sub-systems that refreshed, in poll order. |
+| `updated` | `set[str]` | The attribute names of the sub-systems that refreshed. |
 | `failed` | `dict[str, ModbusError]` | The sub-systems that raised, with the error each raised. |
 
-Both default to empty, so `UpdateReport()` starts a fresh report.
+Both default to empty, so `UpdateReport()` starts a fresh report. `complete` is
+`True` while `failed` is empty.
 
 ## `read_optional(component)`
 
@@ -282,6 +284,11 @@ the codes a device uses to refuse a sub-system it does not have. Any other
 `await read_optional(HotWater(unit))` is typed `HotWater | None`.
 
 ## Supporting types
+
+### `Raw`
+
+`dict[str, dict[int, int | bool]]`. A raw read result, grouped
+`{space: {address: value}}` with the addresses of each space ascending.
 
 ### `Range`
 

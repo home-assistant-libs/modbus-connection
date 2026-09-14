@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 from modbus_connection.model import (
     ComponentGroup,
     Device,
+    Raw,
     UpdateReport,
     read_optional,
 )
@@ -96,9 +97,7 @@ class MyDevice(Device):
         report = await self.async_poll(READINGS)
         return await self.async_poll(SETTINGS, report)
 
-    async def async_read_raw(
-        self, names: Iterable[str] = ALL
-    ) -> dict[str, dict[int, int | bool]]:
+    async def async_read_raw(self, names: Iterable[str] = ALL) -> Raw:
         """Every register this device reads, undecoded, for diagnostics."""
         return await super().async_read_raw(names)
 ```
