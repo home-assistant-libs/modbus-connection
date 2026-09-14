@@ -13,6 +13,7 @@ from .component import (
     repeating_group,
 )
 from .component_group import ComponentGroup
+from .device import Device, UpdateReport, read_optional
 from .fields import (
     CoilField,
     Converter,
@@ -51,6 +52,7 @@ __all__ = [
     "Component",
     "ComponentGroup",
     "Converter",
+    "Device",
     "DiscreteInputField",
     "FloatField",
     "ManualComponent",
@@ -66,6 +68,7 @@ __all__ = [
     "ResolvedField",
     "StringField",
     "UpdateListener",
+    "UpdateReport",
     "WriteValidator",
     "bit",
     "bits",
@@ -81,6 +84,7 @@ __all__ = [
     "int64",
     "integer",
     "raw_register",
+    "read_optional",
     "repeating_group",
     "string",
     "uint32",
