@@ -175,5 +175,17 @@ A serial link paces itself at 30 ms without being asked, because a half-duplex
 RS485 adapter needs that long to switch direction between frames. Pass
 `message_spacing` to `ModbusConnection` to widen it, or `0` to disable it.
 
+By default a unit's interval is measured from the last request to that unit. A
+request to another unit does not delay it. Some devices instead need the line
+quiet, and miss a request that arrives too soon after any frame on the bus.
+Measure the interval from the connection for those devices:
+
+```python
+unit.set_message_spacing(0.05, since="connection")
+```
+
+The connection stays locked for this wait, so no other unit sends a request
+until the interval passes.
+
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

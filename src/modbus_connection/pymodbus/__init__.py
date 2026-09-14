@@ -32,7 +32,7 @@ from .._client import (
     ModbusTlsParams,
     ModbusUdpParams,
 )
-from .._types import SerialFraming, SocketFraming
+from .._types import SerialFraming, SocketFraming, SpacingBasis
 from ..exceptions import (
     ModbusConnectionError,
     ModbusError,
@@ -242,8 +242,8 @@ class PymodbusUnit:
     def connected(self) -> bool:
         return self._conn.connected
 
-    def set_message_spacing(self, seconds: float) -> None:
-        self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
+    def set_message_spacing(self, seconds: float, since: SpacingBasis = "unit") -> None:
+        self._conn._pacer.set_unit_spacing(self._unit_id, seconds, since)
 
     def require_timeout(self, seconds: float | None) -> None:
         self._conn._require_timeout(self._unit_id, seconds)

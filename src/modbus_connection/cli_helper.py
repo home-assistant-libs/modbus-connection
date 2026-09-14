@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from ._client import BaseModbusConnection
 from ._protocol import ModbusUnit
+from ._types import SpacingBasis
 from .exceptions import ModbusError
 from .model import (
     CoilField,
@@ -347,8 +348,8 @@ class CountingUnit:
     async def get_comm_event_log(self) -> bytes:
         return await self._unit.get_comm_event_log()
 
-    def set_message_spacing(self, seconds: float) -> None:
-        self._unit.set_message_spacing(seconds)
+    def set_message_spacing(self, seconds: float, since: SpacingBasis = "unit") -> None:
+        self._unit.set_message_spacing(seconds, since)
 
     def require_timeout(self, seconds: float | None) -> None:
         self._unit.require_timeout(seconds)

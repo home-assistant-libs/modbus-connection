@@ -10,7 +10,7 @@ from ._client import (
     ModbusUdpParams,
 )
 from ._protocol import ModbusUnit
-from ._types import WordOrder
+from ._types import SpacingBasis, WordOrder
 from .exceptions import (
     AcknowledgeError,
     BlockReadError,
@@ -59,5 +59,6 @@ __all__ = [
     "ModbusTlsParams",
     "ModbusUdpParams",
     "ModbusUnit",
+    "SpacingBasis",
     "WordOrder",
 ]

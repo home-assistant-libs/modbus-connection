@@ -267,6 +267,60 @@ async def test_per_unit_and_link_spacing_take_the_max(
     assert sleeps == [pytest.approx(0.25)]
 
 
+@pytest.mark.parametrize(
+    ("since", "expected"),
+    [("unit", 0.20), ("connection", 0.25)],
+)
+async def test_what_a_unit_gap_is_measured_from(
+    monkeypatch: pytest.MonkeyPatch, since: str, expected: float
+) -> None:
+    """``since`` picks whose last request starts the clock.
+
+    Unit 5 is idle for 0.15 s across this timeline, but only the last 0.05 s of
+    that follows unit 6's request. So a gap measured from unit 5 has 0.05 s of
+    its 0.25 s already served, and one measured from the connection has none.
+    """
+    advance, sleeps = _fake_clock(monkeypatch)
+    pacer = Pacer(0.0)
+    pacer.set_unit_spacing(5, 0.25, since)  # type: ignore[arg-type]
+
+    async with pacer.paced(5):  # first request to unit 5: free
+        advance(0.10)
+    async with pacer.paced(6):  # another unit puts a frame on the line
+        advance(0.05)
+    async with pacer.paced(5):
+        pass
+    assert sleeps == [pytest.approx(expected)]
+
+
+async def test_a_connection_gap_holds_the_line_while_it_waits() -> None:
+    """No other unit may transmit during a gap measured from the connection.
+
+    A gap another unit could fill is not a quiet line, so the wait happens
+    under the same lock that serializes requests.
+    """
+    pacer = Pacer(0.0)
+    pacer.set_unit_spacing(5, 0.05, since="connection")
+    order: list[str] = []
+
+    async def paced(unit_id: int, label: str) -> None:
+        async with pacer.paced(unit_id):
+            order.append(label)
+
+    await paced(6, "first")  # starts the connection's clock
+    waiting = asyncio.create_task(paced(5, "waited out its gap"))
+    await asyncio.sleep(0.01)  # long enough for unit 5 to reach the wait
+    queued = asyncio.create_task(paced(6, "could not cut in"))
+    await asyncio.gather(waiting, queued)
+
+    assert order == ["first", "waited out its gap", "could not cut in"]
+
+
+def test_pacer_rejects_an_unknown_spacing_basis() -> None:
+    with pytest.raises(ValueError):
+        Pacer(0.0).set_unit_spacing(5, 0.25, "bus")  # type: ignore[arg-type]
+
+
 async def test_clearing_unit_spacing_stops_pacing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,6 +357,34 @@ async def test_backend_paces_requests(
     finally:
         await conn.close()
     # Four requests means three gaps of at least `spacing` each.
+    assert elapsed >= spacing * 3
+
+
+@pytest.mark.parametrize("backend", ["pymodbus", "tmodbus"])
+async def test_backend_paces_a_unit_against_the_whole_connection(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    """A ``"connection"`` gap holds off requests that follow any other unit."""
+    host, port = modbus_server
+    spacing = 0.05
+    if backend == "pymodbus":
+        conn = await pymodbus_connect_tcp(host, port=port)
+    else:
+        conn = await tmodbus_connect_tcp(host, port=port)
+    try:
+        paced = conn.for_unit(UNIT_ID)
+        paced.set_message_spacing(spacing, "connection")
+        other = conn.for_unit(UNIT_ID + 1)
+        start = time.monotonic()
+        for _ in range(3):
+            # Never two requests to the paced unit in a row, so a gap measured
+            # from that unit alone would never fire.
+            await other.read_holding_registers(0, 1)
+            await paced.read_holding_registers(0, 1)
+        elapsed = time.monotonic() - start
+    finally:
+        await conn.close()
+    # Three requests to the paced unit, each preceded by another unit's.
     assert elapsed >= spacing * 3
 
 

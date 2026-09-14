@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from ._types import SpacingBasis
+
 
 @runtime_checkable
 class ModbusUnit(Protocol):
@@ -47,8 +49,12 @@ class ModbusUnit(Protocol):
     async def get_comm_event_counter(self) -> tuple[bool, int]: ...  # 0x0B
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
-    def set_message_spacing(self, seconds: float) -> None:
-        """Set the minimum interval between requests to this unit."""
+    def set_message_spacing(self, seconds: float, since: SpacingBasis = "unit") -> None:
+        """Set the minimum interval between requests to this unit.
+
+        ``since`` selects what the interval is measured from: the last request
+        to this unit, or the last request on the connection.
+        """
 
     def require_timeout(self, seconds: float | None) -> None:
         """Ask the link for a per-request timeout of at least ``seconds``.

@@ -17,3 +17,10 @@ SocketFraming = Literal["socket", "rtu", "ascii"]
 
 SerialFraming = Literal["rtu", "ascii"]
 """Wire framing for a serial connection: binary RTU or ASCII."""
+
+SpacingBasis = Literal["unit", "connection"]
+"""What a per-unit gap is measured from.
+
+``"unit"`` measures from the last request to that unit. ``"connection"``
+measures from the last request on the connection, whichever unit it addressed.
+"""

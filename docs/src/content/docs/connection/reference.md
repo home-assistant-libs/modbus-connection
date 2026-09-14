@@ -225,11 +225,19 @@ still processing a program function.
 
 `bool` — whether the owning connection's link is currently established.
 
-#### `set_message_spacing(seconds)`
+#### `set_message_spacing(seconds, since="unit")`
 
 Set the minimum interval between requests to this unit. The setting belongs to
 the unit ID and combines with connection-wide spacing by waiting for the longer
-interval. Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
+interval. Pass `0` to clear it.
+
+`since` selects what the interval is measured from. `"unit"` measures from the
+last request to this unit. `"connection"` measures from the last request on the
+connection, whichever unit it addressed. The connection stays locked for the
+wait, so no other unit sends during the interval.
+
+Raises `ValueError` if `seconds` is negative, or if `since` is not `"unit"` or
+`"connection"`.
 See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 #### `require_timeout(seconds)`
@@ -264,6 +272,12 @@ Converters between register words and Python values. The
 and they are available for direct use — see
 [Decoding what you read](/modbus-connection/connection/operations/#decoding-what-you-read)
 for examples.
+
+### `SpacingBasis`
+
+`Literal["unit", "connection"]` (importable from `modbus_connection`) — what a
+per-unit gap is measured from. `"unit"` measures from the last request to that
+unit; `"connection"` measures from the last request on the connection.
 
 ### `WordOrder`
 

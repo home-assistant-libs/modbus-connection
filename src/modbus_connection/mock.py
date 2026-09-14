@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ._client import BaseModbusConnection, ModbusTcpParams
+from ._types import SpacingBasis
 
 __all__ = [
     "CoilSpec",
@@ -117,6 +118,7 @@ class MockModbusUnit:
         self._request_failure: Exception | None = None
         self._responses: dict[str, object] = {}
         self.message_spacing = 0.0
+        self.message_spacing_since: SpacingBasis = "unit"
         self.required_timeout: float | None = None
         self.required_connect_delay: float | None = None
         self.read_events: list[ReadEvent] = []
@@ -125,14 +127,18 @@ class MockModbusUnit:
     def connected(self) -> bool:
         return self._conn.connected
 
-    def set_message_spacing(self, seconds: float) -> None:
-        """Record the per-unit request interval.
+    def set_message_spacing(self, seconds: float, since: SpacingBasis = "unit") -> None:
+        """Record the per-unit request interval and what it is measured from.
 
-        Raises ``ValueError`` if ``seconds`` is negative.
+        Raises ``ValueError`` if ``seconds`` is negative or ``since`` is not
+        ``"unit"`` or ``"connection"``.
         """
         if seconds < 0:
             raise ValueError("message_spacing must be non-negative")
+        if since not in ("unit", "connection"):
+            raise ValueError("since must be 'unit' or 'connection'")
         self.message_spacing = seconds
+        self.message_spacing_since = since
 
     def require_timeout(self, seconds: float | None) -> None:
         """Record the required per-request timeout, or ``None`` to withdraw it.
