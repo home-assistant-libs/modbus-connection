@@ -16,7 +16,7 @@ declaration drew, and never bridges a gap no part reads.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from ._const import _RANGE_ATTR, Range, Space
 
@@ -61,29 +61,6 @@ def _coalesce(ranges: tuple[Range, ...]) -> tuple[Range, ...]:
         else:
             joined.append((low, high))
     return tuple(joined)
-
-
-def _partitioned(
-    maps: Iterable[tuple[Range, ...]], cutters: Iterable[tuple[Range, ...]]
-) -> tuple[Range, ...]:
-    """The addresses ``maps`` cover, split where any map in ``cutters`` starts or stops.
-
-    A map that splits one run of addresses into parts says a read may not cross
-    where it splits them, so a merge keeps those splits. Addresses something
-    only reads cut nothing. They are covered without being partitioned.
-    """
-    cuts = sorted(
-        {edge for ranges in cutters for low, high in ranges for edge in (low, high + 1)}
-    )
-    partitioned: list[Range] = []
-    for low, high in _coalesce(tuple(r for ranges in maps for r in ranges)):
-        start = low
-        for cut in cuts:
-            if start < cut <= high:
-                partitioned.append((start, cut - 1))
-                start = cut
-        partitioned.append((start, high))
-    return tuple(partitioned)
 
 
 def _ranges_excluding(
@@ -153,12 +130,12 @@ class DeviceRanges:
                 space: (
                     None
                     if space_map is None
-                    else replace(
-                        space_map,
-                        ranges=tuple(
+                    else SpaceMap(
+                        tuple(
                             (low + offset, high + offset)
                             for low, high in space_map.ranges
                         ),
+                        space_map.declared,
                     )
                 )
                 for space, space_map in self.maps.items()
@@ -212,20 +189,34 @@ class DeviceRanges:
         merged: dict[Space, SpaceMap | None] = {}
         for space in declared_by.keys() | claimed_by.keys():
             declared = declared_by.get(space, set())
-            if declared:
-                joint = tuple(
-                    sorted({r for ranges in declared for r in _coalesce(ranges)})
-                )
-                try:
-                    _validate_ranges(joint)  # overlap is a conflict; touching is not
-                except ValueError as err:
-                    raise ValueError(
-                        f"{describe(space)} must agree on {_RANGE_ATTR[space]} "
-                        f"where their maps overlap, but got conflicting values: "
-                        f"{sorted(declared)}"
-                    ) from err
-            parts = declared | claimed_by.get(space, set())
-            merged[space] = SpaceMap(
-                _partitioned(parts, declared), declared=bool(declared)
+            joint = tuple(sorted({r for ranges in declared for r in _coalesce(ranges)}))
+            try:
+                _validate_ranges(joint)  # overlap is a conflict; touching is not
+            except ValueError as err:
+                raise ValueError(
+                    f"{describe(space)} must agree on {_RANGE_ATTR[space]} "
+                    f"where their maps overlap, but got conflicting values: "
+                    f"{sorted(declared)}"
+                ) from err
+            # A declaration that splits a run says a read may not cross the
+            # split, so every declared edge cuts the merged runs. A claim cuts
+            # nothing: it is covered without being partitioned.
+            cuts = sorted(
+                {
+                    edge
+                    for ranges in declared
+                    for low, high in ranges
+                    for edge in (low, high + 1)
+                }
             )
+            claimed = (r for ranges in claimed_by.get(space, ()) for r in ranges)
+            runs: list[Range] = []
+            for low, high in _coalesce((*joint, *claimed)):
+                start = low
+                for cut in cuts:
+                    if start < cut <= high:
+                        runs.append((start, cut - 1))
+                        start = cut
+                runs.append((start, high))
+            merged[space] = SpaceMap(tuple(runs), declared=bool(declared))
         return cls(merged)
