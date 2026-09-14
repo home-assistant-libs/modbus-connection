@@ -122,7 +122,9 @@ class ModbusExceptionError(ModbusError):
         block: ReadBlock | None = None,
     ) -> ModbusExceptionError:
         """Build the subclass matching ``exception_code``, or the base class."""
-        cls = _CODED_ERRORS.get(exception_code, ModbusExceptionError)  # type: ignore[arg-type]
+        cls: type[ModbusExceptionError] = ModbusExceptionError
+        if exception_code is not None:
+            cls = _CODED_ERRORS.get(exception_code, cls)
         return cls(exception_code, message, block=block)
 
 
