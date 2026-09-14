@@ -19,8 +19,8 @@ and no Home Assistant in the loop.
 
 ## Seeding registers
 
-Set values on the per-space stores (`holding`, `input`, `coils`,
-`discrete_inputs`). A single value fills one register. A list fills consecutive
+Set values on the per-space stores (`holding`, `input`, `coil`,
+`discrete`). A single value fills one register. A list fills consecutive
 registers. A callable is evaluated on every read:
 
 ```python
@@ -251,7 +251,7 @@ configuration surface:
 
 | Member | Purpose |
 | --- | --- |
-| `holding`, `input`, `coils`, `discrete_inputs` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read). See [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
+| `holding`, `input`, `coil`, `discrete` | The per-space stores: `dict` of address to a value, a list (consecutive addresses), or a callable (evaluated per read). See [`RegisterSpec`](#registerspec-and-coilspec) / [`CoilSpec`](#registerspec-and-coilspec). |
 | `on_write(callback)` | Register a callback invoked with a [`WriteEvent`](#writeevent) for register and coil writes. Returns an unsubscribe callable. |
 | `read_events` | The [`ReadEvent`](#readevent) log of [every block read](#asserting-on-the-reads-a-poll-issued) the unit received, in order. |
 | `fail_write(address, error, *, register_type="holding")` | Arm the exception matching writes raise (`"holding"` or `"coil"`); `None` clears it. |

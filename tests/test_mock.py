@@ -80,7 +80,7 @@ async def test_input_and_discrete_are_separate_spaces(
     mock_modbus_unit: MockModbusUnit,
 ) -> None:
     mock_modbus_unit.input[0] = 555
-    mock_modbus_unit.discrete_inputs[1] = True
+    mock_modbus_unit.discrete[1] = True
     assert await mock_modbus_unit.read_input_registers(0, 1) == [555]
     assert await mock_modbus_unit.read_discrete_inputs(0, 2) == [False, True]
     # Holding space untouched by the input write.
@@ -310,7 +310,7 @@ async def test_fail_requests_covers_every_read_and_write(
     """A device that is not answering has no readable address at all."""
     mock_modbus_unit.holding.update({0: 7, 500: 9})
     mock_modbus_unit.input[0] = 7
-    mock_modbus_unit.coils[0] = True
+    mock_modbus_unit.coil[0] = True
     mock_modbus_unit.fail_requests(ModbusConnectionError("device is offline"))
 
     for read in (
@@ -401,6 +401,25 @@ async def test_fail_read_accepts_discrete_input_with_a_warning(
         )
     with pytest.raises(ModbusExceptionError):
         await mock_modbus_unit.read_discrete_inputs(5, 1)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "read"),
+    [
+        pytest.param("coils", "coil", "read_coils", id="coils"),
+        pytest.param(
+            "discrete_inputs", "discrete", "read_discrete_inputs", id="discrete_inputs"
+        ),
+    ],
+)
+async def test_old_store_names_alias_the_stores_with_a_warning(
+    mock_modbus_unit: MockModbusUnit, old: str, new: str, read: str
+) -> None:
+    with pytest.warns(DeprecationWarning, match=old):
+        store = getattr(mock_modbus_unit, old)
+    assert store is getattr(mock_modbus_unit, new)
+    store[3] = True
+    assert await getattr(mock_modbus_unit, read)(3, 1) == [True]
 
     # Both spellings address one table, so either one clears it.
     mock_modbus_unit.fail_read(5, None, register_type="discrete")

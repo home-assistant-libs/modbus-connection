@@ -70,7 +70,7 @@ def _meter(values: dict[int, int], coils: dict[int, bool] | None = None) -> Mete
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update(values)
     if coils:
-        unit.coils.update(coils)
+        unit.coil.update(coils)
     return Meter(unit)
 
 
@@ -1453,8 +1453,8 @@ async def test_discrete_input_reads_via_fc02() -> None:
         alarm = discrete_input(1)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.discrete_inputs[1] = True
-    inner.coils[1] = False  # would read False if (wrongly) read from coils
+    inner.discrete[1] = True
+    inner.coil[1] = False  # would read False if (wrongly) read from coils
     unit = _SpyUnit(inner)
     sensors = Sensors(unit)  # type: ignore[arg-type]
     await sensors.async_update()
@@ -1468,8 +1468,8 @@ async def test_component_mixes_coils_and_discrete_inputs() -> None:
         fault = discrete_input(0)  # same address number, different space
 
     inner = MockModbusConnection().for_unit(1)
-    inner.coils[0] = True
-    inner.discrete_inputs[0] = False
+    inner.coil[0] = True
+    inner.discrete[0] = False
     unit = _SpyUnit(inner)
     mixed = Mixed(unit)  # type: ignore[arg-type]
     await mixed.async_update()
@@ -1516,7 +1516,7 @@ async def test_group_pools_discrete_inputs() -> None:
         b = discrete_input(1)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.discrete_inputs.update({0: True, 1: True})
+    inner.discrete.update({0: True, 1: True})
     unit = _SpyUnit(inner)
     a, b = A(unit), B(unit)  # type: ignore[arg-type]
     await ComponentGroup(unit, [a, b]).async_update()  # type: ignore[list-item]
@@ -1535,8 +1535,8 @@ async def test_coil_and_discrete_ranges_are_independent() -> None:
         sensor_hi = discrete_input(9)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.coils.update({5: True, 9: True})
-    inner.discrete_inputs.update({5: True, 9: True})
+    inner.coil.update({5: True, 9: True})
+    inner.discrete.update({5: True, 9: True})
     unit = _SpyUnit(inner)
     io = IO(unit)  # type: ignore[arg-type]
     await io.async_update()
@@ -1572,8 +1572,8 @@ async def test_group_reads_coils_and_discrete_inputs_separately() -> None:
         fault = discrete_input(0)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.coils[0] = True
-    inner.discrete_inputs[0] = False
+    inner.coil[0] = True
+    inner.discrete[0] = False
     unit = _SpyUnit(inner)
     relays, sensors = Relays(unit), Sensors(unit)  # type: ignore[arg-type]
     await ComponentGroup(unit, [relays, sensors]).async_update()  # type: ignore[list-item]
@@ -1594,7 +1594,7 @@ async def test_base_offset_shifts_every_field_and_bit() -> None:
 
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({30: 100, 31: 220})  # 10, 11 shifted by +20
-    unit.coils[25] = True  # 5 shifted by +20
+    unit.coil[25] = True  # 5 shifted by +20
     block = Block(unit, base_offset=20)
     await block.async_update()
     assert block.w == 100
@@ -1698,8 +1698,8 @@ async def test_base_offset_shifts_coil_and_discrete_ranges() -> None:
         flag = discrete_input(5)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.coils.update({105: True, 109: True})
-    inner.discrete_inputs[105] = True
+    inner.coil.update({105: True, 109: True})
+    inner.discrete[105] = True
     unit = _SpyUnit(inner)
     block = Block(unit, base_offset=100)  # type: ignore[arg-type]
     await block.async_update()
@@ -2033,7 +2033,7 @@ class _Diag(Component):
 async def test_component_diagnostics_returns_raw_registers_by_address() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 7, 3: 0x0001, 4: 0x86A0})
-    unit.coils[0] = True
+    unit.coil[0] = True
 
     # No prior async_update: diagnostics reads the device fresh.
     raw = await _Diag(unit).async_read_raw()
@@ -2049,7 +2049,7 @@ async def test_component_diagnostics_returns_raw_registers_by_address() -> None:
 async def test_diagnostics_can_leave_listeners_alone() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 7, 3: 0x0001, 4: 0x86A0})
-    unit.coils[0] = True
+    unit.coil[0] = True
     diag = _Diag(unit)
     fired: list[int] = []
     diag.add_update_listener(lambda: fired.append(1))
@@ -2079,8 +2079,8 @@ async def test_group_diagnostics_covers_every_space() -> None:
     inner = MockModbusConnection().for_unit(1)
     inner.holding[0] = 11
     inner.input[0] = 22
-    inner.coils[0] = True
-    inner.discrete_inputs[1] = True
+    inner.coil[0] = True
+    inner.discrete[1] = True
     unit = _SpyUnit(inner)
 
     group = ComponentGroup(unit, [Holding(unit), Input(unit), Bits(unit)])  # type: ignore[list-item]
@@ -2182,8 +2182,8 @@ async def test_read_raw_snapshot_replays_into_a_mock_via_load_raw() -> None:
     src = MockModbusConnection().for_unit(1)
     src.holding[0] = 11
     src.input[0] = 22
-    src.coils[0] = True
-    src.discrete_inputs[1] = True
+    src.coil[0] = True
+    src.discrete[1] = True
     members = [Holding(src), Input(src), Bits(src)]
     raw = await ComponentGroup(src, members).async_read_raw()
 
@@ -2211,7 +2211,7 @@ async def test_read_raw_snapshot_replays_after_a_trip_through_json() -> None:
 
     src = MockModbusConnection().for_unit(1)
     src.holding[0] = 11
-    src.coils[0] = True
+    src.coil[0] = True
     raw = await ComponentGroup(src, [Holding(src), Bits(src)]).async_read_raw()
 
     dst = MockModbusConnection().for_unit(1)
@@ -2426,7 +2426,7 @@ async def test_restrict_fields_narrows_bit_fields() -> None:
         c = coil(3)
 
     inner = MockModbusConnection().for_unit(1)
-    inner.coils.update({0: True, 3: True})
+    inner.coil.update({0: True, 3: True})
     inner.fail_read(1, ModbusExceptionError(2), register_type="coil")
     io = IO(inner)
     io.restrict_fields(["a", "c"])  # drop coil b (address 1)

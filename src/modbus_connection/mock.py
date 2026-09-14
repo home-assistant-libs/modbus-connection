@@ -73,6 +73,15 @@ def _read_bits(space: dict[int, Any], address: int, count: int) -> list[bool]:
     return [bool(materialized.get(address + i, False)) for i in range(count)]
 
 
+def _warn_store_name(old: str, new: str) -> None:
+    warnings.warn(
+        f"MockModbusUnit.{old} is deprecated. Use {new}, the name "
+        "async_read_raw() and ReadEvent use for that space.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 def _space(register_type: Space | Literal["discrete_input"]) -> Space:
     """Resolve a ``register_type`` argument to the address space it names."""
     if register_type == "discrete_input":
@@ -132,8 +141,8 @@ class MockModbusUnit:
         self._unit_id = unit_id
         self.holding: dict[int, RegisterSpec] = {}
         self.input: dict[int, RegisterSpec] = {}
-        self.coils: dict[int, CoilSpec] = {}
-        self.discrete_inputs: dict[int, CoilSpec] = {}
+        self.coil: dict[int, CoilSpec] = {}
+        self.discrete: dict[int, CoilSpec] = {}
         self._write_callbacks: list[Callable[[WriteEvent], None]] = []
         self._write_failures: dict[tuple[RegisterType, int], Exception] = {}
         self._read_failures: dict[tuple[Space, int], Exception] = {}
@@ -147,6 +156,18 @@ class MockModbusUnit:
     @property
     def connected(self) -> bool:
         return self._conn.connected
+
+    @property
+    def coils(self) -> dict[int, CoilSpec]:
+        """Deprecated name of the ``coil`` store."""
+        _warn_store_name("coils", "coil")
+        return self.coil
+
+    @property
+    def discrete_inputs(self) -> dict[int, CoilSpec]:
+        """Deprecated name of the ``discrete`` store."""
+        _warn_store_name("discrete_inputs", "discrete")
+        return self.discrete
 
     def set_message_spacing(self, seconds: float) -> None:
         """Record the per-unit request interval.
@@ -252,7 +273,7 @@ class MockModbusUnit:
         address that is not a number.
         """
         registers = {"holding": self.holding, "input": self.input}
-        bits = {"coil": self.coils, "discrete": self.discrete_inputs}
+        bits = {"coil": self.coil, "discrete": self.discrete}
         for space, values in raw.items():
             if space in registers:
                 registers[space].update({_address(a): v for a, v in values.items()})
@@ -330,16 +351,16 @@ class MockModbusUnit:
 
     async def read_coils(self, address: int, count: int) -> list[bool]:
         await self._dispatch_read("coil", address, count)
-        return _read_bits(self.coils, address, count)
+        return _read_bits(self.coil, address, count)
 
     async def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
         await self._dispatch_read("discrete", address, count)
-        return _read_bits(self.discrete_inputs, address, count)
+        return _read_bits(self.discrete, address, count)
 
     async def write_coil(self, address: int, value: bool) -> None:
         await self._ensure_connected()
         self._raise_if_write_fails("coil", address)
-        self.coils[address] = bool(value)
+        self.coil[address] = bool(value)
         self._fire_write(WriteEvent("coil", address, [bool(value)], 0x05))
 
     async def write_coils(self, address: int, values: list[bool]) -> None:
@@ -347,7 +368,7 @@ class MockModbusUnit:
         bools = [bool(v) for v in values]
         self._raise_if_write_fails("coil", address, len(bools))
         for offset, value in enumerate(bools):
-            self.coils[address + offset] = value
+            self.coil[address + offset] = value
         self._fire_write(WriteEvent("coil", address, bools, 0x0F))
 
     # -- full function-code surface -------------------------------------------
