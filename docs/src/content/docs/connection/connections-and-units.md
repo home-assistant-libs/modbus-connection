@@ -142,6 +142,12 @@ object.
 
 ## Device requirements
 
+:::caution[Timing is in seconds]
+Every timing value in this library is in seconds, not milliseconds. Modbus and
+RS485 specifications state timings in milliseconds, so divide by 1000 before you
+pass a value. A 30 ms pause is `0.03`, not `30`.
+:::
+
 A device library receives a `ModbusUnit`. The library knows the device, so it
 asks for the timing the device needs through the unit:
 
