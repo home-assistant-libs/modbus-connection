@@ -407,7 +407,7 @@ def test_counting_unit_delegates_every_protocol_member() -> None:
 async def test_counting_unit_counts_reads_and_delegates() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 11, 1: 22})
-    unit.coils.update({0: True})
+    unit.coil.update({0: True})
 
     counting = CountingUnit(unit)  # no cast: CountingUnit is a ModbusUnit
     assert await counting.read_holding_registers(0, 2) == [11, 22]
@@ -447,7 +447,7 @@ class _Meter(Component):
 async def test_counting_unit_tallies_a_component_update() -> None:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 235, 1: 7, 2: 1})
-    unit.coils.update({0: True})
+    unit.coil.update({0: True})
 
     counting = CountingUnit(unit)
     meter = _Meter(counting)  # CountingUnit drops in wherever a ModbusUnit goes
@@ -464,7 +464,7 @@ async def test_counting_unit_tallies_a_component_update() -> None:
 def _read_meter(alarm: int = 0x05) -> _Meter:
     unit = MockModbusConnection().for_unit(1)
     unit.holding.update({0: 235, 1: 7, 2: 1, 3: alarm})
-    unit.coils.update({0: True})
+    unit.coil.update({0: True})
     return _Meter(unit)
 
 
