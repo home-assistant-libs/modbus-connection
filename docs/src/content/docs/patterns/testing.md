@@ -103,10 +103,8 @@ Arm `fail_read` and any read whose block covers that address raises the given
 error instead of returning values. This mirrors a device that refuses a
 register block it does not serve, such as an uninstalled module.
 `register_type` defaults to `"holding"`. Use `"input"`, `"coil"` or
-`"discrete"` for the other tables, which are independent. These are the same
-names an `async_read_raw()` snapshot uses. `"discrete_input"` is a deprecated
-spelling of `"discrete"`. It still works and raises a `DeprecationWarning`.
-Pass `None` to clear:
+`"discrete"` for the other tables, which are independent. Pass `None` to
+clear:
 
 ```python
 async def test_read_refused(mock_modbus_unit):
