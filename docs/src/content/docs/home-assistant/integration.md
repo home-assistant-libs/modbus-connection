@@ -470,9 +470,8 @@ wiring.
       address is a constant in the integration. It asks nothing the library
       settles by probing.
 - [ ] `async_setup_entry` asks `modbus` for the unit with `async_get_unit`.
-- [ ] Coordinator returns the `UpdateReport` from `modbus_connection.model`,
-      maps `ModbusError` to `UpdateFailed`, and fails the update when no
-      sub-system answered.
+- [ ] Coordinator returns the library's `UpdateReport`, maps `ModbusError` to
+      `UpdateFailed`, and fails the update when no sub-system answered.
 - [ ] Every coordinator has run `async_config_entry_first_refresh()` before the
       platforms are forwarded.
 - [ ] The entry is not reloaded when the connection drops. Reconnection is
