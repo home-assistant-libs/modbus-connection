@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, overload
 from ._component_base import _ComponentBase
 from ._const import _MAX_GAP, _MAX_SPAN, Range, RegisterSpace, Space
 from ._planning import ReadItem, ReadPlan, ResolvedField, _plan_blocks
-from ._ranges import DeviceRanges, _ranges_excluding
+from ._ranges import DeviceRanges, SpaceMap, _ranges_excluding
 from ._writing import write_bit_field, write_register_field
 from .fields import CoilField, DiscreteInputField, RegisterField, _BitField
 
@@ -210,13 +210,20 @@ class Component(_ComponentBase):
 
         Raises ``ValueError`` if this component's map conflicts with an instance's.
         """
+        stated: dict[Space, tuple[Range, ...] | None] = {
+            self.register_space: self.register_ranges,
+            "coil": self.coil_ranges,
+            "discrete": self.discrete_ranges,
+        }
         declared = DeviceRanges(
             {
-                self.register_space: self.register_ranges,
-                "coil": self.coil_ranges,
-                "discrete": self.discrete_ranges,
-            },
-            claimed=frozenset(self._claimed_spaces),
+                space: (
+                    None
+                    if ranges is None
+                    else SpaceMap(ranges, declared=space not in self._claimed_spaces)
+                )
+                for space, ranges in stated.items()
+            }
         )
         return self._with_instance_ranges(
             declared.shift(self._base_offset + self._instance_offset)

@@ -111,43 +111,31 @@ def _spans(items: Iterable[ReadItem]) -> dict[Space, list[tuple[int, int]]]:
     return spans
 
 
-def own_ranges(
+def unmapped_items(ranges: DeviceRanges, items: Iterable[ReadItem]) -> list[ReadItem]:
+    """The items read from a space ``ranges`` leaves unconstrained."""
+    return [item for item in items if ranges.for_space(item.resolved.space) is None]
+
+
+def claimed_ranges(
     items: Iterable[ReadItem], *, max_gap: int, max_span: int
-) -> dict[Space, tuple[Range, ...]]:
-    """The addresses these items cover when read on their own, per space.
+) -> DeviceRanges:
+    """Claim the addresses these items cover when read on their own.
 
     This stands in for a readable map a component did not declare: it claims
     exactly what the component reads by itself, so pooling it with others
     cannot bridge into addresses no component claims.
     """
-    return {
-        space: tuple(
-            (start, start + count - 1)
-            for start, count in _plan_blocks(
-                space_spans, None, max_gap=max_gap, max_span=max_span
+    return DeviceRanges.claims(
+        {
+            space: tuple(
+                (start, start + count - 1)
+                for start, count in _plan_blocks(
+                    space_spans, None, max_gap=max_gap, max_span=max_span
+                )
             )
-        )
-        for space, space_spans in _spans(items).items()
-    }
-
-
-def undeclared_claims(
-    parts: Iterable[tuple[DeviceRanges, list[ReadItem], int, int]],
-) -> dict[Space, tuple[Range, ...]]:
-    """What each part that declared no map for a space reads on its own.
-
-    Each part is ``(declared map, read items, max_gap, max_span)``. The result
-    is claims rather than a device map. They only widen what a plan may cover,
-    so unlike declared maps they are not checked against each other.
-    """
-    claimed: dict[Space, tuple[Range, ...]] = {}
-    for declared, items, max_gap, max_span in parts:
-        for space, ranges in own_ranges(
-            items, max_gap=max_gap, max_span=max_span
-        ).items():
-            if declared.for_space(space) is None:
-                claimed[space] = claimed.get(space, ()) + ranges
-    return claimed
+            for space, space_spans in _spans(items).items()
+        }
+    )
 
 
 def _reader(

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from ._const import _MAX_SPAN, Raw
-from ._planning import ReadPlan, _merge_raw, _Readable, undeclared_claims
+from ._planning import ReadPlan, _merge_raw, _Readable, claimed_ranges, unmapped_items
 from ._ranges import DeviceRanges
 
 if TYPE_CHECKING:
@@ -44,14 +44,22 @@ class ComponentGroup(_Readable):
 
         Raises ``ValueError`` if the maps conflict.
         """
-        return DeviceRanges.merged(
-            [component._resolved_ranges() for component in self._components],
-            whose=lambda space: f"every {space}-space component in a ComponentGroup",
-        ).widened(
-            undeclared_claims(
-                (c._resolved_ranges(), c._read_items, c.max_gap, c.max_span)
-                for c in self._components
+        parts: list[DeviceRanges] = []
+        for component in self._components:
+            ranges = component._resolved_ranges()
+            parts.append(ranges)
+            # Each member claims on its own, so two members share a block only
+            # where their blocks meet.
+            parts.append(
+                claimed_ranges(
+                    unmapped_items(ranges, component._read_items),
+                    max_gap=component.max_gap,
+                    max_span=component.max_span,
+                )
             )
+        return DeviceRanges.merged(
+            parts,
+            whose=lambda space: f"every {space}-space component in a ComponentGroup",
         )
 
     def _shared[V](self, attr: str, default: V) -> V:

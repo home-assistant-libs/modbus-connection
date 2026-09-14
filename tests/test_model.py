@@ -1815,6 +1815,28 @@ async def test_touching_claims_read_as_one_run() -> None:
     assert unit.reads == [("holding", 100, 2)]
 
 
+async def test_a_sibling_reading_a_narrowed_members_hole_bridges_it() -> None:
+    """A narrowed member's hole is a claim boundary, and claims draw none."""
+
+    class Narrowed(Component):
+        a = integer(100)
+        b = integer(108)
+        dropped = integer(104)  # the synthesised map leaves 104 out
+
+    class Sibling(Component):
+        x = integer(104)  # reads the hole, so the device serves it
+
+    inner = MockModbusConnection().for_unit(1)
+    inner.holding.update({100: 1, 104: 4, 108: 8})
+    unit = _SpyUnit(inner)
+    narrowed = Narrowed(unit)  # type: ignore[arg-type]
+    narrowed.restrict_fields(["a", "b"])
+    group = ComponentGroup(unit, [narrowed, Sibling(unit)])  # type: ignore[list-item]
+    await group.async_update()
+    assert (narrowed.a, narrowed.b, narrowed.dropped) == (1, 8, None)
+    assert unit.reads == [("holding", 100, 9)]
+
+
 async def test_narrowed_member_agrees_with_a_declared_sibling() -> None:
     """A claim inside a sibling's declared run is agreement, not overlap."""
 
