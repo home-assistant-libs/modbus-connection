@@ -185,7 +185,9 @@ unit.set_message_spacing(0.05, since="connection")
 ```
 
 The connection stays locked for this wait, so no other unit sends a request
-until the interval passes.
+until the interval passes. The interval starts when the last request on the
+connection completes. Bytes that arrive outside a request, such as a late reply,
+do not restart it.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.

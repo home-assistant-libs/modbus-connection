@@ -233,8 +233,9 @@ interval. Pass `0` to clear it.
 
 `since` selects what the interval is measured from. `"unit"` measures from the
 last request to this unit. `"connection"` measures from the last request on the
-connection, whichever unit it addressed. The connection stays locked for the
-wait, so no other unit sends during the interval.
+connection, whichever unit it addressed. Both measure from the completion of
+that request. The connection stays locked for the wait, so no other unit sends
+during the interval.
 
 Raises `ValueError` if `seconds` is negative, or if `since` is not `"unit"` or
 `"connection"`.
