@@ -363,6 +363,54 @@ async def test_fixed_framer_is_passed_to_connect(
     assert captured["framer"] == "rtu"
 
 
+@pytest.mark.parametrize(
+    ("connections", "argv", "framer"),
+    [
+        pytest.param(
+            (("tcp", None), ("serial", "rtu")), ["host"], None, id="default-unnamed"
+        ),
+        pytest.param(
+            (("tcp", None), ("serial", "rtu")),
+            ["/dev/ttyUSB0", "--transport", "serial"],
+            "rtu",
+            id="chosen-named",
+        ),
+        pytest.param(
+            (("serial", "ascii"), ("tcp", None)),
+            ["/dev/ttyUSB0"],
+            "ascii",
+            id="default-named",
+        ),
+        pytest.param(
+            (("serial", "ascii"), ("tcp", None)),
+            ["host", "--transport", "tcp"],
+            None,
+            id="chosen-unnamed",
+        ),
+    ],
+)
+def test_single_framer_is_fixed_per_transport(
+    connections: tuple[tuple[str, str | None], ...],
+    argv: list[str],
+    framer: str | None,
+) -> None:
+    assert _parse(argv, connections).framer == framer
+
+
+async def test_single_framer_is_not_passed_to_other_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake(target: str, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "conn"
+
+    monkeypatch.setattr(tmodbus_backend, "connect_tcp", lambda t, **k: fake(t, **k))
+    await connect_from_args(_parse(["host"], (("tcp", None), ("serial", "rtu"))))
+    assert "framer" not in captured
+
+
 async def test_message_spacing_is_passed_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
