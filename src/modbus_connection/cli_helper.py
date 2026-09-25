@@ -86,6 +86,27 @@ def _load_backend(transport: str, framer: str | None) -> ModuleType:
     raise ModbusError(f"no installed Modbus backend supports this connection; {detail}")
 
 
+class _TransportAction(argparse.Action):
+    """Store ``--transport`` and set the framer that transport is fixed to."""
+
+    def __init__(
+        self, *args: object, framers: dict[str, str | None], **kwargs: object
+    ) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._framers = framers
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        setattr(namespace, self.dest, values)
+        if values in self._framers:
+            namespace.framer = self._framers[values]  # type: ignore[index]
+
+
 def add_connection_args(
     parser: argparse.ArgumentParser,
     *,
@@ -112,6 +133,14 @@ def add_connection_args(
     transports = tuple(dict.fromkeys(t for t, _ in pairs))
     chosen_framers = {f for _, f in pairs if f is not None}
     framer_choices = tuple(f for f in _FRAMERS if f in chosen_framers)
+    # A lone named framer applies only to the transports whose pairs name it.
+    # The other transports keep the backend default.
+    fixed_framers: dict[str, str | None] = {}
+    if len(framer_choices) == 1:
+        framed = {t for t, f in pairs if f is not None}
+        fixed_framers = {
+            t: framer_choices[0] if t in framed else None for t in transports
+        }
 
     network = any(t in ("tcp", "udp") for t in transports)
     serial_ok = "serial" in transports
@@ -139,6 +168,8 @@ def add_connection_args(
             "--transport",
             choices=transports,
             default=primary,
+            action=_TransportAction,
+            framers=fixed_framers,
             help=f"wire transport (default: {primary})",
         )
     else:
@@ -162,8 +193,8 @@ def add_connection_args(
             default=None,
             help="wire framing (backend default if unset)",
         )
-    elif len(framer_choices) == 1:
-        parser.set_defaults(framer=framer_choices[0])
+    elif fixed_framers:
+        parser.set_defaults(framer=fixed_framers[primary])
     group.add_argument(
         "--timeout",
         type=float,
