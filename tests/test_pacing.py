@@ -196,7 +196,7 @@ async def test_teardown_gives_up_on_a_wedged_request(
 # -- per-unit gap on top of the connection-wide gap ---------------------------
 
 
-async def test_per_unit_spacing_paces_only_that_unit(
+async def test_unit_spacing_quiets_the_line_before_its_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     advance, sleeps = _fake_clock(monkeypatch)
@@ -204,12 +204,47 @@ async def test_per_unit_spacing_paces_only_that_unit(
     pacer.set_unit_spacing(5, 0.25)
 
     async with pacer.paced(5):  # first request to unit 5: free
-        advance(0.10)
-    async with pacer.paced(5):  # back-to-back on unit 5 -> waits the unit gap
         pass
-    async with pacer.paced(6):  # a different unit shares the link, not the gap
+    advance(30.0)  # unit 5's own last request is long past
+    async with pacer.paced(6):
         pass
-    assert sleeps == [pytest.approx(0.25)]  # only unit 5 ever waited
+    async with pacer.paced(5):  # right behind unit 6 -> waits the unit gap
+        pass
+    assert sleeps == [pytest.approx(0.25)]
+
+
+async def test_unit_spacing_quiets_the_line_after_its_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, sleeps = _fake_clock(monkeypatch)
+    pacer = Pacer(0.0)
+    pacer.set_unit_spacing(5, 0.25)
+
+    async with pacer.paced(5):
+        pass
+    async with pacer.paced(6):  # right behind unit 5 -> waits unit 5's gap
+        pass
+    async with pacer.paced(6):  # between other units -> back to back
+        pass
+    assert sleeps == [pytest.approx(0.25)]
+
+
+async def test_unit_spacing_holds_the_line_while_it_waits() -> None:
+    pacer = Pacer(0.0)
+    pacer.set_unit_spacing(5, 0.05)
+    async with pacer.paced(6):
+        pass
+    order: list[int] = []
+
+    async def one(unit_id: int) -> None:
+        async with pacer.paced(unit_id):
+            order.append(unit_id)
+
+    first = asyncio.create_task(one(5))
+    await asyncio.sleep(0)  # unit 5 now holds the line and waits its gap
+    await one(6)
+    await first
+    assert order == [5, 6]
 
 
 async def test_per_unit_and_link_spacing_take_the_max(
@@ -286,4 +321,28 @@ async def test_backend_paces_a_single_unit(
     finally:
         await conn.close()
     # Four requests means three gaps of at least `spacing` each.
+    assert elapsed >= spacing * 3
+
+
+@pytest.mark.parametrize("backend", ["pymodbus", "tmodbus"])
+async def test_backend_quiets_the_line_around_a_spaced_unit(
+    modbus_server: tuple[str, int], backend: str
+) -> None:
+    host, port = modbus_server
+    spacing = 0.05
+    if backend == "pymodbus":
+        conn = await pymodbus_connect_tcp(host, port=port)
+    else:
+        conn = await tmodbus_connect_tcp(host, port=port)
+    try:
+        spaced = conn.for_unit(UNIT_ID + 1)
+        spaced.set_message_spacing(spacing)
+        other = conn.for_unit(UNIT_ID)
+        start = time.monotonic()
+        for unit in (spaced, other, spaced, other):
+            await unit.read_holding_registers(0, 1)
+        elapsed = time.monotonic() - start
+    finally:
+        await conn.close()
+    # Every gap borders a request to the spaced unit, so all three apply.
     assert elapsed >= spacing * 3
