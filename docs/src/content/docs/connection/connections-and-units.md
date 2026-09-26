@@ -157,16 +157,23 @@ the new value.
 
 ## Request spacing
 
-Some devices require a pause between frames. Set the interval on the unit:
+Some devices need the line quiet around their frames. Set the interval on the
+unit:
 
 ```python
 unit.set_message_spacing(0.05)
 ```
 
-The interval is measured from the completion of one request to the start of the
-next, and it paces this unit alone. Pass `0` to clear it. A gap the line needs,
-such as RS485 turnaround before any frame, belongs to the connection instead.
-The two combine by waiting for the longer interval.
+The line then stays quiet for this interval before each request to this unit
+and after each of its requests. The interval is measured from the completion of
+the previous request on the connection, whichever unit it went to. Requests
+between other units do not wait for it. Pass `0` to clear it.
+
+The interval starts when a request completes, not at the last byte on the wire.
+A late or unsolicited frame does not restart it.
+
+A gap the line needs before any frame, such as RS485 turnaround, belongs to the
+connection instead. The two combine by waiting for the longer interval.
 
 Continue with [Modbus operations](/modbus-connection/connection/operations/)
 to use a unit.
