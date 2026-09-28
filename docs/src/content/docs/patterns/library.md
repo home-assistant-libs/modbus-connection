@@ -151,8 +151,8 @@ asyncio.run(main())
   unit, with
   [`require_timeout()` and `require_connect_delay()`](/modbus-connection/connection/connections-and-units/#device-requirements),
   and [`set_message_spacing()`](/modbus-connection/connection/connections-and-units/#request-spacing)
-  for a gap between its own frames. Whoever builds the connection cannot know
-  this. Your library can.
+  for quiet on the line around its frames. Whoever builds the connection cannot
+  know this. Your library can.
 - Carry metadata on the fields. `unit=`, ranges, and validators live next to
   the address, so the model doubles as the datasheet.
 - Decide at setup. Everything that cannot change between two polls (the model,

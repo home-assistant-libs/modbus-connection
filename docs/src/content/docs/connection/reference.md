@@ -228,9 +228,11 @@ still processing a program function.
 
 #### `set_message_spacing(seconds)`
 
-Set the minimum interval between requests to this unit. The setting belongs to
-the unit ID and combines with connection-wide spacing by waiting for the longer
-interval. Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
+Keep the line quiet for `seconds` before each request to this unit and after
+each of its requests. The interval is measured from the completion of the
+previous request on the connection, to any unit. The setting belongs to the unit
+ID and combines with connection-wide spacing by waiting for the longer interval.
+Pass `0` to clear it. Raises `ValueError` if `seconds` is negative.
 See [Request spacing](/modbus-connection/connection/connections-and-units/#request-spacing).
 
 #### `require_timeout(seconds)`

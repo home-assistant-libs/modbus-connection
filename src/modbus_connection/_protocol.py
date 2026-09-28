@@ -48,7 +48,7 @@ class ModbusUnit(Protocol):
     async def get_comm_event_log(self) -> bytes: ...  # 0x0C
 
     def set_message_spacing(self, seconds: float) -> None:
-        """Set the minimum interval between requests to this unit."""
+        """Keep the link quiet for ``seconds`` before and after this unit's requests."""
 
     def require_timeout(self, seconds: float | None) -> None:
         """Ask the link for a per-request timeout of at least ``seconds``.
