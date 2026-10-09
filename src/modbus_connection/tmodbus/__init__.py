@@ -303,6 +303,10 @@ def _map_errors[**P, R](
         prefix = _describe(func.__name__, args, kwargs)
         try:
             async with self._conn._pacer.paced(self._unit_id):
+                # The link can be dropped while this request waits its turn,
+                # by disconnect() or a raised timeout. It was up when the
+                # request started, so connect again rather than fail.
+                await self._conn.connect()
                 return await func(self, *args, **kwargs)
         except ModbusError as err:
             # Already ours; edit the message in place so the typed subclass the
