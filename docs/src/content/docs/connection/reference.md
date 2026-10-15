@@ -456,3 +456,7 @@ request error). New code should catch the typed class and read `.block`.
   `timeout`, `message_spacing`, and `connect_delay`, constructs a
   `ModbusConnection`, eagerly `connect()`s it, and returns it. New code
   constructs `ModbusConnection` with a shared parameter object instead.
+
+Each module also exports `SUPPORTED_FRAMINGS`, a mapping of transport to the
+framings that backend carries. `connect_from_args` reads it when it picks an
+installed backend.

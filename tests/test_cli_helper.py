@@ -13,6 +13,7 @@ import io
 import sys
 from enum import IntEnum, IntFlag
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -251,6 +252,28 @@ def test_load_backend_prefers_tmodbus() -> None:
     assert _load_backend("tcp", "ascii") is tmodbus_backend
 
 
+@pytest.mark.parametrize(
+    ("transport", "framer"),
+    [
+        ("tcp", None),
+        ("tcp", "ascii"),
+        ("udp", "socket"),
+        ("serial", "rtu"),
+        ("tls", None),
+    ],
+)
+def test_load_backend_does_not_import_unused_pymodbus(
+    transport: str,
+    framer: str | None,
+) -> None:
+    with patch(
+        "modbus_connection.cli_helper.importlib.import_module",
+        side_effect=[tmodbus_backend, AssertionError("pymodbus must stay unloaded")],
+    ) as import_module:
+        assert _load_backend(transport, framer) is tmodbus_backend
+    import_module.assert_called_once_with(".tmodbus", "modbus_connection")
+
+
 def test_load_backend_falls_back_to_pymodbus(monkeypatch: pytest.MonkeyPatch) -> None:
     # A None entry makes ``import modbus_connection.tmodbus`` raise ImportError,
     # standing in for the tmodbus dependency not being installed.
@@ -266,6 +289,31 @@ def test_load_backend_prefers_tmodbus_for_udp() -> None:
     # tmodbus carries MBAP-framed UDP; only rtu/ascii framing needs pymodbus.
     assert _load_backend("udp", None) is tmodbus_backend
     assert _load_backend("udp", "socket") is tmodbus_backend
+
+
+def test_load_backend_follows_the_backend_capability_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    narrowed = dict(tmodbus_backend.SUPPORTED_FRAMINGS, tcp=("socket",))
+    monkeypatch.setattr(tmodbus_backend, "SUPPORTED_FRAMINGS", narrowed)
+    assert _load_backend("tcp", "rtu") is pymodbus_backend
+
+
+def test_the_backends_state_their_framings() -> None:
+    assert tmodbus_backend.SUPPORTED_FRAMINGS == {
+        "tcp": ("socket", "rtu", "ascii"),
+        "udp": ("socket",),
+        "tls": ("socket",),
+        "serial": ("rtu", "ascii"),
+    }
+    assert pymodbus_backend.SUPPORTED_FRAMINGS == {
+        "tcp": ("socket", "rtu", "ascii"),
+        "udp": ("socket", "rtu", "ascii"),
+        "tls": ("socket",),
+        "serial": ("rtu", "ascii"),
+    }
+    assert _load_backend("udp", "ascii") is pymodbus_backend
+    assert _load_backend("serial", "ascii") is tmodbus_backend
 
 
 def test_load_backend_errors_when_none_installed(

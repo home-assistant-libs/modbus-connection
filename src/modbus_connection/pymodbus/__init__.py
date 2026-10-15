@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import ssl
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from typing import Any, Concatenate, cast
 
 from pymodbus import FramerType
@@ -51,11 +51,20 @@ __all__ = [
     "ModbusConnection",
     "PymodbusConnection",
     "PymodbusUnit",
+    "SUPPORTED_FRAMINGS",
     "connect_serial",
     "connect_tcp",
     "connect_tls",
     "connect_udp",
 ]
+
+SUPPORTED_FRAMINGS: Mapping[str, tuple[str, ...]] = {
+    "tcp": ("socket", "rtu", "ascii"),
+    "udp": ("socket", "rtu", "ascii"),
+    "tls": ("socket",),
+    "serial": ("rtu", "ascii"),
+}
+"""The framings this backend carries per transport."""
 
 
 def _map_errors[**P, R](

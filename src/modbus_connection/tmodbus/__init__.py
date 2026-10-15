@@ -6,7 +6,7 @@ import contextlib
 import functools
 import ssl
 import struct
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from typing import Any, Concatenate
 
 from serialx import Parity, StopBits
@@ -52,6 +52,7 @@ from ..exceptions import (
 
 __all__ = [
     "ModbusConnection",
+    "SUPPORTED_FRAMINGS",
     "TmodbusConnection",
     "TmodbusUnit",
     "connect_serial",
@@ -59,6 +60,14 @@ __all__ = [
     "connect_tls",
     "connect_udp",
 ]
+
+SUPPORTED_FRAMINGS: Mapping[str, tuple[str, ...]] = {
+    "tcp": ("socket", "rtu", "ascii"),
+    "udp": ("socket",),
+    "tls": ("socket",),
+    "serial": ("rtu", "ascii"),
+}
+"""The framings this backend carries per transport."""
 
 # tmodbus binds a unit id when the client is created, but this library selects the
 # unit via ``ModbusConnection.for_unit()`` instead. The base client is only used
@@ -153,7 +162,10 @@ class ModbusConnection(BaseModbusConnection):
         message_spacing: float | None = None,
         connect_delay: float | None = None,
     ) -> None:
-        if isinstance(params, ModbusUdpParams) and params.framer != "socket":
+        if (
+            isinstance(params, ModbusUdpParams)
+            and params.framer not in SUPPORTED_FRAMINGS["udp"]
+        ):
             raise ValueError(
                 "RTU- and ASCII-over-UDP are not supported by the tmodbus "
                 "ModbusConnection; use modbus_connection.pymodbus.ModbusConnection"

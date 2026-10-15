@@ -64,24 +64,35 @@ def _import_backend(name: str) -> ModuleType | None:
         return None
 
 
+def _carries(backend: ModuleType, transport: str, framer: str | None) -> bool:
+    """Whether ``backend`` carries ``framer`` over ``transport``.
+
+    A ``None`` framer is the backend default, which every backend carries.
+    """
+    if framer is None:
+        return True
+    return framer in backend.SUPPORTED_FRAMINGS.get(transport, ())
+
+
 def _load_backend(transport: str, framer: str | None) -> ModuleType:
     """Return an installed backend for the requested connection.
 
     Raises ``ModbusError`` if no installed backend supports the request.
     """
-    tmodbus_supported = not (transport == "udp" and framer in ("rtu", "ascii"))
-    if tmodbus_supported and (backend := _import_backend("tmodbus")) is not None:
-        return backend
-    if (backend := _import_backend("pymodbus")) is not None:
-        return backend
+    tmodbus = _import_backend("tmodbus")
+    if tmodbus is not None and _carries(tmodbus, transport, framer):
+        return tmodbus
+    pymodbus = _import_backend("pymodbus")
+    if pymodbus is not None and _carries(pymodbus, transport, framer):
+        return pymodbus
 
-    if tmodbus_supported:
-        detail = "install the 'tmodbus' or 'pymodbus' extra"
-    else:
+    if pymodbus is None and tmodbus is not None:
         detail = (
             f"{transport} with {framer or 'default'} framing requires pymodbus; "
             "install the 'pymodbus' extra"
         )
+    else:
+        detail = "install the 'tmodbus' or 'pymodbus' extra"
     raise ModbusError(f"no installed Modbus backend supports this connection; {detail}")
 
 
