@@ -170,30 +170,27 @@ class MockModbusUnit:
         return self.discrete
 
     def set_message_spacing(self, seconds: float) -> None:
-        """Record the per-unit request interval.
+        """Set and record the per-unit request interval.
 
         Raises ``ValueError`` if ``seconds`` is negative.
         """
-        if seconds < 0:
-            raise ValueError("message_spacing must be non-negative")
+        self._conn._pacer.set_unit_spacing(self._unit_id, seconds)
         self.message_spacing = seconds
 
     def require_timeout(self, seconds: float | None) -> None:
-        """Record the required per-request timeout, or ``None`` to withdraw it.
+        """Set and record the required timeout, or ``None`` to withdraw it.
 
         Raises ``ValueError`` if ``seconds`` is negative.
         """
-        if seconds is not None and seconds < 0:
-            raise ValueError("timeout must be non-negative")
+        self._conn._require_timeout(self._unit_id, seconds)
         self.required_timeout = seconds
 
     def require_connect_delay(self, seconds: float | None) -> None:
-        """Record the required pause after the link opens, or ``None`` to withdraw it.
+        """Set and record the required connect delay, or ``None`` to withdraw it.
 
         Raises ``ValueError`` if ``seconds`` is negative.
         """
-        if seconds is not None and seconds < 0:
-            raise ValueError("connect_delay must be non-negative")
+        self._conn._require_connect_delay(self._unit_id, seconds)
         self.required_connect_delay = seconds
 
     async def _ensure_connected(self) -> None:

@@ -578,3 +578,22 @@ def test_set_message_spacing_rejects_negative(
 ) -> None:
     with pytest.raises(ValueError):
         mock_modbus_unit.set_message_spacing(-0.1)
+
+
+def test_set_message_spacing_reaches_the_shared_link(
+    mock_modbus_connection: MockModbusConnection,
+) -> None:
+    unit = mock_modbus_connection.for_unit(7)
+    other = mock_modbus_connection.for_unit(8)
+    unit.set_message_spacing(0.25)
+    other.set_message_spacing(0.5)
+    assert mock_modbus_connection._pacer._unit_spacing == {7: 0.25, 8: 0.5}
+
+    with pytest.raises(ValueError):
+        unit.set_message_spacing(-0.1)
+    assert unit.message_spacing == 0.25
+    assert mock_modbus_connection._pacer._unit_spacing == {7: 0.25, 8: 0.5}
+
+    unit.set_message_spacing(0)
+    assert unit.message_spacing == 0
+    assert mock_modbus_connection._pacer._unit_spacing == {8: 0.5}
