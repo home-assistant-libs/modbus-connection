@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -182,6 +183,78 @@ def test_the_mock_records_what_a_library_requires() -> None:
     unit.require_timeout(None)
 
     assert unit.required_timeout is None
+
+
+@pytest.mark.parametrize(
+    ("require", "resolved", "recorded", "default"),
+    [
+        ("require_timeout", "_timeout", "required_timeout", _DEFAULT_TIMEOUT),
+        ("require_connect_delay", "_connect_delay", "required_connect_delay", 0),
+    ],
+)
+def test_mock_unit_requirements_reach_the_shared_link(
+    require: str, resolved: str, recorded: str, default: float
+) -> None:
+    conn = MockModbusConnection()
+    unit_a = conn.for_unit(UNIT_A)
+    unit_b = conn.for_unit(UNIT_B)
+
+    getattr(unit_a, require)(30)
+    getattr(unit_b, require)(5)
+    assert getattr(conn, resolved) == 30
+
+    with pytest.raises(ValueError):
+        getattr(unit_a, require)(-1)
+    assert getattr(unit_a, recorded) == 30
+    assert getattr(conn, resolved) == 30
+
+    getattr(unit_a, require)(None)
+    assert getattr(unit_a, recorded) is None
+    assert getattr(conn, resolved) == 5
+
+    getattr(unit_b, require)(None)
+    assert getattr(unit_b, recorded) is None
+    assert getattr(conn, resolved) == default
+
+
+async def test_mock_unit_timeout_recycles_a_live_link() -> None:
+    conn = MockModbusConnection()
+    unit = conn.for_unit(UNIT_A)
+    await conn.connect()
+
+    unit.require_timeout(30)
+    await asyncio.sleep(0.01)  # the recycle is scheduled, not awaited
+
+    assert unit.connected is False
+    assert conn._timeout == 30
+
+    assert await unit.read_holding_registers(0, 1) == [0]
+    assert unit.connected is True
+    assert conn._client_timeout == 30
+
+    unit.require_timeout(None)
+    await asyncio.sleep(0.01)
+    assert unit.connected is True
+    assert conn._timeout == _DEFAULT_TIMEOUT
+    await conn.close()
+
+
+async def test_mock_unit_connect_delay_applies_on_the_next_connect() -> None:
+    conn = MockModbusConnection()
+    unit = conn.for_unit(UNIT_A)
+    await conn.connect()
+
+    unit.require_connect_delay(3)
+    await asyncio.sleep(0.01)
+    assert unit.connected is True
+
+    await conn.disconnect()
+    with patch(
+        "modbus_connection._client.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        assert await unit.read_holding_registers(0, 1) == [0]
+    sleep.assert_awaited_once_with(3)
+    await conn.close()
 
 
 # -- the default steps aside for a requirement --------------------------------
