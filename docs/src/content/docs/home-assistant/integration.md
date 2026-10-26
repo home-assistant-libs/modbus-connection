@@ -344,10 +344,36 @@ unavailable, and the next successful poll brings them back.
 Do not reload the config entry when the connection is lost. The condition
 heals itself within one update interval.
 
-A timeout also drops the link, because the `modbus` integration uses the
-tmodbus backend. The next poll opens a new link. This also recovers a bridge
-that keeps the socket open while the device behind it stops answering. The
-integration does not count timeouts or call `disconnect()` itself.
+Automatic reconnection cannot see one case: a link that is up but
+unresponsive. Some bridges keep the socket open while the device behind them
+stops answering, so every poll times out against the same dead link. Most
+integrations never hit this and need nothing here. If yours is known to, as
+some serial-to-network bridges wedge this way, call `disconnect()` once polls
+keep timing out. A device built on the library's
+[`Device`](/modbus-connection/patterns/library/) base class raises
+`ModbusTimeoutError` only when nothing answered at all, which is exactly this
+condition. A timeout it reports in the `UpdateReport` instead means the device
+is answering, so the link is not wedged:
+
+```python
+async def _async_update_data(self) -> UpdateReport:
+    try:
+        report = await self._poll()
+    except ModbusTimeoutError as err:
+        self._timeouts += 1
+        if self._timeouts >= 3:  # a stuck link rather than a slow reply
+            await self.unit.disconnect()
+        raise UpdateFailed(str(err)) from err
+    except ModbusError as err:
+        raise UpdateFailed(str(err)) from err
+    self._timeouts = 0
+    ...  # report handling as above
+```
+
+The next poll establishes a fresh link over the same units and components.
+
+Count in one coordinator only, the one on the fastest interval. This prevents
+a second coordinator dropping the link under a poll already in flight.
 
 ## Reload when the SunSpec map shifts
 

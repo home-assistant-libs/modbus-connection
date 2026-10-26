@@ -159,16 +159,15 @@ async def test_mid_request_drop_raises_and_downs_the_link(
         await live.stop()
 
 
-async def test_open_but_silent_socket_times_out(
+async def test_open_but_silent_socket_times_out_and_keeps_the_link(
     server_port: tuple[str, int], connection: ModbusConnection
 ) -> None:
     """A device that stops answering without dropping the socket is a timeout.
 
-    The request surfaces as a timeout, exactly as it does for a device that is
+    Nothing reports a loss — the socket is still open — so the link stays up and
+    the request surfaces as a timeout, exactly as it does for a device that is
     merely slow. This is the half-open case (a peer that vanished without a
-    FIN/RST looks the same from here). tmodbus closes the link after any
-    timeout, so a late reply cannot answer the next request. pymodbus keeps the
-    link: nothing reports a loss, so recovery waits for the OS to tear the
+    FIN/RST looks the same from here): recovery waits for the OS to tear the
     socket down.
     """
     host, port = server_port
@@ -182,14 +181,10 @@ async def test_open_but_silent_socket_times_out(
 
     mute = await asyncio.start_server(silent, host, port)
     unit = connection.for_unit(UNIT_ID)
-    lost: list[None] = []
-    connection.on_connection_lost(lambda: lost.append(None))
-    drops = isinstance(connection, TmodbusConnection)
     try:
         with pytest.raises(ModbusTimeoutError):
             await unit.read_holding_registers(0, 1)
-        assert connection.connected is not drops
-        assert lost == ([None] if drops else [])
+        assert connection.connected is True
     finally:
         for writer in accepted:
             writer.transport.abort()
