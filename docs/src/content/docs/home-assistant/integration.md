@@ -344,9 +344,12 @@ unavailable, and the next successful poll brings them back.
 Do not reload the config entry when the connection is lost. The condition
 heals itself within one update interval.
 
-Automatic reconnection cannot see one case: a link that is up but
-unresponsive. Some bridges keep the socket open while the device behind them
-stops answering, so every poll times out against the same dead link. Most
+The tmodbus backend closes the link after every timeout. The next poll opens a
+new link, so tmodbus integrations need nothing more here.
+
+With pymodbus, automatic reconnection cannot see one case: a link that is up
+but unresponsive. Some bridges keep the socket open while the device behind
+them stops answering, so every poll times out against the same dead link. Most
 integrations never hit this and need nothing here. If yours is known to, as
 some serial-to-network bridges wedge this way, call `disconnect()` once polls
 keep timing out. A device built on the library's

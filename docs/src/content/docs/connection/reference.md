@@ -60,7 +60,8 @@ connection.
 Register a `Callable[[], None]` fired when the link drops. Returns an
 unsubscribe callable. A connection is lost when the transport takes it away.
 `close()` and `disconnect()` are the owner tearing it down, so neither fires
-the callbacks.
+the callbacks. The tmodbus backend closes the link after a timeout, so a timeout
+fires the callbacks too.
 
 #### `disconnect()`
 

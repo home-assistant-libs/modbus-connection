@@ -26,6 +26,7 @@ Code that accepts a `ModbusUnit` does not depend on either implementation.
 | Distinguishes a corrupt reply from no reply | ✅ | ❌ |
 | Raises `ModbusDesyncError` for a reply to a different exchange | ✅ | ❌ |
 | Busy-device response | Retried, then raised | Raised immediately |
+| Link after a timeout | Closed | Kept open |
 
 The full operation list, with each method's signature and function code, is in
 the [`ModbusUnit` reference](/modbus-connection/connection/reference/#modbusunit).
@@ -40,5 +41,9 @@ to one minute. This retry is native to tmodbus; this library only bounds and
 configures it. pymodbus has no equivalent layer, so it raises the busy response
 immediately. Neither backend retries timeouts, dropped links, or other
 exception responses.
+
+tmodbus closes the link after a timeout, so a late reply cannot answer the next
+request. The next request opens a new link. pymodbus keeps the link open after
+a timeout.
 
 Constructing a connection with unsupported parameters raises `ValueError`.
