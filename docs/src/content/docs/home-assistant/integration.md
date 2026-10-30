@@ -58,52 +58,56 @@ when the split is unclear.
 
 ## The config flow
 
-RTU devices offer TCP through a gateway and serial through a local port or
-network serial proxy. For TCP-only devices, skip the menu and open the TCP form.
-Adapt the baud rate, serial framing and address range to the device.
+Offer a menu with Modbus TCP and a serial port. A TCP-only device skips the
+menu and opens the TCP form. Validate the input by reading from the device.
 
-`strings.json`:
+`strings.json` references the shared Modbus strings. Label the device ID the
+same way the manufacturer's app does.
 
 ```json
 {
   "config": {
     "step": {
       "user": {
-        "description": "Connect over Modbus TCP or through a serial port.",
         "menu_options": {
-          "tcp": "Modbus TCP",
-          "serial": "Serial port (Modbus RTU)"
+          "tcp": "[%key:component::modbus::common::modbus_tcp%]",
+          "serial": "[%key:component::modbus::common::serial_rtu%]"
         }
       },
       "tcp": {
         "data": {
-          "host": "Host",
-          "port": "Port",
-          "unit_id": "Modbus address"
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "[%key:common::config_flow::data::port%]",
+          "unit_id": "Unit ID"
+        },
+        "data_description": {
+          "host": "[%key:component::modbus::common::tcp_host_description%]",
+          "port": "[%key:component::modbus::common::tcp_port_description%]"
         }
       },
       "serial": {
         "data": {
-          "device": "Serial port",
-          "baudrate": "Baud rate",
-          "unit_id": "Modbus address"
+          "device": "[%key:component::modbus::common::serial_port%]",
+          "baudrate": "[%key:component::modbus::common::baud_rate%]",
+          "unit_id": "Unit ID"
         },
         "data_description": {
-          "device": "Select a local serial port or a port shared over the network by a serial proxy."
+          "device": "[%key:component::modbus::common::serial_port_description%]",
+          "baudrate": "[%key:component::modbus::common::baud_rate_description%]"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the device."
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]"
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
   }
 }
 ```
 
-`config_flow.py` (using your device library's `MyDevice`):
+`config_flow.py`:
 
 ```python
 import probatio
@@ -113,68 +117,54 @@ from homeassistant.components.modbus import async_get_temporary_unit
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_PORT, CONF_TYPE
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.selector import (
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    SerialPortSelector,
-    TextSelector,
-)
+from homeassistant.helpers.selector import SerialPortSelector
 
 from .const import CONF_BAUDRATE, CONF_UNIT_ID, DOMAIN
 from .device import MyDevice
 
+SCHEMAS = {
+    "tcp": probatio.Schema(
+        {
+            probatio.Required(CONF_HOST): str,
+            probatio.Required(CONF_PORT, default=502): probatio.Port(),
+            probatio.Required(CONF_UNIT_ID, default=1): int,
+        }
+    ),
+    "serial": probatio.Schema(
+        {
+            probatio.Required(CONF_DEVICE): SerialPortSelector(),
+            probatio.Required(CONF_BAUDRATE, default=9600): int,
+            probatio.Required(CONF_UNIT_ID, default=1): int,
+        }
+    ),
+}
 
-def integer_field(**limits):
-    return probatio.All(
-        NumberSelector(NumberSelectorConfig(mode=NumberSelectorMode.BOX, **limits)),
-        probatio.Coerce(int),
-    )
 
-
-UNIT_ID = {probatio.Required(CONF_UNIT_ID, default=1): integer_field(min=1, max=247)}
-TCP_SCHEMA = probatio.Schema(
-    {
-        probatio.Required(CONF_HOST): TextSelector(),
-        probatio.Required(CONF_PORT, default=502): integer_field(min=1, max=65535),
-        **UNIT_ID,
-    }
-)
-SERIAL_SCHEMA = probatio.Schema(
-    {
-        probatio.Required(CONF_DEVICE): SerialPortSelector(),
-        probatio.Required(CONF_BAUDRATE, default=9600): integer_field(min=1),
-        **UNIT_ID,
-    }
-)
+def connection_params(data):
+    if data[CONF_TYPE] == "serial":
+        return ModbusSerialParams(
+            device=data[CONF_DEVICE], baudrate=data[CONF_BAUDRATE]
+        )
+    return ModbusTcpParams(host=data[CONF_HOST], port=data[CONF_PORT])
 
 
 class MyConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
-
     async def async_step_user(self, user_input=None):
-        # TCP-only devices call self.async_step_tcp(user_input) here instead.
         return self.async_show_menu(step_id="user", menu_options=["tcp", "serial"])
 
     async def async_step_tcp(self, user_input=None):
-        return await self._async_step_connection("tcp", TCP_SCHEMA, user_input)
+        return await self._async_step_connection("tcp", user_input)
 
     async def async_step_serial(self, user_input=None):
-        return await self._async_step_connection("serial", SERIAL_SCHEMA, user_input)
+        return await self._async_step_connection("serial", user_input)
 
-    async def _async_step_connection(self, connection_type, schema, user_input):
+    async def _async_step_connection(self, connection_type, user_input):
         errors = {}
         if user_input is not None:
             data = {CONF_TYPE: connection_type, **user_input}
-            if connection_type == "serial":
-                params = ModbusSerialParams(
-                    device=data[CONF_DEVICE], baudrate=data[CONF_BAUDRATE]
-                )
-            else:
-                params = ModbusTcpParams(host=data[CONF_HOST], port=data[CONF_PORT])
             try:
                 async with async_get_temporary_unit(
-                    self.hass, params, data[CONF_UNIT_ID]
+                    self.hass, connection_params(data), data[CONF_UNIT_ID]
                 ) as unit:
                     device = MyDevice(unit)
                     await device.async_update()
@@ -185,9 +175,12 @@ class MyConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=device.controller.model, data=data)
         return self.async_show_form(
-            step_id=connection_type, data_schema=schema, errors=errors
+            step_id=connection_type, data_schema=SCHEMAS[connection_type], errors=errors
         )
 ```
+
+`async_get_temporary_unit` raises `HomeAssistantError` when an entry already
+uses the device over different link settings.
 
 ## Setting up the entry
 
@@ -198,19 +191,15 @@ shares between integrations. Ask it for one from the entry data, hand that unit
 to the device library, and let the coordinator do the first read:
 
 ```python
-from modbus_connection import ModbusSerialParams, ModbusTcpParams
-
 from homeassistant.components.modbus import async_get_unit
+
+from .config_flow import connection_params
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
-    if entry.data[CONF_TYPE] == "serial":
-        params = ModbusSerialParams(
-            device=entry.data[CONF_DEVICE], baudrate=entry.data[CONF_BAUDRATE]
-        )
-    else:
-        params = ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT])
-    unit = async_get_unit(hass, entry, params, entry.data[CONF_UNIT_ID])
+    unit = async_get_unit(
+        hass, entry, connection_params(entry.data), entry.data[CONF_UNIT_ID]
+    )
 
     device = MyDevice(unit)
     coordinator = MyCoordinator(hass, entry, device, device.async_update, SCAN_INTERVAL)
