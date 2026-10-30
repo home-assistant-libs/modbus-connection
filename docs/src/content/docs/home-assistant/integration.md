@@ -61,8 +61,8 @@ when the split is unclear.
 Offer a menu with Modbus TCP and a serial port. A TCP-only device skips the
 menu and opens the TCP form. Validate the input by reading from the device.
 
-`strings.json` references the shared Modbus strings. Label the device ID the
-same way the manufacturer's app does.
+Use these strings in `strings.json`. Label the device ID the same way the
+manufacturer's app does.
 
 ```json
 {
@@ -70,38 +70,38 @@ same way the manufacturer's app does.
     "step": {
       "user": {
         "menu_options": {
-          "tcp": "[%key:component::modbus::common::modbus_tcp%]",
-          "serial": "[%key:component::modbus::common::serial_rtu%]"
+          "tcp": "Modbus TCP",
+          "serial": "Serial port (Modbus RTU)"
         }
       },
       "tcp": {
         "data": {
-          "host": "[%key:common::config_flow::data::host%]",
-          "port": "[%key:common::config_flow::data::port%]",
+          "host": "Host",
+          "port": "Port",
           "unit_id": "Unit ID"
         },
         "data_description": {
-          "host": "[%key:component::modbus::common::tcp_host_description%]",
-          "port": "[%key:component::modbus::common::tcp_port_description%]"
+          "host": "The hostname or IP address of the device or its Modbus TCP gateway.",
+          "port": "The Modbus TCP port to connect to."
         }
       },
       "serial": {
         "data": {
-          "device": "[%key:component::modbus::common::serial_port%]",
-          "baudrate": "[%key:component::modbus::common::baud_rate%]",
+          "device": "Serial port",
+          "baudrate": "Baud rate",
           "unit_id": "Unit ID"
         },
         "data_description": {
-          "device": "[%key:component::modbus::common::serial_port_description%]",
-          "baudrate": "[%key:component::modbus::common::baud_rate_description%]"
+          "device": "Select a local serial port or a port shared over the network by a serial proxy.",
+          "baudrate": "Match the baud rate configured on the device."
         }
       }
     },
     "error": {
-      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]"
+      "cannot_connect": "Failed to connect"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "Device is already configured"
     }
   }
 }
