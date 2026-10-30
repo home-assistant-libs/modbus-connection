@@ -58,11 +58,96 @@ when the split is unclear.
 
 ## The config flow
 
-Collect the transport details for the params object your integration builds:
-`CONF_HOST` / `CONF_PORT` for TCP, the serial device and baud rate for RTU.
-Also ask for the unit id where the user can choose it. A device with a fixed
-station address, which is common for a TCP-native device, keeps that address
-as a constant in the integration instead of asking for it.
+### Choose the connection type
+
+Base the flow on the device's supported protocols:
+
+| Device protocol | Setup flow |
+| --- | --- |
+| Modbus RTU | Offer both **Modbus TCP** and **Serial port (Modbus RTU)**. A gateway can convert Modbus TCP to the device's serial RTU connection. |
+| Modbus TCP only | Open the TCP form directly. Do not offer a serial option. |
+| Modbus TCP and RTU | Offer both options. |
+
+For devices with both setup paths, use a menu before asking for connection
+settings. Use `tcp` and `serial` as the step IDs and these menu labels:
+
+```json
+{
+  "config": {
+    "step": {
+      "user": {
+        "menu_options": {
+          "tcp": "Modbus TCP",
+          "serial": "Serial port (Modbus RTU)"
+        }
+      }
+    }
+  }
+}
+```
+
+For an RTU device, use this description in `config.step.user.description`:
+
+> This device uses Modbus RTU over RS485. Choose a serial port, or connect through a Modbus TCP gateway.
+
+For a device with native TCP and RTU, use:
+
+> Connect over Modbus TCP or through a serial port.
+
+```python
+async def async_step_user(self, user_input=None):
+    return self.async_show_menu(step_id="user", menu_options=["tcp", "serial"])
+```
+
+A TCP gateway converts between Modbus TCP and RTU. A network serial proxy
+carries RTU frames without changing the protocol. Select a serial proxy through
+`SerialPortSelector`, alongside local serial ports. Do not add a third
+"RTU over TCP" menu option or send raw RTU frames through `ModbusTcpParams`.
+
+### Connection forms
+
+Use these fields and labels:
+
+| Form | Field | Label | Selector |
+| --- | --- | --- | --- |
+| TCP | `CONF_HOST` | Host | `TextSelector` |
+| TCP | `CONF_PORT` | Port | `NumberSelector`, box mode, integer from 1 to 65535 |
+| Serial | `CONF_DEVICE` | Serial port | `SerialPortSelector` |
+| Serial | `CONF_BAUDRATE` | Baud rate | A selector limited to the device's supported rates |
+| Both, when configurable | `CONF_UNIT_ID` | Modbus address | `NumberSelector`, box mode, limited to the device's address range |
+
+Use separate host and port fields for TCP, with port 502 as the default unless
+the device specifies another port. The host is a hostname or IP address, not a
+URL. Pass these values to `ModbusTcpParams`.
+
+Use `SerialPortSelector` for serial connections. Do not build a list of local
+ports yourself. The selector includes ports shared by network serial proxies.
+Pass its value unchanged as `ModbusSerialParams.device`.
+
+Use these descriptions in each step's `data_description`:
+
+| Field | Description |
+| --- | --- |
+| TCP host | The hostname or IP address of the device or its Modbus TCP gateway. |
+| TCP port | The Modbus TCP port to connect to. |
+| Serial port | Select a local serial port or a port shared over the network by a serial proxy. |
+| Baud rate | Match the baud rate configured on the device. |
+| Modbus address | The device's Modbus address on this connection. |
+
+For an RTU-only device, use "The gateway's hostname or IP address." for the
+TCP host description. Adapt defaults and address ranges to the device manual.
+Ask for parity, data bits or stop bits only when the device lets users change
+them. Keep fixed values in the integration. Derive dependent settings, such as
+stop bits determined by parity, instead of asking users to enter both.
+
+Keep a fixed Modbus address in the integration instead of asking for it.
+This is common for devices with native TCP. A TCP gateway for an RTU device
+still needs the RTU device's address.
+
+[Sofar's config flow](https://github.com/home-assistant/core/blob/dev/homeassistant/components/sofar/config_flow.py)
+shows the menu, separate forms and serial selector.
+
+### Validate the connection
 
 Ask only for what you cannot detect. Whether a device serves an optional
 sub-system is the library's job to settle, and it does that by
@@ -73,6 +158,9 @@ yourself. Ask `modbus` for a temporary unit with `async_get_temporary_unit`.
 The flow has no config entry yet to tie a hold to, so the hold lasts for the
 context. If an entry already uses the device over different link settings,
 entering the context raises `HomeAssistantError`.
+
+The following example shows a TCP-only flow. For a device with both setup
+paths, perform this validation in the selected connection step.
 
 ```python
 from modbus_connection import ModbusError, ModbusTcpParams
