@@ -58,150 +58,134 @@ when the split is unclear.
 
 ## The config flow
 
-### Choose the connection type
+RTU devices offer TCP through a gateway and serial through a local port or
+network serial proxy. For TCP-only devices, skip the menu and open the TCP form.
+Adapt the baud rate, serial framing and address range to the device.
 
-Base the flow on the device's supported protocols:
-
-| Device protocol | Setup flow |
-| --- | --- |
-| Modbus RTU | Offer both **Modbus TCP** and **Serial port (Modbus RTU)**. A gateway can convert Modbus TCP to the device's serial RTU connection. |
-| Modbus TCP only | Open the TCP form directly. Do not offer a serial option. |
-| Modbus TCP and RTU | Offer both options. |
-
-For devices with both setup paths, use a menu before asking for connection
-settings. Use `tcp` and `serial` as the step IDs and these menu labels:
+`strings.json`:
 
 ```json
 {
   "config": {
     "step": {
       "user": {
+        "description": "Connect over Modbus TCP or through a serial port.",
         "menu_options": {
           "tcp": "Modbus TCP",
           "serial": "Serial port (Modbus RTU)"
         }
+      },
+      "tcp": {
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Modbus address"
+        }
+      },
+      "serial": {
+        "data": {
+          "device": "Serial port",
+          "baudrate": "Baud rate",
+          "unit_id": "Modbus address"
+        },
+        "data_description": {
+          "device": "Select a local serial port or a port shared over the network by a serial proxy."
+        }
       }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
     }
   }
 }
 ```
 
-For an RTU device, use this description in `config.step.user.description`:
-
-> This device uses Modbus RTU over RS485. Choose a serial port, or connect through a Modbus TCP gateway.
-
-For a device with native TCP and RTU, use:
-
-> Connect over Modbus TCP or through a serial port.
+`config_flow.py` (using your device library's `MyDevice`):
 
 ```python
-async def async_step_user(self, user_input=None):
-    return self.async_show_menu(step_id="user", menu_options=["tcp", "serial"])
-```
-
-A TCP gateway converts between Modbus TCP and RTU. A network serial proxy
-carries RTU frames without changing the protocol. Select a serial proxy through
-`SerialPortSelector`, alongside local serial ports. Do not add a third
-"RTU over TCP" menu option or send raw RTU frames through `ModbusTcpParams`.
-
-### Connection forms
-
-Use these fields and labels:
-
-| Form | Field | Label | Selector |
-| --- | --- | --- | --- |
-| TCP | `CONF_HOST` | Host | `TextSelector` |
-| TCP | `CONF_PORT` | Port | `NumberSelector`, box mode, integer from 1 to 65535 |
-| Serial | `CONF_DEVICE` | Serial port | `SerialPortSelector` |
-| Serial | `CONF_BAUDRATE` | Baud rate | A selector limited to the device's supported rates |
-| Both, when configurable | `CONF_UNIT_ID` | Modbus address | `NumberSelector`, box mode, limited to the device's address range |
-
-Use separate host and port fields for TCP, with port 502 as the default unless
-the device specifies another port. The host is a hostname or IP address, not a
-URL. Pass these values to `ModbusTcpParams`.
-
-Use `SerialPortSelector` for serial connections. Do not build a list of local
-ports yourself. The selector includes ports shared by network serial proxies.
-Pass its value unchanged as `ModbusSerialParams.device`.
-
-Use these descriptions in each step's `data_description`:
-
-| Field | Description |
-| --- | --- |
-| TCP host | The hostname or IP address of the device or its Modbus TCP gateway. |
-| TCP port | The Modbus TCP port to connect to. |
-| Serial port | Select a local serial port or a port shared over the network by a serial proxy. |
-| Baud rate | Match the baud rate configured on the device. |
-| Modbus address | The device's Modbus address on this connection. |
-
-For an RTU-only device, use "The gateway's hostname or IP address." for the
-TCP host description. Adapt defaults and address ranges to the device manual.
-Ask for parity, data bits or stop bits only when the device lets users change
-them. Keep fixed values in the integration. Derive dependent settings, such as
-stop bits determined by parity, instead of asking users to enter both.
-
-Keep a fixed Modbus address in the integration instead of asking for it.
-This is common for devices with native TCP. A TCP gateway for an RTU device
-still needs the RTU device's address.
-
-[Sofar's config flow](https://github.com/home-assistant/core/blob/dev/homeassistant/components/sofar/config_flow.py)
-shows the menu, separate forms and serial selector.
-
-### Validate the connection
-
-Ask only for what you cannot detect. Whether a device serves an optional
-sub-system is the library's job to settle, and it does that by
-[probing at setup](/modbus-connection/patterns/library/).
-
-Validate the input by talking to the device. Do not open a connection
-yourself. Ask `modbus` for a temporary unit with `async_get_temporary_unit`.
-The flow has no config entry yet to tie a hold to, so the hold lasts for the
-context. If an entry already uses the device over different link settings,
-entering the context raises `HomeAssistantError`.
-
-The following example shows a TCP-only flow. For a device with both setup
-paths, perform this validation in the selected connection step.
-
-```python
-from modbus_connection import ModbusError, ModbusTcpParams
+import probatio
+from modbus_connection import ModbusError, ModbusSerialParams, ModbusTcpParams
 
 from homeassistant.components.modbus import async_get_temporary_unit
+from homeassistant.config_entries import ConfigFlow
+from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_PORT, CONF_TYPE
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SerialPortSelector,
+    TextSelector,
+)
+
+from .const import CONF_BAUDRATE, CONF_UNIT_ID, DOMAIN
+from .device import MyDevice
 
 
-async def _async_probe(
-    hass: HomeAssistant, host: str, port: int, unit_id: int
-) -> tuple[str, str]:
-    """Return the device's serial and model, or raise ModbusError if unreachable."""
-    async with async_get_temporary_unit(
-        hass, ModbusTcpParams(host=host, port=port), unit_id
-    ) as unit:
-        device = MyDevice(unit)
-        await device.async_update()
-        return device.controller.serial_number, device.controller.model
+def integer_field(**limits):
+    return probatio.All(
+        NumberSelector(NumberSelectorConfig(mode=NumberSelectorMode.BOX, **limits)),
+        probatio.Coerce(int),
+    )
+
+
+UNIT_ID = {probatio.Required(CONF_UNIT_ID, default=1): integer_field(min=1, max=247)}
+TCP_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(CONF_HOST): TextSelector(),
+        probatio.Required(CONF_PORT, default=502): integer_field(min=1, max=65535),
+        **UNIT_ID,
+    }
+)
+SERIAL_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(CONF_DEVICE): SerialPortSelector(),
+        probatio.Required(CONF_BAUDRATE, default=9600): integer_field(min=1),
+        **UNIT_ID,
+    }
+)
 
 
 class MyConfigFlow(ConfigFlow, domain=DOMAIN):
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
+    VERSION = 1
+
+    async def async_step_user(self, user_input=None):
+        # TCP-only devices call self.async_step_tcp(user_input) here instead.
+        return self.async_show_menu(step_id="user", menu_options=["tcp", "serial"])
+
+    async def async_step_tcp(self, user_input=None):
+        return await self._async_step_connection("tcp", TCP_SCHEMA, user_input)
+
+    async def async_step_serial(self, user_input=None):
+        return await self._async_step_connection("serial", SERIAL_SCHEMA, user_input)
+
+    async def _async_step_connection(self, connection_type, schema, user_input):
+        errors = {}
         if user_input is not None:
-            try:
-                serial, model = await _async_probe(
-                    self.hass,
-                    user_input[CONF_HOST],
-                    user_input[CONF_PORT],
-                    user_input[CONF_UNIT_ID],
+            data = {CONF_TYPE: connection_type, **user_input}
+            if connection_type == "serial":
+                params = ModbusSerialParams(
+                    device=data[CONF_DEVICE], baudrate=data[CONF_BAUDRATE]
                 )
-            except ModbusError:
+            else:
+                params = ModbusTcpParams(host=data[CONF_HOST], port=data[CONF_PORT])
+            try:
+                async with async_get_temporary_unit(
+                    self.hass, params, data[CONF_UNIT_ID]
+                ) as unit:
+                    device = MyDevice(unit)
+                    await device.async_update()
+            except (ModbusError, HomeAssistantError):
                 errors["base"] = "cannot_connect"
             else:
-                await self.async_set_unique_id(serial)
+                await self.async_set_unique_id(device.controller.serial_number)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=model, data=user_input)
-
+                return self.async_create_entry(title=device.controller.model, data=data)
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id=connection_type, data_schema=schema, errors=errors
         )
 ```
 
@@ -214,16 +198,19 @@ shares between integrations. Ask it for one from the entry data, hand that unit
 to the device library, and let the coordinator do the first read:
 
 ```python
+from modbus_connection import ModbusSerialParams, ModbusTcpParams
+
 from homeassistant.components.modbus import async_get_unit
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
-    unit = async_get_unit(
-        hass,
-        entry,
-        ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT]),
-        entry.data[CONF_UNIT_ID],
-    )
+    if entry.data[CONF_TYPE] == "serial":
+        params = ModbusSerialParams(
+            device=entry.data[CONF_DEVICE], baudrate=entry.data[CONF_BAUDRATE]
+        )
+    else:
+        params = ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT])
+    unit = async_get_unit(hass, entry, params, entry.data[CONF_UNIT_ID])
 
     device = MyDevice(unit)
     coordinator = MyCoordinator(hass, entry, device, device.async_update, SCAN_INTERVAL)
