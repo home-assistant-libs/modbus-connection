@@ -58,64 +58,129 @@ when the split is unclear.
 
 ## The config flow
 
-Collect the transport details for the params object your integration builds:
-`CONF_HOST` / `CONF_PORT` for TCP, the serial device and baud rate for RTU.
-Also ask for the unit id where the user can choose it. A device with a fixed
-station address, which is common for a TCP-native device, keeps that address
-as a constant in the integration instead of asking for it.
+Offer a menu with Modbus TCP and a serial port. A TCP-only device skips the
+menu and opens the TCP form. Validate the input by reading from the device.
 
-Ask only for what you cannot detect. Whether a device serves an optional
-sub-system is the library's job to settle, and it does that by
-[probing at setup](/modbus-connection/patterns/library/).
+Use these strings in `strings.json`. Label the device ID the same way the
+manufacturer's app does.
 
-Validate the input by talking to the device. Do not open a connection
-yourself. Ask `modbus` for a temporary unit with `async_get_temporary_unit`.
-The flow has no config entry yet to tie a hold to, so the hold lasts for the
-context. If an entry already uses the device over different link settings,
-entering the context raises `HomeAssistantError`.
+```json
+{
+  "config": {
+    "step": {
+      "user": {
+        "menu_options": {
+          "tcp": "Modbus TCP",
+          "serial": "Serial port (Modbus RTU)"
+        }
+      },
+      "tcp": {
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit ID"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of the device or its Modbus TCP gateway.",
+          "port": "The Modbus TCP port to connect to."
+        }
+      },
+      "serial": {
+        "data": {
+          "device": "Serial port",
+          "baudrate": "Baud rate",
+          "unit_id": "Unit ID"
+        },
+        "data_description": {
+          "device": "Select a local serial port or a port shared over the network by a serial proxy.",
+          "baudrate": "Match the baud rate configured on the device."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}
+```
+
+`config_flow.py`:
 
 ```python
-from modbus_connection import ModbusError, ModbusTcpParams
+import probatio
+from modbus_connection import ModbusError, ModbusSerialParams, ModbusTcpParams
 
 from homeassistant.components.modbus import async_get_temporary_unit
+from homeassistant.config_entries import ConfigFlow
+from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_PORT, CONF_TYPE
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.selector import SerialPortSelector
+
+from .const import CONF_BAUDRATE, CONF_UNIT_ID, DOMAIN
+from .device import MyDevice
+
+SCHEMAS = {
+    "tcp": probatio.Schema(
+        {
+            probatio.Required(CONF_HOST): str,
+            probatio.Required(CONF_PORT, default=502): probatio.Port(),
+            probatio.Required(CONF_UNIT_ID, default=1): int,
+        }
+    ),
+    "serial": probatio.Schema(
+        {
+            probatio.Required(CONF_DEVICE): SerialPortSelector(),
+            probatio.Required(CONF_BAUDRATE, default=9600): int,
+            probatio.Required(CONF_UNIT_ID, default=1): int,
+        }
+    ),
+}
 
 
-async def _async_probe(
-    hass: HomeAssistant, host: str, port: int, unit_id: int
-) -> tuple[str, str]:
-    """Return the device's serial and model, or raise ModbusError if unreachable."""
-    async with async_get_temporary_unit(
-        hass, ModbusTcpParams(host=host, port=port), unit_id
-    ) as unit:
-        device = MyDevice(unit)
-        await device.async_update()
-        return device.controller.serial_number, device.controller.model
+def connection_params(data):
+    if data[CONF_TYPE] == "serial":
+        return ModbusSerialParams(
+            device=data[CONF_DEVICE], baudrate=data[CONF_BAUDRATE]
+        )
+    return ModbusTcpParams(host=data[CONF_HOST], port=data[CONF_PORT])
 
 
 class MyConfigFlow(ConfigFlow, domain=DOMAIN):
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
+    async def async_step_user(self, user_input=None):
+        return self.async_show_menu(step_id="user", menu_options=["tcp", "serial"])
+
+    async def async_step_tcp(self, user_input=None):
+        return await self._async_step_connection("tcp", user_input)
+
+    async def async_step_serial(self, user_input=None):
+        return await self._async_step_connection("serial", user_input)
+
+    async def _async_step_connection(self, connection_type, user_input):
+        errors = {}
         if user_input is not None:
+            data = {CONF_TYPE: connection_type, **user_input}
             try:
-                serial, model = await _async_probe(
-                    self.hass,
-                    user_input[CONF_HOST],
-                    user_input[CONF_PORT],
-                    user_input[CONF_UNIT_ID],
-                )
-            except ModbusError:
+                async with async_get_temporary_unit(
+                    self.hass, connection_params(data), data[CONF_UNIT_ID]
+                ) as unit:
+                    device = MyDevice(unit)
+                    await device.async_update()
+            except (ModbusError, HomeAssistantError):
                 errors["base"] = "cannot_connect"
             else:
-                await self.async_set_unique_id(serial)
+                await self.async_set_unique_id(device.controller.serial_number)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=model, data=user_input)
-
+                return self.async_create_entry(title=device.controller.model, data=data)
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id=connection_type, data_schema=SCHEMAS[connection_type], errors=errors
         )
 ```
+
+`async_get_temporary_unit` raises `HomeAssistantError` when an entry already
+uses the device over different link settings.
 
 ## Setting up the entry
 
@@ -128,13 +193,12 @@ to the device library, and let the coordinator do the first read:
 ```python
 from homeassistant.components.modbus import async_get_unit
 
+from .config_flow import connection_params
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
     unit = async_get_unit(
-        hass,
-        entry,
-        ModbusTcpParams(host=entry.data[CONF_HOST], port=entry.data[CONF_PORT]),
-        entry.data[CONF_UNIT_ID],
+        hass, entry, connection_params(entry.data), entry.data[CONF_UNIT_ID]
     )
 
     device = MyDevice(unit)
