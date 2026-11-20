@@ -43,6 +43,9 @@ class _GatedConnection(BaseModbusConnection):
     async def _close_client(self, client: Any) -> None:
         self.close_calls += 1
 
+    def _set_client_timeout(self, client: Any, seconds: float) -> None:
+        pass
+
     def for_unit(self, unit_id: int) -> ModbusUnit:
         raise NotImplementedError
 
@@ -121,6 +124,9 @@ class _DelayedConnection(BaseModbusConnection):
         return object()
 
     async def _close_client(self, client: Any) -> None:
+        pass
+
+    def _set_client_timeout(self, client: Any, seconds: float) -> None:
         pass
 
     def for_unit(self, unit_id: int) -> ModbusUnit:

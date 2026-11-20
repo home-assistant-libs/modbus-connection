@@ -78,9 +78,8 @@ def _map_errors[**P, R](
         prefix = _describe(func.__name__, args, kwargs)
         try:
             async with self._conn._pacer.paced(self._unit_id):
-                # The link can be dropped while this request waits its turn,
-                # by disconnect() or a raised timeout. It was up when the
-                # request started, so connect again rather than fail.
+                # disconnect() can drop the link while this request waits
+                # its turn, so connect again before sending it.
                 await self._conn.connect()
                 return await func(self, *args, **kwargs)
         except ModbusError as err:
@@ -152,6 +151,10 @@ class ModbusConnection(BaseModbusConnection):
 
     def for_unit(self, unit_id: int) -> PymodbusUnit:
         return PymodbusUnit(self, unit_id)
+
+    def _set_client_timeout(self, client: ModbusBaseClient, seconds: float) -> None:
+        client.comm_params.timeout_connect = seconds
+        client.ctx.comm_params.timeout_connect = seconds
 
     async def _close_client(self, client: ModbusBaseClient) -> None:
         try:

@@ -152,8 +152,9 @@ unit.require_connect_delay(1.0)  # needs a moment after the link opens
 
 Both are floors. The connection runs with the largest value asked of it, by the
 connection itself or by any unit on it. Pass `None` to withdraw a requirement.
-Raising the timeout drops the link, and the next request opens one that carries
-the new value.
+Raising the timeout applies to the next request without closing the link.
+A request already waiting for a response keeps its current timeout.
+Lowering or withdrawing a requirement takes effect on the next connection.
 
 ## Request spacing
 

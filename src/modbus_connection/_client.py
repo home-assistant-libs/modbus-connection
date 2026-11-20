@@ -268,12 +268,6 @@ def _resolved(base: float | None, required: dict[int, float], default: float) ->
     return max(asked, default=default)
 
 
-def _consume_failure(task: asyncio.Task[None]) -> None:
-    """Observe a fire-and-forget task's failure so asyncio does not warn."""
-    if not task.cancelled():
-        task.exception()
-
-
 def _target(
     params: ModbusTcpParams | ModbusUdpParams | ModbusTlsParams | ModbusSerialParams,
 ) -> str:
@@ -305,8 +299,8 @@ class BaseModbusConnection(ABC):
         self._unit_connect_delays: dict[int, float] = {}
         self._timeout = _DEFAULT_TIMEOUT if timeout is None else timeout
         self._connect_delay = connect_delay or 0.0
-        # The timeout the live (or in-flight) backend client carries. It is
-        # built with the value, so raising it needs a new client.
+        # Lower requirements take effect on the next connection. The live
+        # client keeps its timeout so an active request is not cut short.
         self._client_timeout = self._timeout
         self._lost_callbacks = CallbackRegistry()
         self._target = _target(params)
@@ -360,6 +354,9 @@ class BaseModbusConnection(ABC):
             except Exception:
                 pass
             raise ClientClosedError("connection is closed")
+        if self._timeout > self._client_timeout:
+            self._set_client_timeout(client, self._timeout)
+            self._client_timeout = self._timeout
         self._client = client
 
     @abstractmethod
@@ -378,13 +375,9 @@ class BaseModbusConnection(ABC):
         self._timeout = _resolved(
             self._base_timeout, self._unit_timeouts, _DEFAULT_TIMEOUT
         )
-        if self._timeout > self._client_timeout and (
-            self._client is not None or self._connect_task is not None
-        ):
-            # A relaxed timeout can wait for the next connect. A raised one
-            # cannot: the unit that needs it would go on giving up early.
-            task = asyncio.create_task(self.disconnect())
-            task.add_done_callback(_consume_failure)
+        if self._client is not None and self._timeout > self._client_timeout:
+            self._set_client_timeout(self._client, self._timeout)
+            self._client_timeout = self._timeout
 
     def _require_connect_delay(self, unit_id: int, seconds: float | None) -> None:
         """Raise the link's connect delay to at least ``seconds`` for ``unit_id``."""
@@ -437,6 +430,10 @@ class BaseModbusConnection(ABC):
         await self.disconnect()
 
     # -- backend hooks ----------------------------------------------------------
+
+    @abstractmethod
+    def _set_client_timeout(self, client: Any, seconds: float) -> None:
+        """Update the response timeout without closing the link."""
 
     @abstractmethod
     async def _connect_client(self) -> Any:

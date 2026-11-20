@@ -240,8 +240,10 @@ See [Request spacing](/modbus-connection/connection/connections-and-units/#reque
 
 Ask the link for a per-request timeout of at least `seconds`. The connection
 runs with the largest value asked of it, so this never shortens another unit's
-timeout. Raising it above what a live link carries drops that link. Pass `None`
-to withdraw the requirement. Raises `ValueError` if `seconds` is negative. See
+timeout. Raising it applies to the next request without closing the link.
+A request already waiting for a response keeps its current timeout.
+Pass `None` to withdraw the requirement. Lower requirements take effect on the
+next connection. Raises `ValueError` if `seconds` is negative. See
 [Device requirements](/modbus-connection/connection/connections-and-units/#device-requirements).
 
 #### `require_connect_delay(seconds)`

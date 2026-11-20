@@ -7,12 +7,17 @@ import functools
 import ssl
 import struct
 from collections.abc import Awaitable, Callable, Coroutine, Mapping
-from typing import Any, Concatenate
+from typing import Any, Concatenate, cast
 
 from serialx import Parity, StopBits
 from tenacity import AsyncRetrying, retry_never, stop_after_delay, wait_exponential
 from tmodbus import (
+    AsyncAsciiTransport,
     AsyncModbusClient,
+    AsyncRtuTransport,
+    AsyncSmartTransport,
+    AsyncTcpTransport,
+    AsyncUdpTransport,
     create_async_ascii_client,
     create_async_rtu_client,
     create_async_tcp_client,
@@ -181,6 +186,20 @@ class ModbusConnection(BaseModbusConnection):
     def for_unit(self, unit_id: int) -> TmodbusUnit:
         return TmodbusUnit(self, unit_id)
 
+    def _set_client_timeout(self, client: AsyncModbusClient, seconds: float) -> None:
+        # The protocol copies the transport timeout when the link opens.
+        # All unit clients share this transport and protocol.
+        transport = cast(
+            AsyncTcpTransport
+            | AsyncUdpTransport
+            | AsyncRtuTransport
+            | AsyncAsciiTransport,
+            cast(AsyncSmartTransport, client.transport).base_transport,
+        )
+        transport.timeout = seconds
+        if transport._protocol is not None:
+            transport._protocol.timeout = seconds
+
     def _unit_client(self, unit_id: int) -> AsyncModbusClient:
         """The unit-bound tmodbus client for ``unit_id``."""
         if self._client is None:
@@ -315,9 +334,8 @@ def _map_errors[**P, R](
         prefix = _describe(func.__name__, args, kwargs)
         try:
             async with self._conn._pacer.paced(self._unit_id):
-                # The link can be dropped while this request waits its turn,
-                # by disconnect() or a raised timeout. It was up when the
-                # request started, so connect again rather than fail.
+                # disconnect() can drop the link while this request waits
+                # its turn, so connect again before sending it.
                 await self._conn.connect()
                 return await func(self, *args, **kwargs)
         except ModbusError as err:

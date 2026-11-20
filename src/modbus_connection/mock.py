@@ -105,6 +105,9 @@ class MockModbusConnection(BaseModbusConnection):
     async def _connect_client(self) -> object:
         return object()
 
+    def _set_client_timeout(self, client: object, seconds: float) -> None:
+        pass
+
     async def _close_client(self, client: object) -> None:
         pass
 
