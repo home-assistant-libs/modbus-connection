@@ -192,9 +192,8 @@ async def test_open_but_silent_socket_times_out_and_keeps_the_link(
         await mute.wait_closed()
 
 
-@pytest.mark.parametrize("drop", ["disconnect", "raised_timeout"])
 async def test_a_request_queued_behind_a_drop_reconnects(
-    server: _Server, connection: ModbusConnection, drop: str
+    server: _Server, connection: ModbusConnection
 ) -> None:
     """A request that finds the link up, then waits behind its drop, still runs.
 
@@ -207,16 +206,10 @@ async def test_a_request_queued_behind_a_drop_reconnects(
 
     holding = asyncio.create_task(unit.read_holding_registers(0, 1))
     await asyncio.sleep(0)  # the first request now holds the link
-    if drop == "disconnect":
-        dropping = asyncio.create_task(connection.disconnect())
-    else:
-        unit.require_timeout(30)  # drops the live link in the background
+    dropping = asyncio.create_task(connection.disconnect())
     await asyncio.sleep(0)  # the drop now waits for the link
     queued = asyncio.create_task(unit.read_holding_registers(0, 1))
 
     assert await holding == [VALUE]
     assert await queued == [VALUE]
-    if drop == "disconnect":
-        await dropping
-    else:
-        assert connection._client_timeout == 30
+    await dropping

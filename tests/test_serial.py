@@ -99,5 +99,9 @@ async def test_serial_reads(
         assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
         if backend == "tmodbus":
             assert conn._client.transport.base_transport.timeout == 2
+        client = conn._client
+        conn.for_unit(UNIT_ID).require_timeout(30)
+        assert await conn.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert conn._client is client
     finally:
         await conn.close()

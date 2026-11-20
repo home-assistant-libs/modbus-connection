@@ -15,6 +15,9 @@ share one serialized connection instead of each opening a competing socket.
 This package is the connection abstraction that makes that sharing possible
 while keeping the backend swappable.
 
+Device libraries can request a longer response timeout through a unit. The
+next request uses the higher timeout without closing the shared connection.
+
 ## Install
 
 ```bash

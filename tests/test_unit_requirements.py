@@ -13,6 +13,8 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tmodbus.pdu import ReadHoldingRegistersPDU
+from tmodbus.server import ModbusRequestRouter
 
 from modbus_connection import ModbusTcpParams, ModbusUnit
 from modbus_connection._client import _DEFAULT_TIMEOUT, BaseModbusConnection
@@ -20,8 +22,97 @@ from modbus_connection.mock import MockModbusConnection
 from modbus_connection.pymodbus import ModbusConnection as PymodbusConnection
 from modbus_connection.tmodbus import ModbusConnection as TmodbusConnection
 
+from .modbus_server import serve_router
+
 UNIT_A = 1
 UNIT_B = 2
+
+
+@pytest.mark.parametrize("connection_class", [PymodbusConnection, TmodbusConnection])
+async def test_raised_timeout_applies_without_reconnecting(
+    connection_class: type[BaseModbusConnection], free_port: int
+) -> None:
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def read(unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        if request.start_address:
+            await asyncio.sleep(0.1)
+        return [42]
+
+    async with serve_router(router, "127.0.0.1", free_port):
+        conn = connection_class(
+            ModbusTcpParams(host="127.0.0.1", port=free_port), timeout=0.03
+        )
+        try:
+            units = [conn.for_unit(unit_id) for unit_id in (UNIT_A, UNIT_B)]
+            for unit in units:
+                assert await unit.read_holding_registers(0, 1) == [42]
+            client = conn._client
+
+            units[0].require_timeout(1)
+
+            for unit in units:
+                assert await unit.read_holding_registers(1, 1) == [42]
+                assert conn._client is client
+            assert await conn.for_unit(3).read_holding_registers(1, 1) == [42]
+            assert conn._client is client
+
+            units[0].require_timeout(None)
+            assert await units[0].read_holding_registers(1, 1) == [42]
+            assert conn._client is client
+
+            await conn.disconnect()
+            await conn.connect()
+            assert conn._client_timeout == 0.03
+        finally:
+            await conn.close()
+
+
+@pytest.mark.parametrize("connection_class", [PymodbusConnection, TmodbusConnection])
+async def test_timeout_raised_during_connect_applies_to_the_new_client(
+    connection_class: type[BaseModbusConnection], free_port: int
+) -> None:
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def read(unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        await asyncio.sleep(0.1)
+        return [42]
+
+    async with serve_router(router, "127.0.0.1", free_port):
+        conn = connection_class(
+            ModbusTcpParams(host="127.0.0.1", port=free_port), timeout=0.03
+        )
+        connected = asyncio.Event()
+        release = asyncio.Event()
+        connect_client = conn._connect_client
+        client = None
+
+        async def gated_connect() -> Any:
+            nonlocal client
+            client = await connect_client()
+            connected.set()
+            await release.wait()
+            return client
+
+        try:
+            with patch.object(
+                conn, "_connect_client", side_effect=gated_connect
+            ) as connect:
+                connecting = asyncio.create_task(conn.connect())
+                await asyncio.wait_for(connected.wait(), 2)
+                unit = conn.for_unit(UNIT_A)
+                unit.require_timeout(1)
+                release.set()
+                await connecting
+
+                assert await unit.read_holding_registers(0, 1) == [42]
+                assert conn._client is client
+                connect.assert_awaited_once()
+        finally:
+            release.set()
+            await conn.close()
 
 
 class _FakeConnection(BaseModbusConnection):
@@ -33,6 +124,9 @@ class _FakeConnection(BaseModbusConnection):
 
     async def _connect_client(self) -> Any:
         return object()
+
+    def _set_client_timeout(self, client: Any, seconds: float) -> None:
+        pass
 
     async def _close_client(self, client: Any) -> None:
         self.closed_clients += 1
@@ -111,16 +205,16 @@ async def test_a_requirement_set_before_connecting_needs_no_recycle() -> None:
     assert conn.closed_clients == 0
 
 
-async def test_raising_the_timeout_recycles_a_live_link() -> None:
-    """The client is built with the timeout, so the unit would keep giving up early."""
+async def test_raising_the_timeout_preserves_a_live_link() -> None:
     conn = _FakeConnection(timeout=3)
     await conn.connect()
 
     conn._require_timeout(UNIT_A, 30)
-    await asyncio.sleep(0.01)  # the recycle is scheduled, not awaited
+    await asyncio.sleep(0)
 
-    assert conn.connected is False
-    assert conn.closed_clients == 1
+    assert conn.connected is True
+    assert conn.closed_clients == 0
+    assert conn._client_timeout == 30
 
 
 async def test_relaxing_the_timeout_leaves_a_live_link_alone() -> None:
@@ -217,15 +311,15 @@ def test_mock_unit_requirements_reach_the_shared_link(
     assert getattr(conn, resolved) == default
 
 
-async def test_mock_unit_timeout_recycles_a_live_link() -> None:
+async def test_mock_unit_timeout_preserves_a_live_link() -> None:
     conn = MockModbusConnection()
     unit = conn.for_unit(UNIT_A)
     await conn.connect()
 
     unit.require_timeout(30)
-    await asyncio.sleep(0.01)  # the recycle is scheduled, not awaited
+    await asyncio.sleep(0)
 
-    assert unit.connected is False
+    assert unit.connected is True
     assert conn._timeout == 30
 
     assert await unit.read_holding_registers(0, 1) == [0]

@@ -156,6 +156,9 @@ class _TrackingConnection(BaseModbusConnection):
     async def _close_client(self, client: Any) -> None:
         self.closed_clients += 1
 
+    def _set_client_timeout(self, client: Any, seconds: float) -> None:
+        pass
+
     def for_unit(self, unit_id: int) -> ModbusUnit:
         raise NotImplementedError
 

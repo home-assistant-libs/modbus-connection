@@ -50,6 +50,10 @@ async def test_udp_reads(
         assert client.connected is False
         assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
         assert client.connected is True
+        backend_client = client._client
+        client.for_unit(UNIT_ID).require_timeout(30)
+        assert await client.for_unit(UNIT_ID).read_holding_registers(0, 1) == [5579]
+        assert client._client is backend_client
     finally:
         await client.close()
     assert client.connected is False
